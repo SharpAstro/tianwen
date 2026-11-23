@@ -254,8 +254,13 @@ file.
   balances; a master read from a file has no unbalanced form to go back to.
 - **The verb's `--sharpened <file>` is the step**: with `--auto` it calls the step's routine
   (`PlanetarySharpenOperation.SharpenToAsync`) and writes that one file. Without it `planetary sharpen --auto` is the
-  verb's research path, which reads and scores as it goes. The two give the same file, and
-  `WorkbenchPlanetaryTests` holds them to it.
+  verb's research path, which reads and scores as it goes. The two give the same file where the gains are derived, and
+  `WorkbenchPlanetaryTests` holds them to it there. Where they are not, the research path may refuse (exit 1 with "name
+  the planet", "no time in its header; give --utc" or "the planet's limb could not be fitted") and the step writes the
+  preset-sharpened master.
+- **A master with no file has no names to read**: the input a crop hands over is not a file, so no file or folder name
+  is taken for the master's (the process's working directory never is), and the step follows from its header and its
+  settings alone.
 
 ```json
 { "name": "jupiter", "from": "green", "edits": [ { "operation": "planetary-compose", "inputs": [ "red", "blue" ] } ] },

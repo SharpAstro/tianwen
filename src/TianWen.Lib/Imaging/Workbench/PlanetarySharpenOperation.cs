@@ -77,7 +77,7 @@ public sealed class PlanetarySharpenOperation : Operation<PlanetarySharpenSettin
         try
         {
             // Never the telescope a camera was last said to be on: a step follows from its master and its settings.
-            await SharpenToAsync(master, inputs[0].Path ?? inputs[0].Name, PlanetaryIdentitySettings.GivenOf(settings), external: null, outputPath, say,
+            await SharpenToAsync(master, inputs[0].Path, PlanetaryIdentitySettings.GivenOf(settings), external: null, outputPath, say,
                 cancellationToken);
             return OperationOutcome.Done;
         }
@@ -92,14 +92,14 @@ public sealed class PlanetarySharpenOperation : Operation<PlanetarySharpenSettin
     /// the step's routine, and the verb's where it is given <c>--sharpened</c>.
     /// </summary>
     /// <param name="master">The linear master. The caller owns it.</param>
-    /// <param name="path">Where it was read from: its file's and folders' names say what its header does not.</param>
+    /// <param name="path">Where it was read from: its file's and folders' names say what its header does not. Null for a master with no file, which has no such names.</param>
     /// <param name="given">What is said of it, in place of what it is read to be.</param>
     /// <param name="external">Where the telescope last said for its camera is kept; null to ask nothing and keep
     /// nothing, as a step does.</param>
     /// <param name="outputPath">The FITS file to write.</param>
     /// <param name="say">Takes each line of what it was identified as and how it was sharpened.</param>
     /// <param name="cancellationToken">Ends the work.</param>
-    public static async Task SharpenToAsync(Image master, string path, PlanetaryIdentityGiven given, IExternal? external, string outputPath, Action<string>? say,
+    public static async Task SharpenToAsync(Image master, string? path, PlanetaryIdentityGiven given, IExternal? external, string outputPath, Action<string>? say,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(master);

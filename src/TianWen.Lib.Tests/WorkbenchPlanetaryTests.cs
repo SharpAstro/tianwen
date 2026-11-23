@@ -314,7 +314,10 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
         Of(again, "hop").Refusal.ShouldNotBeNull().ShouldContain("gave no 'luminance'");
     }
 
+    // Heavy by measurement: 42.3 s on the Windows unit leg of #2482's first run (14 to 15 s on Linux), most of it the stack of
+    // the capture and the sharpenings of its master, which the verb then repeats for the line of each step.
     [Fact(Timeout = 300_000)]
+    [Trait("Category", "Heavy")]
     public async Task ThePlanetarySharpenStepIsTheFilePlanetarySharpenAutoWrites()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -392,6 +395,13 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
         // refuses and a step falls back to the preset, as a stack does.
         stepsSaid.Any(static text => text.StartsWith("[again ", StringComparison.Ordinal) && text.Contains("derived through the limb's edge", StringComparison.Ordinal))
             .ShouldBeTrue(string.Join(Environment.NewLine, stepsSaid));
+        // The stack step's own sharpened master is the sharpen step's too, of the linear master it came from: a mono master has no
+        // colour balance and the stack's de-rotation epoch is mid-capture, which the master's DATE-OBS and EXPTIME give. A sharpening
+        // option forwarded by one routine and not the other would part them here.
+        var stackSharpened = Path.Combine(folder, StepStore.FolderName,
+            StepStore.FileNameOf(StepKey.OfResult(Of("stacked").Steps[0].Key, PlanetaryStackOperation.Sharpened)));
+        WorkbenchFixtures.Read(stackSharpened).GetChannelSpan(0).SequenceEqual(again.GetChannelSpan(0))
+            .ShouldBeTrue("the sharpen step of the stack's linear master is the stack step's own sharpened master");
         var research = _folders.Create("research-").FullName;
         said.Clear();
         var researched = await sharpen.Parse(new[] { master, "--auto", "--no-telescope-memory", "-o", research }).InvokeAsync(cancellationToken: ct);
@@ -399,10 +409,39 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
         ShouldBeTheSameFile(Of("again").Steps[0].Output.ShouldNotBeNull(), Path.Combine(research, Path.GetFileNameWithoutExtension(master) + "_sharpened.fits"),
             "the verb's own AUTO against the step");
 
-        // What goes with --sharpened and what does not, in words.
+        // What goes with --sharpened and what does not, in words: each of the seven the verb lists, one by one.
+        (string Name, string[] Args)[] refused =
+        [
+            ("--output", ["-o", research]), ("--no-write", ["--no-write"]), ("--stacked-preview", ["--stacked-preview"]),
+            ("--truth", ["--truth", Path.Combine(folder, "none.truth.fits")]), ("--utc", ["--utc", "2024-12-15T12:56:44Z"]),
+            ("--score-taper", ["--score-taper", "hann"]), ("--score-against", ["--score-against", "aperture"]),
+        ];
+        foreach (var (name, args) in refused)
+        {
+            said.Clear();
+            var target = Path.Combine(folder, "x.fits");
+            (await sharpen.Parse(new[] { master, "--auto", "--sharpened", target }.Concat(args).ToArray()).InvokeAsync(cancellationToken: ct)).ShouldBe(1, name);
+            string.Join(Environment.NewLine, said).ShouldContain($"{name} does not go with it", customMessage: name);
+            File.Exists(target).ShouldBeFalse(name);
+        }
+
+        // --no-telescope-memory: a master whose header names no telescope, of a camera the memory holds one for. Without the flag
+        // the sharpening goes by the remembered telescope; with it the memory is neither asked nor told, and the file is the
+        // one a memory holding nothing gives.
+        var bare = WorkbenchFixtures.Read(master);
+        var bareMaster = Path.Combine(_folders.Create("bare-").FullName, "bare.fits");
+        new Image([bare.GetChannelArray(0)], BitDepth.Float32, bare.MaxValue, bare.MinValue, 0,
+            bare.ImageMeta with { Telescope = "", Aperture = -1, Instrument = "Memory Test Cam" }).WriteToFitsFile(bareMaster);
+        var memory = new FakeExternal(output, root: _folders.Create("remembers-"));
+        await PlanetaryTelescopeMemory.RememberAsync(memory, "Memory Test Cam", 203, OpticalDesign.SCT, ct);
+        var withMemory = new PlanetarySharpenSubCommand(host, new MasterPreviewRenderer(catalogDb: null, NullLogger.Instance), memory).Build();
+        var (told, untold, nothing) = (Path.Combine(folder, "told.fits"), Path.Combine(folder, "untold.fits"), Path.Combine(folder, "nothing.fits"));
         said.Clear();
-        (await sharpen.Parse(new[] { master, "--auto", "--sharpened", Path.Combine(folder, "x.fits"), "--no-write" }).InvokeAsync(cancellationToken: ct)).ShouldBe(1);
-        string.Join(Environment.NewLine, said).ShouldContain("does not go with it");
+        (await withMemory.Parse(new[] { bareMaster, "--auto", "--sharpened", told }).InvokeAsync(cancellationToken: ct)).ShouldBe(0, string.Join(Environment.NewLine, said));
+        (await withMemory.Parse(new[] { bareMaster, "--auto", "--no-telescope-memory", "--sharpened", untold }).InvokeAsync(cancellationToken: ct)).ShouldBe(0, string.Join(Environment.NewLine, said));
+        (await sharpen.Parse(new[] { bareMaster, "--auto", "--sharpened", nothing }).InvokeAsync(cancellationToken: ct)).ShouldBe(0, string.Join(Environment.NewLine, said));
+        File.ReadAllBytes(told).AsSpan().SequenceEqual(File.ReadAllBytes(untold)).ShouldBeFalse("the memory's telescope was asked when the flag was not given");
+        ShouldBeTheSameFile(untold, nothing, "the master with the flag, against one whose memory holds nothing");
         said.Clear();
         (await sharpen.Parse(new[] { master, "--sharpened", Path.Combine(folder, "x.fits") }).InvokeAsync(cancellationToken: ct)).ShouldBe(1);
         string.Join(Environment.NewLine, said).ShouldContain("go with --auto");
@@ -411,6 +450,26 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
         var second = await runner.RunAsync(folder, cancellationToken: ct);
 
         second.Images.SelectMany(static image => image.Steps).Select(static step => step.State).ShouldBe([StepState.Kept, StepState.Kept, StepState.Kept]);
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task AMasterWithNoFileTakesNoNameOrFolderForItsOwn()
+    {
+        // A crop's output is not a file: its input has no path, and the identification reads no name, so the process's working
+        // directory (whose folders may name a planet, a filter or a telescope) is never taken for the master's.
+        var master = WorkbenchFixtures.Master(seed: 1);
+        try
+        {
+            var identity = await PlanetaryIdentification.IdentifyMasterAsync(master, path: null, cancellationToken: TestContext.Current.CancellationToken);
+
+            (identity.Planet, identity.PlanetFrom).ShouldBe(((CatalogIndex?)null, "nothing names one"));
+            (identity.FilterNm, identity.FilterFrom).ShouldBe(((double?)null, "none named"));
+            (identity.ApertureMm, identity.TelescopeFrom).ShouldBe(((int?)null, "none named"));
+        }
+        finally
+        {
+            master.Release();
+        }
     }
 
     [Fact(Timeout = 120_000)]

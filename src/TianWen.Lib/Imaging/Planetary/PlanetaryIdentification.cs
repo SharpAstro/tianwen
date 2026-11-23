@@ -152,21 +152,22 @@ public static class PlanetaryIdentification
     /// What a planetary master at <paramref name="path"/> is, read off its own header (OBJECT, FILTER, TELESCOP and APTDIA, which
     /// <see cref="PlanetaryAuto"/> writes) and its path by the same rules as <see cref="IdentifyAsync"/>, its one image checked for rings.
     /// </summary>
-    public static async Task<PlanetaryIdentity> IdentifyMasterAsync(Image master, string path, PlanetaryIdentityGiven? given = null, IExternal? external = null,
+    public static async Task<PlanetaryIdentity> IdentifyMasterAsync(Image master, string? path, PlanetaryIdentityGiven? given = null, IExternal? external = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(master);
-        ArgumentNullException.ThrowIfNull(path);
         given ??= PlanetaryIdentityGiven.Nothing;
         var meta = master.ImageMeta;
-        var full = Path.GetFullPath(path);
+        // A null path is a master with no file (a step's derived input): no name or folder is the master's, so none is read,
+        // and the process's working directory is never taken for one.
+        var full = path is null ? null : Path.GetFullPath(path);
         var middle = PlanetaryBestStack.InstantOf(master, epoch: null);
 
         var (planet, planetFrom, fromPath) = given.Planet is { } givenPlanet
             ? (givenPlanet, "given", false)
             : PlanetaryCaptureName.Named(meta.ObjectName) is { } fromObject
                 ? (fromObject, "the master's OBJECT", false)
-                : PlanetOfPath(full);
+                : full is null ? (null, "nothing names one", false) : PlanetOfPath(full);
         if (fromPath)
         {
             (planet, planetFrom) = Checked(PlanetaryDisk.Elongation(master), planet, planetFrom, middle);
@@ -177,7 +178,7 @@ public static class PlanetaryIdentification
             ? (NameOf(givenNm), givenNm, "given")
             : PlanetaryCaptureName.FilterNm(cardFilter) is { } cardNm
                 ? (cardFilter, (double?)cardNm, "the master's FILTER")
-                : PlanetaryCaptureName.WavelengthNm(full) is { } nameNm
+                : full is not null && PlanetaryCaptureName.WavelengthNm(full) is { } nameNm
                     ? (NameOf(nameNm), (double?)nameNm, "the file's name")
                     : (null, null, "none named");
 
@@ -298,7 +299,7 @@ public static class PlanetaryIdentification
     }
 
     // The telescope: given, then each text in turn, then the path, then the camera's remembered one.
-    private static async Task<(int? ApertureMm, OpticalDesign Design, string From)> TelescopeAsync(PlanetaryIdentityGiven given, string path,
+    private static async Task<(int? ApertureMm, OpticalDesign Design, string From)> TelescopeAsync(PlanetaryIdentityGiven given, string? path,
         (string? Text, string From)[] texts, string? camera, IExternal? external, CancellationToken cancellationToken)
     {
         if (given.ApertureMm is { } givenMm)
@@ -312,11 +313,11 @@ public static class PlanetaryIdentification
                 return (mm, named.Design, from);
             }
         }
-        if (PlanetaryCaptureName.Telescope(Path.GetFileNameWithoutExtension(path)) is { ApertureMm: { } inName } byName)
+        if (path is not null && PlanetaryCaptureName.Telescope(Path.GetFileNameWithoutExtension(path)) is { ApertureMm: { } inName } byName)
         {
             return (inName, byName.Design, "the file's name");
         }
-        if (PlanetaryCaptureName.TelescopeOfPath(path) is { ApertureMm: { } inFolder } byFolder)
+        if (path is not null && PlanetaryCaptureName.TelescopeOfPath(path) is { ApertureMm: { } inFolder } byFolder)
         {
             return (inFolder, byFolder.Design, "the folder's name");
         }
