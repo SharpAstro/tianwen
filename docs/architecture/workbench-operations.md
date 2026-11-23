@@ -57,8 +57,11 @@ The rules that bite:
   the version is raised with it.
 - **What serves the step is in its key.** `GradientOperation.ServedBy` is `classical` or the registered corrector's
   name, so on a computer where `auto` means GraXpert a result is not taken for the classical fit's. The enhance's is the
-  pipeline's word for every role (`SharpenPipeline.DescribeRoles`). An in-house enhancer's name carries its model file,
-  so a retrained model is another key. Naming an RC-Astro role asks whether its product is licensed, which is a
+  pipeline's word for every role (`SharpenPipeline.DescribeRoles`), asked with the options the step's settings make:
+  a role whose backend follows from them is named by the one they choose (`IEnhancerAvailability.NameUnder`), so a
+  step that says `backend: tianWen` is keyed by the in-house model where RC-Astro is licensed too. An in-house
+  enhancer's name carries its model file, so a retrained model is another key. Naming an RC-Astro role asks whether
+  its product is licensed, which is a
   subprocess, so **the runner asks what serves once for an operation and its settings in a plan**
   (`WorkbenchServedTests`), on a status as on a run.
 - **A refusal is an answer, not a throw.** `OperationOutcome` says which kind (`Input`, `Failed`, `NotServed`: the

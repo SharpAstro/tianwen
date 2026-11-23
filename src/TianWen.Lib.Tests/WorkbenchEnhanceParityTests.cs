@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -11,6 +12,7 @@ using NSubstitute;
 using Shouldly;
 using TianWen.AI.Imaging;
 using TianWen.AI.Imaging.Onnx;
+using TianWen.AI.Imaging.RcAstro;
 using TianWen.Cli;
 using TianWen.Lib.Devices.Fake;
 using TianWen.Lib.Imaging;
@@ -60,6 +62,55 @@ public sealed class WorkbenchEnhanceParityTests(ITestOutputHelper output) : IDis
 
             return Task.FromResult(new Image(planes, BitDepth.Float32, 1f, 0f, 0f, input.ImageMeta));
         }
+    }
+
+    /// <summary>
+    /// A scaling enhancer that also writes down what it was handed with each image: the options, and for a denoise the
+    /// variant. What a verb hands its enhancers is then compared with what a step hands them (#2475's third review:
+    /// <see cref="Scaling"/> reads neither, so a verb that mis-mapped a tuning option would still write the step's file).
+    /// </summary>
+    private sealed class Recording(string name, float factor, List<string> handed) : IStarRemover, IDenoiseEnhancer, IImageDeblurrer, INonStellarDeconvolver
+    {
+        private readonly Scaling _scaling = new(name, factor);
+
+        public string Name => name;
+
+        public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default) => _scaling.EnhanceAsync(input, cancellationToken);
+
+        public Task<Image> EnhanceAsync(Image input, EnhanceOptions options, IProgress<float>? progress = null, CancellationToken cancellationToken = default)
+        {
+            handed.Add($"{name}: {Described(options)}");
+            return _scaling.EnhanceAsync(input, cancellationToken);
+        }
+
+        public Task<Image> EnhanceAsync(Image input, DenoiseVariant variant, EnhanceOptions options, IProgress<float>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            handed.Add($"{name}: variant {variant}, {Described(options)}");
+            return _scaling.EnhanceAsync(input, cancellationToken);
+        }
+
+        // In invariant numbers, so the words are the same on every computer.
+        private static string Described(EnhanceOptions options)
+        {
+            var (tuning, kernel) = (options.Tuning, options.Tuning?.Deconvolution);
+            FormattableString said = $"backend {options.Backend}, gradient {options.Gradient}, deblurSharpen {tuning?.DeblurSharpen}, denoiseStrength {tuning?.DenoiseStrength}, denoiseIterations {tuning?.DenoiseIterations}, kernel {kernel?.FwhmRed}/{kernel?.FwhmGreen}/{kernel?.FwhmBlue} beta {kernel?.Beta} resample {kernel?.Resample}";
+            return said.ToString(CultureInfo.InvariantCulture);
+        }
+    }
+
+    /// <summary>An RC-Astro CLI that is installed, and licensed or not. Nothing is ever run through it.</summary>
+    private sealed class StandInCli(bool licensed) : IRcAstroCli
+    {
+        public string? ExecutablePath => "/stand-in/rc-astro";
+
+        public bool IsAvailable => true;
+
+        public bool IsLicensed(string productKey) => licensed;
+
+        public Task<RcAstroRunResult> RunAsync(string productKey, string inputPath, string outputPath, IReadOnlyList<string> extraArgs,
+            IProgress<RcAstroProgress>? progress = null, CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("no product is run by this test");
     }
 
     private static void ShouldBeTheSameFile(string actual, string expected, string what)
@@ -385,5 +436,131 @@ public sealed class WorkbenchEnhanceParityTests(ITestOutputHelper output) : IDis
             new ScnrStarsStep(Mode: ScnrMode.Average, Amount: 1f),
             new RecombineStep(Mode: RecombineMode.Additive),
         ], why);
+    }
+
+    [Fact]
+    public void WhatServesIsNamedUnderTheStepsOwnBackendSoAnInHouseModelIsInTheKeyWhereRcAstroIsLicensed()
+    {
+        // No model is on these paths and none is loaded: a name is asked of an enhancer that has run nothing. The
+        // denoise role is the deferred one a host registers, which picks its backend when it is asked.
+        var resolver = new ModelResolver([_folders.Create("no-models-").FullName]);
+        using var inHouse = new N2nDenoiser(resolver);
+        EnhanceOperation Over(bool licensed) => new(new SharpenPipeline(
+            denoiser: new DeferredDenoiser(new StandInCli(licensed), () => new Scaling("RC-Astro NoiseXTerminator (nxt)", 1f), () => inHouse)));
+
+        // RC-Astro licensed: Auto runs it, and a step that says the in-house backend runs the in-house model and is
+        // keyed by it, so a retrained model is another key on this computer too.
+        Over(licensed: true).ServedBy(new EnhanceSettings()).ShouldContain("denoise RC-Astro NoiseXTerminator (nxt)");
+        var inHouseStep = Over(licensed: true).ServedBy(new EnhanceSettings { Backend = EnhanceBackend.TianWen });
+        inHouseStep.ShouldContain($"denoise {inHouse.Name}");
+        inHouseStep.ShouldContain(N2nDenoiser.ModelFileName);
+        inHouseStep.ShouldNotContain("NoiseXTerminator");
+
+        // Not licensed: Auto falls to the in-house model, and a step that forces RC-Astro is keyed by RC-Astro, which
+        // is what would run.
+        Over(licensed: false).ServedBy(new EnhanceSettings()).ShouldContain(N2nDenoiser.ModelFileName);
+        Over(licensed: false).ServedBy(new EnhanceSettings { Backend = EnhanceBackend.ForceRcAstro }).ShouldContain("denoise RC-Astro NoiseXTerminator (nxt)");
+    }
+
+    [Fact(Timeout = 600_000)]
+    public async Task TheVerbHandsEveryEnhancerTheOptionsAndTheVariantItsStepHandsIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("parity-enhance-handed-").FullName;
+        var master = Path.Combine(folder, "colour.fits");
+        Colour().WriteToFitsFile(master);
+        var handed = new List<string>();
+        var pipeline = new SharpenPipeline(
+            starRemover: new Recording("remover", 0.5f, handed), nonStellarDeconvolver: new Recording("deconvolver", 0.9f, handed),
+            denoiser: new Recording("denoiser", 0.8f, handed), deblurrer: new Recording("deblurrer", 0.95f, handed));
+        await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("tuned", master, WorkbenchFixtures.Edit(EnhanceOperation.Id, new JsonObject
+            {
+                ["backend"] = "tianWen",
+                ["deblurSharpen"] = 0.4,
+                ["denoiseStrength"] = 0.3,
+                ["denoiseIterations"] = 2,
+                ["denoiseVariant"] = "lite",
+                ["deconvKernel"] = "0.77,0.91,0.98",
+                ["deconvBeta"] = 3.5,
+                ["deconvResample"] = 2,
+                ["deconvolveBlend"] = 0.6,
+            }))), ct);
+        var runner = new WorkbenchRunner(new OperationCatalog([new EnhanceOperation(pipeline)]));
+
+        var report = await runner.RunAsync(folder, new WorkbenchRunOptions { Say = output.WriteLine }, ct);
+
+        report.Succeeded.ShouldBeTrue(string.Join("; ", report.Images.SelectMany(static image => image.Steps).Select(static step => step.Message)));
+        var byStep = handed.ToArray();
+        handed.Clear();
+        var said = new List<string>();
+        var host = Substitute.For<IConsoleHost>();
+        host.When(h => h.WriteScrollable(Arg.Any<string>(), Arg.Any<bool>())).Do(call => said.Add(call.Arg<string>()));
+        host.When(h => h.WriteError(Arg.Any<string>())).Do(call => said.Add("error: " + call.Arg<string>()));
+        var image = new ImageSubCommand(
+            host,
+            pipeline,
+            Substitute.For<IStarRemover>(),
+            Substitute.For<IGradientCorrector>(),
+            Substitute.For<IBackgroundExtractor>(),
+            new MasterPreviewRenderer(catalogDb: null, NullLogger.Instance)).Build();
+        var tuned = report.Images[0].Steps[0];
+        var line = tuned.CommandLine.ToArray();
+        var written = Path.Combine(folder, "tuned-verb.fits");
+        line[Array.IndexOf(line, "-o") + 1] = written;
+        output.WriteLine(StepCommandLine.Display(line));
+
+        var exit = await image.Parse(line[2..]).InvokeAsync(cancellationToken: ct);
+
+        exit.ShouldBe(0, string.Join(Environment.NewLine, said));
+        ShouldBeTheSameFile(tuned.Output.ShouldNotBeNull(), written, "tuned");
+        var byVerb = handed.ToArray();
+        foreach (var each in byStep)
+        {
+            output.WriteLine(each);
+        }
+
+        // What the verb handed each enhancer, call for call, is what the step handed it.
+        byVerb.ShouldBe(byStep);
+        // And that is what the settings state: two empty lists would agree as well.
+        byStep.ShouldAllBe(each => each.Contains("backend TianWen") && each.Contains("deblurSharpen 0.4") && each.Contains("denoiseStrength 0.3")
+            && each.Contains("denoiseIterations 2") && each.Contains("kernel 0.77/0.91/0.98 beta 3.5 resample 2"));
+        byStep.Count(static each => each.StartsWith("denoiser: variant Lite", StringComparison.Ordinal)).ShouldBe(2, "two passes were stated, so two run");
+        byStep.Count(static each => each.StartsWith("deblurrer:", StringComparison.Ordinal)).ShouldBe(1);
+        byStep.Count(static each => each.StartsWith("deconvolver:", StringComparison.Ordinal)).ShouldBe(1, "its blend was stated, so it survives the deblurrer");
+
+        // A value past an option's range is refused in the option's own name, and nothing is written or run.
+        handed.Clear();
+        said.Clear();
+        var refusedTo = Path.Combine(folder, "refused.fits");
+        (await image.Parse(new[] { "sharpen", master, "-o", refusedTo, "--deblur-sharpen", "1.5" }).InvokeAsync(cancellationToken: ct)).ShouldBe(1);
+        string.Join(Environment.NewLine, said).ShouldContain("--deblur-sharpen is 0 to 1");
+        File.Exists(refusedTo).ShouldBeFalse();
+        handed.ShouldBeEmpty();
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task TheSharpenVerbSaysTheOperationsLinesInItsOwnOptions()
+    {
+        // Each line as the operation words it today, said as the verb says it: a wording that moves in the operation
+        // fails here, where the pair that names it is.
+        var enhance = new EnhanceOperation(new SharpenPipeline());
+        string Refused(EnhanceSettings settings) => ImageSubCommand.InSharpenOptions(enhance.Refusal(settings).ShouldNotBeNull());
+
+        Refused(new EnhanceSettings { DeblurSharpen = 1.5f }).ShouldStartWith("--deblur-sharpen is 0 to 1");
+        Refused(new EnhanceSettings { DenoiseStrength = 1.5f }).ShouldStartWith("--denoise-strength is 0 to 1");
+        Refused(new EnhanceSettings { DenoiseIterations = 0 }).ShouldStartWith("--denoise-iterations is 1 or more");
+        Refused(new EnhanceSettings { WhiteBalance = [1f, 1f] }).ShouldStartWith("--white-balance is three positive numbers");
+        Refused(new EnhanceSettings { Gradient = false, GradientBackend = GradientBackend.Classical }).ShouldStartWith("--gradient chooses");
+
+        var overDeblur = await ProgramAsync(EnhanceCapabilities.AllRoles(deblur: true), new EnhanceSettings { StellarSharpen = true });
+        overDeblur.Said.Select(ImageSubCommand.InSharpenOptions).ShouldContain(each => each.StartsWith("--stellar-sharpen ignored: a deblurrer is live"));
+        var wholeFrame = await ProgramAsync(EnhanceCapabilities.AllRoles(deblur: false) with { StarRemoval = false }, new EnhanceSettings { Scnr = ScnrMode.Average });
+        wholeFrame.Said.Select(ImageSubCommand.InSharpenOptions).ShouldContain(each => each.StartsWith("--scnr ignored"));
+        var note = EnhanceOperation.ResolveWhiteBalance(new ColourCalibration(1f, 1f, 1f, ColourCalibrationSource.Spcc), [1.1f, 1f, 0.9f]).Note;
+        ImageSubCommand.InSharpenOptions(note.ShouldNotBeNull()).ShouldStartWith("--white-balance (1.100, 1.000, 0.900) replaces the input's own");
+
+        // A line that names no setting is said as it is.
+        ImageSubCommand.InSharpenOptions("wrote master.fits").ShouldBe("wrote master.fits");
     }
 }

@@ -135,14 +135,22 @@ public sealed class SharpenPipeline(
         => LinearEnhanceProgram.For(CapabilitiesFor(input, options));
 
     /// <summary>
-    /// The enhancer registered for each role, by name, with "none" where a role has none: what an enhance step's key
-    /// holds beside its settings (<c>docs/architecture/workbench-operations.md</c>), so a result one set of enhancers
-    /// made is never taken for another's. Whether a role SERVES a given image is <see cref="CapabilitiesFor"/>'s to
-    /// say; this only names what is here.
+    /// The enhancer that would serve each role under <paramref name="options"/>, by name, with "none" where a role has
+    /// none: what an enhance step's key holds beside its settings (<c>docs/architecture/workbench-operations.md</c>),
+    /// so a result one set of enhancers made is never taken for another's. A role whose backend follows from the
+    /// options is named by the one they choose (<see cref="IEnhancerAvailability.NameUnder"/>): a step that says the
+    /// in-house backend is keyed by the in-house model where RC-Astro is licensed too. Whether a role SERVES a given
+    /// image is <see cref="CapabilitiesFor"/>'s to say; this only names what would run.
     /// </summary>
-    public string DescribeRoles()
-        => $"deblur {deblurrer?.Name ?? "none"}; gradient {gradientCorrector?.Name ?? "none"}; stars {starRemover?.Name ?? "none"}; "
-            + $"stellar {stellarSharpener?.Name ?? "none"}; deconvolve {nonStellarDeconvolver?.Name ?? "none"}; denoise {denoiser?.Name ?? "none"}";
+    public string DescribeRoles(EnhanceOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        return $"deblur {Named(deblurrer, options)}; gradient {Named(gradientCorrector, options)}; stars {Named(starRemover, options)}; "
+            + $"stellar {Named(stellarSharpener, options)}; deconvolve {Named(nonStellarDeconvolver, options)}; denoise {Named(denoiser, options)}";
+    }
+
+    private static string Named(IImageEnhancer? role, EnhanceOptions options)
+        => role is null ? "none" : (role as IEnhancerAvailability)?.NameUnder(options) ?? role.Name;
 
     /// <summary>
     /// The finite-input boundary every enhancer stands behind: interior holes are interpolated from

@@ -210,13 +210,18 @@ public sealed class EnhanceOperation(SharpenPipeline pipeline, ILogger<EnhanceOp
         return true;
     }
 
-    /// <summary>The enhancer registered for each role: a result made with one set is not a result made with another.</summary>
+    /// <summary>The enhancer that would serve each role under these settings' backend: a result made with one set is
+    /// not a result made with another.</summary>
     /// <remarks>
-    /// Naming a role can cost a licence probe: an RC-Astro role names the backend that would serve, which asks whether
-    /// its product is licensed. The runner therefore asks this once for an operation and its settings in a plan, and a
-    /// caller with many steps should do the same.
+    /// <para>It is asked with the options the settings make (<see cref="TryOptions"/>), so a step that says the
+    /// in-house backend names the in-house model where RC-Astro is licensed too, and a retrained model is another key
+    /// there as well.</para>
+    /// <para>Naming a role can cost a licence probe: an RC-Astro role names the backend that would serve, which under
+    /// the Auto backend asks whether its product is licensed. The runner therefore asks this once for an operation and
+    /// its settings in a plan, and a caller with many steps should do the same.</para>
     /// </remarks>
-    public override string ServedBy(EnhanceSettings settings) => pipeline.DescribeRoles();
+    public override string ServedBy(EnhanceSettings settings)
+        => pipeline.DescribeRoles(TryOptions(settings, out var options, out _) ? options : EnhanceOptions.Default);
 
     /// <inheritdoc/>
     public override ImmutableArray<string> CommandLine(EnhanceSettings settings, IReadOnlyList<string> inputs, string output)

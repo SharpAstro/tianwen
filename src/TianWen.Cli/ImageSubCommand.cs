@@ -1280,12 +1280,12 @@ internal sealed partial class ImageSubCommand(
             // The options the run uses are the ones the operation makes of these settings: one reading of them.
             if (!EnhanceOperation.TryOptions(settings, out enhanceOptions, out var optionsRefusal))
             {
-                consoleHost.WriteError($"[sharpen] {optionsRefusal}");
+                consoleHost.WriteError($"[sharpen] {InSharpenOptions(optionsRefusal)}");
                 return 1;
             }
             if (enhance.Refusal(settings) is { } refusal)
             {
-                consoleHost.WriteError($"[sharpen] {refusal}");
+                consoleHost.WriteError($"[sharpen] {InSharpenOptions(refusal)}");
                 return 1;
             }
 
@@ -1308,7 +1308,7 @@ internal sealed partial class ImageSubCommand(
             // THE STEP ORDER IS NOT WRITTEN HERE, nor which steps the flags keep: both are EnhanceOperation's
             // (LinearEnhanceProgram.For, and its deviations from it, each with its reason there).
             var program = await enhance.ProgramAsync(start, settings, stretchedInPipeline: dualStretch, recombine: !noRecombine,
-                line => consoleHost.WriteScrollable($"[sharpen] {line}"), ct);
+                line => consoleHost.WriteScrollable($"[sharpen] {InSharpenOptions(line)}"), ct);
             var doStellar = program.StellarSharpen;
             var effectiveScnrMode = program.Scnr;
 
@@ -3040,6 +3040,32 @@ internal sealed partial class ImageSubCommand(
 
     private static string DefaultOut(string input, string suffix)
         => StripExtension(input) + suffix + ".fits";
+
+    /// <summary>
+    /// A line the enhance operation worded, said as this verb says it: the operation names a setting and
+    /// <c>image sharpen</c> names its option, as it did before the operation had the words (#2475). Each pair is a
+    /// setting's name as the operation's lines start with it; a line that names none is said as it is.
+    /// </summary>
+    internal static string InSharpenOptions(string line)
+    {
+        foreach (var (setting, option) in SharpenOptionOfSetting)
+        {
+            line = line.Replace(setting, option, StringComparison.Ordinal);
+        }
+        return line;
+    }
+
+    private static readonly (string Setting, string Option)[] SharpenOptionOfSetting =
+    [
+        ("deblurSharpen is", "--deblur-sharpen is"),
+        ("denoiseStrength is", "--denoise-strength is"),
+        ("denoiseIterations is", "--denoise-iterations is"),
+        ("whiteBalance is", "--white-balance is"),
+        ("gradientBackend chooses the extractor of a gradient step that gradient leaves out", "--gradient chooses the extractor of a gradient step that --no-gradient leaves out"),
+        ("stellar sharpening ignored", "--stellar-sharpen ignored"),
+        ("scnr ignored", "--scnr ignored"),
+        ("the white balance given", "--white-balance"),
+    ];
 
     /// <summary>Says which of the master's map sidecars were cropped with it, and any that were not, with the reason.</summary>
     private void SayCroppedSidecars(string verb, MasterCropResult result)

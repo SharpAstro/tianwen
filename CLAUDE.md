@@ -348,8 +348,8 @@ Full rules: `docs/architecture/workbench-operations.md`; the design: `docs/plans
   `WorkbenchVerbParityTests`, which holds its file to the verb's, to the byte (the enhance's is
   `WorkbenchEnhanceParityTests`; `image sharpen` shares the program with its operation and not the run).
 - **Other pixels for the same settings is a new `Version`** of the operation (the enhance's default program is pinned by
-  a test); what serves a step (`ServedBy`) is in its key, asked once a plan, and an in-house enhancer's name carries
-  its model file.
+  a test); what serves a step (`ServedBy`) is in its key, asked once a plan and under the step's own backend
+  (`IEnhancerAvailability.NameUnder`), and an in-house enhancer's name carries its model file.
 - **An operation is registered by its type** (`AddWorkbench`): a factory lambda only where the container cannot fill the
   constructor, with the reason beside it. The catalog takes every `IOperation`; never a keyed lookup at run time.
 - **A setting is a settable property with its default** (never `init`), in `OperationSettingsJsonContext`, which refuses
