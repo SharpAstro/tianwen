@@ -82,6 +82,24 @@ public static class IntegrationStrategySelector
     }
 
     /// <summary>
+    /// The pipeline's pick: against this computer's probe, or, for a workbench step (<paramref name="nominalHost"/>),
+    /// against the fixed nominal host with this computer then only having to fit the one chosen.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Nominal host only: this computer cannot run the pick.</exception>
+    public static Selection PickForHost(
+        IntegrationProbe probe, bool nominalHost, int frames,
+        IntegrationStrategyKind? preferred = null, IEnumerable<IIntegrationStrategy>? pool = null)
+    {
+        var selection = Pick(nominalHost ? probe.ToNominalHost() : probe, preferred: preferred, pool: pool);
+        if (nominalHost && NominalHostRefusal(selection, probe, frames, preferred) is { } refusal)
+        {
+            throw new InvalidOperationException(refusal);
+        }
+
+        return selection;
+    }
+
+    /// <summary>
     /// Pick the highest-scoring strategy that fits.
     /// </summary>
     /// <param name="probe">Snapshot of the job + host.</param>

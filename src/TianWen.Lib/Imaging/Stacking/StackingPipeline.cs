@@ -2008,13 +2008,8 @@ public sealed class StackingPipeline(
             }
             // A workbench step (NominalProbe) chooses against a fixed nominal host, so one key holds one master on every
             // computer; this computer's own probe then only has to fit the one chosen, and refuses in words where it cannot.
-            var selection = IntegrationStrategySelector.Pick(
-                options.NominalProbe ? probe.ToNominalHost() : probe, preferred: preferredStrategy, pool: pool);
-            if (options.NominalProbe
-                && IntegrationStrategySelector.NominalHostRefusal(selection, probe, matched.Count, preferredStrategy) is { } refusal)
-            {
-                throw new InvalidOperationException(refusal);
-            }
+            var selection = IntegrationStrategySelector.PickForHost(
+                probe, options.NominalProbe, matched.Count, preferredStrategy, pool);
             logger.LogInformation("  [strategy] picked {Kind} -- {Notes}", selection.Chosen.Kind, selection.Notes);
             if (colourShifts is { Count: > 0 } && demosaicedShifts is null
                 && selection.Chosen.Kind is not (IntegrationStrategyKind.BayerDrizzle or IntegrationStrategyKind.TilePipelinedDrizzle))

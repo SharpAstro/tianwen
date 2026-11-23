@@ -1,3 +1,4 @@
+using System;
 using Shouldly;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Stacking;
@@ -41,6 +42,21 @@ public sealed class NominalProbeTests
 
         refusal.ShouldNotBeNull().ShouldStartWith($"The stack chose {selection.Chosen.Kind} for 100 frames, and this computer cannot run it: ");
         IntegrationStrategySelector.NominalHostRefusal(selection, job.ToNominalHost(), frames: 100, stated: null).ShouldBeNull();
+    }
+
+    [Fact]
+    public void ThePipelinesPickRefusesOnTheNominalHostOnlyAndAComputerThatFitsPicksWhatTheNominalHostPicks()
+    {
+        var job = Probe(ram: 8L << 30, freeRam: 2L << 30, disk: 50L << 30);
+        var tiny = Tiny();
+
+        Should.Throw<InvalidOperationException>(() => IntegrationStrategySelector.PickForHost(tiny, nominalHost: true, frames: 100))
+            .Message.ShouldStartWith("The stack chose ");
+        // Not a workbench step: this computer's own probe is the one picked against, with no refusal of the pick.
+        IntegrationStrategySelector.PickForHost(job, nominalHost: false, frames: 100).Chosen.Kind
+            .ShouldBe(IntegrationStrategySelector.Pick(job).Chosen.Kind);
+        IntegrationStrategySelector.PickForHost(job.ToNominalHost(), nominalHost: true, frames: 100).Chosen.Kind
+            .ShouldBe(IntegrationStrategySelector.Pick(job.ToNominalHost()).Chosen.Kind);
     }
 
     [Fact]
