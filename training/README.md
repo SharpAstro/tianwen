@@ -154,11 +154,15 @@ tag made earlier) are scored without a model by linking them in: `--plates andro
 `tianwen` executable that runs `image remove-stars` and `image sources` (`cli`), the folder the tags are made under
 (`out_root`) and the three input masters (`masters`: the owner's M31 RGB master, the held-out Tarantula of 2026-10-17
 with `PIXORIG = 1`, and the Sagittarius Triplet, mono or RGB). Copy it to `scorecard.local.json` (ignored by git) and
-fill it in, or give `--cli`, `--out-root`, `--master NAME=PATH` and `--gaia NAME=CSV` on the command line, which win over the file.
+fill it in, or give `--cli`, `--out-root`, `--master NAME=PATH`, `--gaia NAME=CSV` and `--judge NAME=PLATE` on the command line, which win over the file.
 The config's `gaia` object names each master's Gaia stars as a CSV (`x, y, ra_deg, dec_deg, mag`, BP), made once per master with
 `tianwen solve <master> --export-gaia <csv>`; `nebula_stars_row.py` reads it. A config without the three `gaia` paths (and
 every `scorecard.local.json` older than 2026-11-22 is one) stops in the first second with `not set ...: gaia.<name>`, before any
 plate is made; add the three CSVs before the next whole step.
+The config's `judge` object names each master's judge plate (StarXTerminator's starless plate of that same master, made
+once and kept), read by `judge_band_rows.py` for the two-sided crowded row. A config without the three `judge` paths (every
+`scorecard.local.json` older than this change is one) stops with `not set (config or command line): judge.<name>`, and so does
+every unattended arm chain's whole step (`arm-step.ps1`); add the three plates before the next whole step.
 The Gaia stars for the Tarantula come from Vizier through `denoise/gaia_vizier.py`, cached under `TIANWEN_GAIA_CACHE`
 (default `~/.tianwen/gaia-cache`), so the first run needs the network and later ones do not.
 

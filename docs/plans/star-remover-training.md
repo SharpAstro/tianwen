@@ -8266,8 +8266,9 @@ the first angle is a step after the model and not another arm:
         whatever detail went with it. The washed-out wisps are on the sheets only.
 
         Whether a pair of this kind joins the scorecard, and at what bars, is the owner's; no arm or step is
-        judged on it here. Putting it into the scorer as a reported pair, with a structure side that sets the
-        mottle aside, is #2404.
+        judged on it here. The pair is in the scorer as reported rows (#2404, printed for every plate scored). A
+        structure side that sets the mottle aside, on cells chosen by a rule that is none of the plates
+        compared, is a new issue, #2498 (in this plan's milestone, linked from here).
 - **R4g, pre-registered 2026-11-20 before any export or score of it. One change from R4d: bright nebula cells join
   the draw, drawn on the stored plate, so their target keeps the nebula's own edges and knots.** The owner,
   2026-11-20, chose it with R4f ("That, plus the 1070 arm"): the arm put to him was training tiles on bright
