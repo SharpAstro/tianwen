@@ -60,7 +60,9 @@ The rules that bite:
   pipeline's word for every role (`SharpenPipeline.DescribeRoles`), asked with the options the step's settings make:
   a role whose backend follows from them is named by the one they choose (`IEnhancerAvailability.NameUnder`), so a
   step that says `backend: tianWen` is keyed by the in-house model where RC-Astro is licensed too, and one that
-  says `gradientBackend: classical` by the classical fit where GraXpert is installed too. An in-house
+  says `gradientBackend: classical` by the classical fit where GraXpert is installed too. A role the settings
+  leave out is not named: a step with `gradient` off runs no corrector, so installing or removing GraXpert moves no
+  key of it, and the same for a denoise, a deconvolution and the stellar sharpening left out. An in-house
   enhancer's name carries its model file, so a retrained model is another key. Naming an RC-Astro role asks whether
   its product is licensed, which is a
   subprocess, so **the runner asks what serves once for an operation and its settings in a plan**

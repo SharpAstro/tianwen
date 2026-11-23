@@ -25,8 +25,11 @@ public sealed class WorkbenchRegistrationTests
 
         var catalog = provider.GetRequiredService<OperationCatalog>();
 
-        catalog.All.Select(static operation => operation.Description.Id)
-            .ShouldBe([CropOperation.Id, EnhanceOperation.Id, GradientOperation.Id, LinearFitOperation.Id]);
+        catalog.All.Select(static operation => operation.Description.Id).ShouldBe(
+        [
+            AddLineOperation.Id, AddStarsOperation.Id, AlignOperation.Id, ContinuumOperation.Id, CropOperation.Id, EnhanceOperation.Id,
+            FillDigsOperation.Id, GradientOperation.Id, LinearFitOperation.Id, LrgbOperation.Id, LuminanceOperation.Id, ProtectCoresOperation.Id,
+        ]);
         provider.GetServices<IOperation>().Count().ShouldBe(catalog.All.Count, "the catalog holds every operation registered, each once");
         provider.GetRequiredService<WorkbenchRunner>().ShouldNotBeNull();
         provider.GetRequiredService<OperationCatalog>().ShouldBeSameAs(catalog, "one catalog a host");

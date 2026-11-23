@@ -112,6 +112,18 @@ public sealed class WorkbenchEnhanceParityTests(ITestOutputHelper output) : IDis
         }
     }
 
+    /// <summary>A model resolver for which no model is installed: asked for one outright, it says so.</summary>
+    private sealed class NoModelPresent : IModelResolver
+    {
+        public string Resolve(string modelFileName) => throw new FileNotFoundException($"{modelFileName} is not installed", modelFileName);
+
+        public bool TryResolve(string modelFileName, out string? absolutePath)
+        {
+            absolutePath = null;
+            return false;
+        }
+    }
+
     /// <summary>An RC-Astro CLI that is installed, and licensed or not. Nothing is ever run through it.</summary>
     private sealed class StandInCli(bool licensed) : IRcAstroCli
     {
@@ -340,8 +352,9 @@ public sealed class WorkbenchEnhanceParityTests(ITestOutputHelper output) : IDis
         enhance.Refusal(new EnhanceSettings { DenoiseStrength = -0.5f }).ShouldNotBeNull().ShouldContain("denoiseStrength is 0 to 1");
         enhance.Refusal(new EnhanceSettings { DeblurSharpen = 0f, DenoiseStrength = 1f }).ShouldBeNull();
 
-        // What serves is in the key: the pipeline names the enhancer of every role, and "none" where there is none.
-        enhance.ServedBy(new EnhanceSettings()).ShouldBe("deblur none; gradient none; stars none; stellar none; deconvolve none; denoise none");
+        // What serves is in the key: the pipeline names the enhancer of every role the settings keep, "none" where
+        // there is none, and "left out" for a role they switch off (the stellar sharpening is off unless asked for).
+        enhance.ServedBy(new EnhanceSettings()).ShouldBe("deblur none; gradient none; stars none; stellar left out; deconvolve none; denoise none");
         new EnhanceOperation(new SharpenPipeline(denoiser: new Scaling("Test/Denoiser", 1f))).ServedBy(new EnhanceSettings()).ShouldContain("denoise Test/Denoiser");
     }
 
@@ -491,6 +504,51 @@ public sealed class WorkbenchEnhanceParityTests(ITestOutputHelper output) : IDis
         classicalStep.ShouldContain($"gradient {classical.Name}");
         classicalStep.ShouldNotContain("GraXpert");
         enhance.ServedBy(new EnhanceSettings { GradientBackend = GradientBackend.Graxpert }).ShouldContain($"gradient {graXpert.Name}");
+
+        // The other half, on a computer where GraXpert's weights are not installed. Auto is the classical fit there, and
+        // a step that says GraXpert is still keyed by GraXpert, which is what its run asks for (and fails on, naming
+        // where it looked): with the weights present, as above, auto picks GraXpert too, so that half alone passes
+        // whether or not the step's own backend is asked.
+        using var absent = new GraXpertBackgroundExtractor(new NoModelPresent());
+        var without = new EnhanceOperation(new SharpenPipeline(gradientCorrector: new FallbackGradientCorrector(new NoModelPresent(), absent, classical)));
+        var autoStep = without.ServedBy(new EnhanceSettings());
+        autoStep.ShouldContain($"gradient {classical.Name}");
+        autoStep.ShouldNotContain("GraXpert");
+        without.ServedBy(new EnhanceSettings { GradientBackend = GradientBackend.Graxpert }).ShouldContain($"gradient {absent.Name}");
+    }
+
+    [Fact]
+    public void ARoleTheSettingsLeaveOutIsNoPartOfTheStepsKey()
+    {
+        // The corrector a host registers, on a computer with GraXpert's weights and on one without, and a denoiser.
+        var classical = new ClassicalBackgroundExtractor();
+        using var present = new GraXpertBackgroundExtractor(new EveryModelPresent());
+        using var absent = new GraXpertBackgroundExtractor(new NoModelPresent());
+        EnhanceOperation Over(IModelResolver models, GraXpertBackgroundExtractor graXpert) => new(new SharpenPipeline(
+            gradientCorrector: new FallbackGradientCorrector(models, graXpert, classical), denoiser: new Scaling("Test/Denoiser", 1f)));
+        var (installed, notInstalled) = (Over(new EveryModelPresent(), present), Over(new NoModelPresent(), absent));
+
+        // A step that keeps its gradient is keyed by what corrects it, so the two computers differ.
+        installed.ServedBy(new EnhanceSettings()).ShouldNotBe(notInstalled.ServedBy(new EnhanceSettings()));
+
+        // A step that leaves the gradient out runs no corrector: its key names none, and is the same on both, so
+        // installing or removing GraXpert runs no such step again.
+        var noGradient = new EnhanceSettings { Gradient = false };
+        installed.ServedBy(noGradient).ShouldBe(notInstalled.ServedBy(noGradient));
+        installed.ServedBy(noGradient).ShouldContain("gradient left out");
+        installed.ServedBy(noGradient).ShouldNotContain("GraXpert");
+
+        // The same for every role with a switch: a denoise and a deconvolution left out are keyed by no enhancer, and
+        // the stellar sharpening, off unless asked for, by none until it is asked for.
+        installed.ServedBy(new EnhanceSettings()).ShouldContain("denoise Test/Denoiser");
+        installed.ServedBy(new EnhanceSettings { Denoise = false }).ShouldContain("denoise left out");
+        installed.ServedBy(new EnhanceSettings { Deconvolve = false }).ShouldContain("deconvolve left out");
+        installed.ServedBy(new EnhanceSettings()).ShouldContain("stellar left out");
+        installed.ServedBy(new EnhanceSettings { StellarSharpen = true }).ShouldContain("stellar none");
+
+        // The deblur and the star removal have no switch: they run wherever they serve, and are always named.
+        installed.ServedBy(new EnhanceSettings { Gradient = false, Denoise = false, Deconvolve = false })
+            .ShouldBe("deblur none; gradient left out; stars none; stellar left out; deconvolve left out; denoise left out");
     }
 
     [Fact(Timeout = 600_000)]
