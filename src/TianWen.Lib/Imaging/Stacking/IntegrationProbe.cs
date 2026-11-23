@@ -117,21 +117,6 @@ public sealed record IntegrationProbe(
     /// <summary>Bytes for all frames in RAM simultaneously (InRamAllFrames).</summary>
     public long AllFramesRamBytes => FrameBytes * FrameCount;
 
-    /// <summary>
-    /// Snapshot the live host. Reads <see cref="GC.GetGCMemoryInfo()"/>'s
-    /// <c>TotalAvailableMemoryBytes</c> for RAM ("how big can the process
-    /// grow", which is physical RAM minus OS / container reserves) and
-    /// <see cref="DriveInfo"/> for free disk on the staging drive. The old
-    /// snapshot subtracted <c>MemoryLoadBytes</c> ("what the GC is already
-    /// holding") which made the budget swing wildly with transient working
-    /// set -- a fresh dotnet host with 64 GB physical reported a 1.2 GB
-    /// "free" gate and rejected InRam stacks the machine could trivially
-    /// fit. The safety factor in <see cref="ResourceBudget"/> (default 75%)
-    /// is the sole mechanism that takes the budget below physical.
-    /// <paramref name="stagingDiskKind"/> defaults to
-    /// <see cref="DiskKind.Unknown"/> -- pass the orchestrator's best guess
-    /// (typically <see cref="DiskKind.Ssd"/>) until auto-detection is wired.
-    /// </summary>
     /// <summary>Nominal RAM of the host a workbench step chooses its strategy against.</summary>
     public const long NominalRamBytes = 32L * 1024 * 1024 * 1024;
 
@@ -147,6 +132,21 @@ public sealed record IntegrationProbe(
         StagingDiskKind = DiskKind.Ssd,
     };
 
+    /// <summary>
+    /// Snapshot the live host. Reads <see cref="GC.GetGCMemoryInfo()"/>'s
+    /// <c>TotalAvailableMemoryBytes</c> for RAM ("how big can the process
+    /// grow", which is physical RAM minus OS / container reserves) and
+    /// <see cref="DriveInfo"/> for free disk on the staging drive. The old
+    /// snapshot subtracted <c>MemoryLoadBytes</c> ("what the GC is already
+    /// holding") which made the budget swing wildly with transient working
+    /// set -- a fresh dotnet host with 64 GB physical reported a 1.2 GB
+    /// "free" gate and rejected InRam stacks the machine could trivially
+    /// fit. The safety factor in <see cref="ResourceBudget"/> (default 75%)
+    /// is the sole mechanism that takes the budget below physical.
+    /// <paramref name="stagingDiskKind"/> defaults to
+    /// <see cref="DiskKind.Unknown"/> -- pass the orchestrator's best guess
+    /// (typically <see cref="DiskKind.Ssd"/>) until auto-detection is wired.
+    /// </summary>
     public static IntegrationProbe Snapshot(
         int frameCount,
         int frameWidth,

@@ -1,3 +1,4 @@
+using System;
 using Shouldly;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Stacking;
@@ -25,5 +26,38 @@ public sealed class NominalProbeTests
 
         pickSmall.Chosen.Kind.ShouldBe(pickLarge.Chosen.Kind);
         pickSmall.Sink.ShouldBe(pickLarge.Sink);
+    }
+
+    [Fact]
+    public void AComputerTooSmallForTheChosenStrategyRefusesInWords()
+    {
+        var nominal = Probe(ram: 8L << 30, freeRam: 2L << 30, disk: 50L << 30).ToNominalHost();
+        var selection = IntegrationStrategySelector.Pick(nominal);
+        var tiny = Probe(ram: 1L << 20, freeRam: 1L << 20, disk: 1L << 20);
+
+        var ex = Should.Throw<InvalidOperationException>(() => StackingPipeline.RequireThisComputerFits(selection, tiny, 100, stated: false));
+        ex.Message.ShouldContain("The stack chose");
+        ex.Message.ShouldContain("cannot run it");
+    }
+
+    [Fact]
+    public void AStatedStrategyThatDoesNotFitIsRefusedAsStated()
+    {
+        var nominal = Probe(ram: 8L << 30, freeRam: 2L << 30, disk: 50L << 30).ToNominalHost();
+        var selection = IntegrationStrategySelector.Pick(nominal);
+        var tiny = Probe(ram: 1L << 20, freeRam: 1L << 20, disk: 1L << 20);
+
+        var ex = Should.Throw<InvalidOperationException>(() => StackingPipeline.RequireThisComputerFits(selection, tiny, 100, stated: true));
+        ex.Message.ShouldContain("you stated");
+        ex.Message.ShouldNotContain("The stack chose");
+    }
+
+    [Fact]
+    public void AComputerThatFitsIsNotRefused()
+    {
+        var nominal = Probe(ram: 8L << 30, freeRam: 2L << 30, disk: 50L << 30).ToNominalHost();
+        var selection = IntegrationStrategySelector.Pick(nominal);
+
+        StackingPipeline.RequireThisComputerFits(selection, nominal, 100, stated: false);
     }
 }

@@ -243,6 +243,26 @@ public sealed class StackingPipeline(
     }
 
     /// <summary>
+    /// A workbench step picks its strategy against the nominal host; this computer's own probe must still fit the one
+    /// chosen, or the step refuses in words. <paramref name="stated"/> is a strategy the person named, which the selector
+    /// returns even where it does not fit.
+    /// </summary>
+    internal static void RequireThisComputerFits(IntegrationStrategySelector.Selection selection, IntegrationProbe thisComputer, int frameCount, bool stated)
+    {
+        var hostFit = selection.Chosen.Evaluate(thisComputer, new ResourceBudget());
+        if (hostFit.CanRun)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(stated
+            ? $"The strategy {selection.Chosen.Kind} you stated for {frameCount} frames does not fit this computer: {hostFit.Rationale}. "
+                + "Say a strategy that fits, drop the strategy so the stack chooses one, or stack on a computer with more memory or disk."
+            : $"The stack chose {selection.Chosen.Kind} for {frameCount} frames, and this computer cannot run it: {hostFit.Rationale}. "
+                + "Stack on a computer with more memory or disk, or say a strategy that fits.");
+    }
+
+    /// <summary>
     /// <paramref name="slug"/>, or when an earlier group already took it, the slug with the first free <c>_2</c>, <c>_3</c>...
     /// suffix: every group of a run writes under a name of its own.
     /// </summary>
@@ -2012,13 +2032,7 @@ public sealed class StackingPipeline(
                 options.NominalProbe ? probe.ToNominalHost() : probe, preferred: preferredStrategy, pool: pool);
             if (options.NominalProbe)
             {
-                var hostFit = selection.Chosen.Evaluate(probe, new ResourceBudget());
-                if (!hostFit.CanRun)
-                {
-                    throw new InvalidOperationException(
-                        $"The stack chose {selection.Chosen.Kind} for {matched.Count} frames, and this computer cannot run it: {hostFit.Rationale}. "
-                        + "Say a strategy that fits, or stack on a computer with more memory or disk.");
-                }
+                RequireThisComputerFits(selection, probe, matched.Count, preferredStrategy is not null);
             }
             logger.LogInformation("  [strategy] picked {Kind} -- {Notes}", selection.Chosen.Kind, selection.Notes);
             if (colourShifts is { Count: > 0 } && demosaicedShifts is null
