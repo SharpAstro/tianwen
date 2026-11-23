@@ -10243,8 +10243,8 @@ cores that clip against stretching the whole master. Stretching the stars layer 
 Tarantula: its stars layer holds the LMC's glow, which a stars stretch turns into a haze six times ours (a 2x crop of
 both was sent to the owner). That is the practical reason behind the glow guard, for anyone who stretches the stars.
 
-**The flaw the test found, fixed here.** StarXTerminator's plate stood over its input on only 0 to 0.6 % of the pixels, so its display-space
-unscreen layer screens back to within the noise. TianWen's stood over its input on 4 to 16 % of the pixels, mostly by a few
+**The flaw the test found, fixed here.** StarXTerminator's plate stood over its input on only 0 to 0.6 % of the pixels (the share only; no
+screen-back error was measured for it). TianWen's stood over its input on 4 to 16 % of the pixels, mostly by a few
 hundredths to a few tenths of the noise, and that screen-back missed by more than the display-space sky noise on 0.32 % (Tarantula), 0.12 % (Sagittarius)
 and 0.90 % (Andromeda) of them, 35 to 40 % of those 3 to 6 px from a catalogued star: a faint ring outside the core once
 the stars are screened back. `NarrowbandCombination.SplitStarsAsync` now holds every plate at or under its plane last,
