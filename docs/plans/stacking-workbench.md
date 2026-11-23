@@ -169,9 +169,10 @@ edit list, the command line shown under a step (rule 3).
 | Progress and cancel | The engine's own `IProgress`, as rule 6 |
 
 **What the code holds so far** (W1's first leg, #1641; [workbench-operations.md](../architecture/workbench-operations.md)):
-the id and version, the settings, the images an operation takes, how its output is kept (stored or derived), what serves
-it, its command line, and the lines it reports. The preconditions come with the facts (W9), how it previews with the
-panel that shows it (W12), and an operation that writes no pixels with the first one wrapped (plate solve).
+the id and version, the settings, the images an operation takes, how its output is kept (stored, derived, or as
+metadata: a finding in the store and no pixels, with the plate solve as the first, #2469), what serves it, its command
+line, and the lines it reports. The preconditions come with the facts (W9), and how it previews with the panel that
+shows it (W12).
 
 **There is one description, not two.** `SharpenStep` and its records (`DeblurStep`, `GradientCorrectionStep`, `RemoveStarsStep`,
 the stretch steps, `RecombineStep`) are already a typed list of operation settings that `SharpenPipeline` runs; they are not
@@ -560,7 +561,11 @@ each step's output is bit-identical to its CLI verb's.
 3. The deep-sky frame steps (#2467): scan, grade, calibrate, register and integrate, which take a set of frames, not an
    image.
 4. The planetary steps (#2468): grade, stack, de-rotate, sharpen, colour.
-5. An operation that writes no pixels (#2469): plate solve, statistics.
+5. An operation that writes no pixels (#2469). Built: the kind (the plan's "metadata": the finding is kept in the
+   store, and the step after it takes its input with the finding applied) and the plate solve as the first, `tianwen
+   solve` calling it and gaining `-o`. Statistics is not a step of an edit list: a measurement changes nothing a later
+   step reads, so as an edit it would only re-key every step after it. It is one of [the facts a gate may
+   test](#the-facts-a-gate-may-test), which W9 owns.
 
 ### W2 The app's shell
 

@@ -80,7 +80,9 @@ public sealed record ProjectEdit
     /// changed since; never read to decide whether to run.</summary>
     public string? Key { get; set; }
 
-    /// <summary>The result of that run, relative to the project's folder; absent for a derived step, which has no file.</summary>
+    /// <summary>The result of that run, relative to the project's folder; absent for a derived step, which has no file.
+    /// For a step that writes no pixels (the plate solve) it is the step's finding, a header-only FITS file: it holds
+    /// the solution and no image, so a reader that wants the step's image must not open it as one.</summary>
     public string? Output { get; set; }
 }
 

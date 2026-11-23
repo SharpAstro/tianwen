@@ -69,6 +69,32 @@ public interface IDerivedOperation : IOperation
     OperationInput Derive(string canonicalSettings, IReadOnlyList<OperationInput> inputs);
 }
 
+/// <summary>
+/// An operation that writes no pixels (<see cref="OperationOutputKind.Finding"/>): it finds something out about its
+/// input, a plate solution, and its result is its input with that applied. The finding is a small file in the step
+/// store, so the step is not run again, and the pixels stay where they were.
+/// <see cref="IOperation.RunAsync"/> is still its verb's routine: it finds, and writes the result as a file.
+/// </summary>
+public interface IFindingOperation : IOperation
+{
+    /// <summary>Finds it out and writes the finding to <paramref name="findingPath"/>. A refusal writes nothing.</summary>
+    /// <param name="canonicalSettings">The settings, as <see cref="IOperation.TryReadSettings"/> answered them.</param>
+    /// <param name="inputs">The edit list's image first, then the description's extra inputs in order.</param>
+    /// <param name="findingPath">The file the finding is written to.</param>
+    /// <param name="say">Takes each line the operation reports (what a verb prints), or null.</param>
+    /// <param name="cancellationToken">Ends the work.</param>
+    ValueTask<OperationOutcome> FindAsync(string canonicalSettings, IReadOnlyList<OperationInput> inputs, string findingPath, Action<string>? say,
+        CancellationToken cancellationToken);
+
+    /// <summary>The result as an input for the step after it: the step's input with the finding in
+    /// <paramref name="findingPath"/> applied. Nothing is read until that step reads it.</summary>
+    OperationInput Apply(string canonicalSettings, IReadOnlyList<OperationInput> inputs, string findingPath);
+
+    /// <summary>Writes the result as the file the verb writes, from a finding made before: nothing is found out a
+    /// second time.</summary>
+    OperationOutcome Write(string canonicalSettings, IReadOnlyList<OperationInput> inputs, string findingPath, string outputPath);
+}
+
 /// <summary>Where one image's results of a run go.</summary>
 /// <param name="Path">The FITS file its main result is written to.</param>
 public sealed record StepOutputs(string Path)
@@ -222,6 +248,32 @@ public abstract class JointOperation<TSettings> : Operation<TSettings>, IJointOp
     ValueTask<OperationOutcome> IJointOperation.RunJointAsync(string canonicalSettings, IReadOnlyList<OperationInput> members, IReadOnlyList<StepOutputs> outputs,
         Action<string>? say, CancellationToken cancellationToken)
         => RunJointAsync(Parse(canonicalSettings), members, outputs, say, cancellationToken);
+}
+
+/// <summary>An <see cref="Operation{TSettings}"/> that writes no pixels (<see cref="IFindingOperation"/>).</summary>
+/// <typeparam name="TSettings">The settings, as for <see cref="Operation{TSettings}"/>.</typeparam>
+public abstract class FindingOperation<TSettings> : Operation<TSettings>, IFindingOperation
+    where TSettings : class, new()
+{
+    /// <inheritdoc cref="IFindingOperation.FindAsync"/>
+    public abstract ValueTask<OperationOutcome> FindAsync(TSettings settings, IReadOnlyList<OperationInput> inputs, string findingPath, Action<string>? say,
+        CancellationToken cancellationToken);
+
+    /// <inheritdoc cref="IFindingOperation.Apply"/>
+    public abstract OperationInput Apply(TSettings settings, IReadOnlyList<OperationInput> inputs, string findingPath);
+
+    /// <inheritdoc cref="IFindingOperation.Write"/>
+    public abstract OperationOutcome Write(TSettings settings, IReadOnlyList<OperationInput> inputs, string findingPath, string outputPath);
+
+    ValueTask<OperationOutcome> IFindingOperation.FindAsync(string canonicalSettings, IReadOnlyList<OperationInput> inputs, string findingPath, Action<string>? say,
+        CancellationToken cancellationToken)
+        => FindAsync(Parse(canonicalSettings), inputs, findingPath, say, cancellationToken);
+
+    OperationInput IFindingOperation.Apply(string canonicalSettings, IReadOnlyList<OperationInput> inputs, string findingPath)
+        => Apply(Parse(canonicalSettings), inputs, findingPath);
+
+    OperationOutcome IFindingOperation.Write(string canonicalSettings, IReadOnlyList<OperationInput> inputs, string findingPath, string outputPath)
+        => Write(Parse(canonicalSettings), inputs, findingPath, outputPath);
 }
 
 /// <summary>An <see cref="Operation{TSettings}"/> whose result is derived, never stored.</summary>

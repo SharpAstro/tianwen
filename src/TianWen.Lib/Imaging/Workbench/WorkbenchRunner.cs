@@ -44,7 +44,8 @@ public enum StepState
 /// <param name="Operation">The operation's id.</param>
 /// <param name="State">Where it stands.</param>
 /// <param name="Key">The step's key; empty for an edit that is off or could not be planned.</param>
-/// <param name="Output">Its result in the store, when it is there.</param>
+/// <param name="Output">Its result in the store, when it is there: an image, or the finding of a step that writes
+/// no pixels.</param>
 /// <param name="CommandLine">The command that does this step from a terminal, program name first; empty where there is no key.</param>
 /// <param name="Message">Why it was refused or blocked; null otherwise.</param>
 /// <param name="ChangedSinceLastRun">True when the project recorded another key for this edit: its settings, or
@@ -97,7 +98,9 @@ public sealed record WorkbenchRunOptions
     public string? Image { get; init; }
 
     /// <summary>Also write <see cref="Image"/>'s final result as this file. A derived result (a crop) has no file of
-    /// its own, so this is how one is had: the operation's own routine writes it, as its verb would.</summary>
+    /// its own, so this is how one is had: the operation's own routine writes it, as its verb would. A step that
+    /// writes no pixels (the plate solve) keeps only its finding, a header-only FITS file with no image, so the
+    /// image to have is this export.</summary>
     public string? ExportPath { get; init; }
 
     /// <summary>Takes each line a step reports, with the step named in front.</summary>
@@ -113,9 +116,13 @@ public sealed record WorkbenchRunOptions
 /// needs it. A project run twice runs nothing the second time; a changed setting changes the key of its step and of
 /// the steps after it, so those run and the ones before it do not (the plan's rule 2).</para>
 /// <para><b>Work is pulled from the end.</b> A step whose result is in the store needs nothing before it, so an
-/// earlier result that is gone is not made again for its sake.</para>
+/// earlier result that is gone is not made again for its sake. A step that writes no pixels is the exception: what
+/// it keeps is a finding, not an image, so it needs its input whenever its own result is needed.</para>
 /// <para><b>A stored step reads a file and writes a file.</b> Only a derived step hands its result over in memory,
 /// and only to the step after it.</para>
+/// <para><b>A step that writes no pixels keeps its finding.</b> The finding is in the store under a key of its own
+/// (<see cref="StepKey.OfFinding"/>), so the step is not run again; what it hands on is its input with the finding
+/// applied, so it needs what is before it whenever it is needed itself.</para>
 /// <para>Call it off a render thread: it digests the original files and reads and writes images.</para>
 /// </remarks>
 public sealed class WorkbenchRunner(OperationCatalog operations)
@@ -306,7 +313,7 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             return null;
         }
 
-        if (operation is not IDerivedOperation && InStore(store, node) is { } made)
+        if (operation is not (IDerivedOperation or IFindingOperation) && InStore(store, node) is { } made)
         {
             // Another image of the project has the same step, and this run has made it already: one result, one run.
             node.File = made;
@@ -334,6 +341,11 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             return derived.Derive(node.Settings, inputs);
         }
 
+        if (operation is IFindingOperation finder)
+        {
+            return await FindAsync(node, step, finder, inputs, store, say, cancellationToken);
+        }
+
         if (operation is IJointOperation joint)
         {
             return await RunJointAsync(node, step, joint, inputs, store, say, cancellationToken);
@@ -356,6 +368,46 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
         node.File = await store.CommitAsync(staging, operation.Description.Id, cancellationToken);
         step.State = StepState.Ran;
         return OperationInput.FromFile(node.File);
+    }
+
+    // A step that writes no pixels: its finding is taken from the store or made into it, and what is handed on is the
+    // step's input with the finding applied.
+    private static async ValueTask<OperationInput?> FindAsync(Node node, StepPlan step, IFindingOperation finder, List<OperationInput> inputs, StepStore store,
+        Action<string>? say, CancellationToken cancellationToken)
+    {
+        var finding = node.Finding;
+        if (finding is null)
+        {
+            if (store.Find(node.FindingKey) is { } found)
+            {
+                // Another image of the project has the same step, and this run has made its finding already.
+                finding = found;
+                step.State = StepState.Kept;
+            }
+            else
+            {
+                using var staging = store.Stage(node.FindingKey);
+                var outcome = await finder.FindAsync(node.Settings, inputs, staging.Path, Named(say, node), cancellationToken);
+                if (outcome.Succeeded && !File.Exists(staging.Path))
+                {
+                    outcome = OperationOutcome.Failed($"'{finder.Description.Id}' reported a finding and wrote no file");
+                }
+
+                if (!outcome.Succeeded)
+                {
+                    step.State = StepState.Refused;
+                    step.Message = outcome.Message;
+                    return null;
+                }
+
+                finding = await store.CommitAsync(staging, finder.Description.Id, cancellationToken);
+                step.State = StepState.Ran;
+            }
+
+            node.Finding = finding;
+        }
+
+        return finder.Apply(node.Settings, inputs, finding);
     }
 
     // One run for every image of it: each image's results are staged, the operation writes them all, and all are taken
@@ -469,12 +521,13 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             return $"{exportPath} cannot be written: {ex.Message}";
         }
 
-        if (head.Operation is not IDerivedOperation operation || head.Step is not { } step)
+        if (head.Step is not { } step || head.Operation is not { } operation || operation is not (IDerivedOperation or IFindingOperation))
         {
             return $"'{name}' gave no result, so there is nothing to export";
         }
 
-        // A derived result has no file: the operation's own routine writes one, as its verb would.
+        // A derived result has no file, and neither has the result of a step that writes no pixels: the operation's
+        // own routine writes one, as its verb would.
         var inputs = await EnsureInputsAsync(head, step, store, say, cancellationToken);
         if (inputs is null)
         {
@@ -483,6 +536,18 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
 
         try
         {
+            if (operation is IFindingOperation finder)
+            {
+                // From the finding the run made or kept: nothing is found out a second time.
+                if (head.Finding is not { } finding)
+                {
+                    return $"'{name}' gave no result, so there is nothing to export";
+                }
+
+                var written = finder.Write(head.Settings, inputs, finding, exportPath);
+                return written.Succeeded ? null : written.Message;
+            }
+
             var outcome = await operation.RunAsync(head.Settings, inputs, exportPath, Named(say, head), cancellationToken);
             return outcome.Succeeded ? null : outcome.Message;
         }
@@ -551,7 +616,7 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                     && plan.Steps[index] is { Node: { } node, State: StepState.Kept or StepState.Ran or StepState.Derived } step
                     && SameEdit(step.Edit, edit))
                 {
-                    var output = node.File is { } file ? Path.GetRelativePath(folder, file).Replace('\\', '/') : null;
+                    var output = (node.File ?? node.Finding) is { } file ? Path.GetRelativePath(folder, file).Replace('\\', '/') : null;
                     if (!string.Equals(edit.Key, node.Key, StringComparison.Ordinal) || !string.Equals(edit.Output, output, StringComparison.Ordinal))
                     {
                         edit = edit with { Key = node.Key, Output = output };
@@ -625,6 +690,13 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
 
         /// <summary>For an extra result: the step that gives it. Null otherwise.</summary>
         public Node? Producer { get; init; }
+
+        /// <summary>For a step that writes no pixels: the key its finding is kept under. Empty otherwise.</summary>
+        public string FindingKey { get; init; } = string.Empty;
+
+        /// <summary>The finding's file once it is in the store. <see cref="File"/> stays null for such a step: it has no
+        /// image there.</summary>
+        public string? Finding { get; set; }
     }
 
     // What a step, or the run several images share, came to in one call.
@@ -677,7 +749,7 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                 step.Edit.Operation,
                 step.State,
                 step.Node?.Key ?? string.Empty,
-                step.Node?.File,
+                step.Node?.File ?? step.Node?.Finding,
                 step.CommandLine,
                 step.Message,
                 step is { Node: { } node, Edit.Key: { } recorded } && !string.Equals(recorded, node.Key, StringComparison.Ordinal)))],
@@ -970,10 +1042,11 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                     Inputs = inputs.MoveToImmutable(),
                     Step = step,
                     Attempt = operation is IDerivedOperation ? null : AttemptOf(key),
+                    FindingKey = operation is IFindingOperation ? StepKey.OfFinding(key) : string.Empty,
                 };
                 // A step's command line names files: an original, a result in the store, or where in the store a result
-                // would be. A derived step has no file, so run by hand it writes one there, which the store does not take
-                // for a result (its index does not name it).
+                // would be. A derived step has no file, and neither has a step that writes no pixels, so run by hand it
+                // writes one there, which the store does not take for a result (its index does not name it).
                 step.CommandLine = operation.CommandLine(settings, [.. node.Inputs.Select(input => input.File ?? store.PathOf(input.Key))], store.PathOf(key));
             }
 
@@ -981,6 +1054,12 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             if (operation is IDerivedOperation)
             {
                 step.State = StepState.Derived;
+            }
+            else if (operation is IFindingOperation)
+            {
+                // Settle() makes a finding that is not there NotNeeded where nothing asked for needs it.
+                node.Finding = store.Find(node.FindingKey);
+                step.State = node.Finding is null ? StepState.WillRun : StepState.Kept;
             }
             else if (InStore(store, node) is { } stored)
             {
