@@ -293,8 +293,11 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
 
         images.Add(WorkbenchFixtures.Starting("colour", "stack0", WorkbenchFixtures.Edit(PlanetaryComposeOperation.Id, null, "stack1", "stack2")));
         images.Add(WorkbenchFixtures.StartingFromResult("luminance", "colour", PlanetaryComposeOperation.Luminance));
+        // One hop past the result, with no edit and with an enabled edit: both are told in words, on the first run.
+        images.Add(WorkbenchFixtures.Starting("hop", "luminance"));
+        images.Add(WorkbenchFixtures.Starting("hop-edit", "luminance", WorkbenchFixtures.Edit("add", new JsonObject { ["amount"] = 1 })));
         await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project([.. images]), ct);
-        var runner = new WorkbenchRunner(new OperationCatalog([new PlanetaryComposeOperation()]));
+        var runner = new WorkbenchRunner(new OperationCatalog([new PlanetaryComposeOperation(), new AddOperation("add")]));
 
         var report = await runner.RunAsync(folder, new WorkbenchRunOptions { Say = output.WriteLine }, ct);
         var again = await runner.RunAsync(folder, cancellationToken: ct);
@@ -303,8 +306,12 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
         Of(report, "colour").Steps[0].State.ShouldBe(StepState.Ran, Messages(report));
         WorkbenchFixtures.Read(Of(report, "colour").Steps[0].Output.ShouldNotBeNull()).ChannelCount.ShouldBe(3);
         Of(report, "luminance").Refusal.ShouldNotBeNull().ShouldContain("gave no 'luminance'");
+        Of(report, "hop").Refusal.ShouldNotBeNull().ShouldContain("gave no 'luminance'");
+        Of(report, "hop-edit").Steps[0].State.ShouldBe(StepState.Blocked);
+        Of(report, "hop-edit").Steps[0].Message.ShouldNotBeNull().ShouldContain("gave no 'luminance'");
         Of(again, "colour").Steps[0].State.ShouldBe(StepState.Kept, "the step is whole without the result it may leave out");
         Of(again, "luminance").Refusal.ShouldNotBeNull().ShouldContain("gave no 'luminance'");
+        Of(again, "hop").Refusal.ShouldNotBeNull().ShouldContain("gave no 'luminance'");
     }
 
     [Fact(Timeout = 120_000)]

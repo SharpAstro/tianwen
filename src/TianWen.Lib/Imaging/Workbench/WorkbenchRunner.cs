@@ -221,12 +221,12 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                 var asking = planner.Plan(each);
                 if (asking.Furthest is { } furthest
                     && await EnsureAsync(furthest, store, options.Say, cancellationToken) is null
-                    && furthest is { Producer.Step.State: StepState.Ran or StepState.Kept }
-                    && asking is { Refusal: null, Image.Result: { Length: > 0 } leftOut })
+                    && furthest is { Producer.Step.State: StepState.Ran or StepState.Kept, ResultName: { Length: > 0 } leftOut }
+                    && asking.Refusal is null)
                 {
-                    // Its edits (none, or none switched on) leave it at a result its step may leave out, and this run
-                    // the step left it out: the image has nothing, which is said and not passed over. A step of its
-                    // own would have said so itself, as blocked.
+                    // The image ends at a result its step may leave out (its own, or the one of the image it starts
+                    // from, with no edit switched on after it), and this run the step left it out: the image has
+                    // nothing, which is said and not passed over. An edit after it says so itself, as blocked.
                     asking.Refusal = LeftOut(leftOut);
                 }
             }
@@ -554,7 +554,10 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             if (await EnsureAsync(input, store, say, cancellationToken) is not { } value)
             {
                 step.State = StepState.Blocked;
-                step.Message = $"'{input.Label}', which it takes, gave no result";
+                // A result its step may leave out, and did, is said so in words rather than as no result.
+                step.Message = input is { ResultName: { Length: > 0 } leftOut, Producer.Step.State: StepState.Ran or StepState.Kept }
+                    ? $"'{input.Label}', which it takes: {LeftOut(leftOut)}"
+                    : $"'{input.Label}', which it takes, gave no result";
                 return null;
             }
 
@@ -751,6 +754,9 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
         public string? File { get; set; }
 
         public bool Needed { get; set; }
+
+        /// <summary>For a node that is an extra result of a step: the result's name. Null otherwise.</summary>
+        public string? ResultName { get; init; }
 
         /// <summary>For a step several images go through in one run: the run's key. Its <see cref="Inputs"/> are then
         /// the images of the run, sorted by key. Empty otherwise.</summary>
@@ -1020,6 +1026,7 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                     Key = key,
                     Producer = producer,
                     File = file,
+                    ResultName = wanted,
                 };
             }
 

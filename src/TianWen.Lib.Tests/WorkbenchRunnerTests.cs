@@ -850,6 +850,13 @@ public sealed class WorkbenchRunnerTests : IDisposable
         // Only a shared run is told where its extra results go, so any other operation's would be a file nobody writes.
         Should.Throw<ArgumentException>(() => new OperationCatalog([new DescribedOperation(Says("extra-results") with { ExtraResults = [twin] })]))
             .Message.ShouldContain("'extra-results' says it gives extra results");
+        // A shared run gives every result for every image, so none of its results may be left out.
+        Should.Throw<ArgumentException>(() => new OperationCatalog([new DescribedJointOperation(Says("joint-optional") with
+            {
+                Joint = true,
+                ExtraResults = [new OperationResultRole("twin", "A second result.", Optional: true)],
+            })]))
+            .Message.ShouldContain("'joint-optional' puts several images through one run and says a result may be left out");
 
         // What says what it is, is taken.
         new OperationCatalog(

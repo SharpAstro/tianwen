@@ -16,7 +16,7 @@ public sealed class OperationCatalog
     /// its handling depend on which one was found. Or one says of its run what its type does not: that several images
     /// go through it in one run (<see cref="OperationDescription.Joint"/>) with no such run, or the reverse; that such
     /// a run takes images by role; or that it gives extra results and cannot be told where they go: its step would
-    /// never be whole in the store, and would run on every run.</exception>
+    /// never be whole in the store, and would run on every run; or that a result may be left out of a run several images share.</exception>
     public OperationCatalog(IEnumerable<IOperation> operations)
     {
         ArgumentNullException.ThrowIfNull(operations);
@@ -50,6 +50,13 @@ public sealed class OperationCatalog
             {
                 throw new ArgumentException(
                     $"the operation '{description.Id}' says it gives extra results and has no way to be told where they go", nameof(operations));
+            }
+
+            if (description.Joint && description.ExtraResults.Any(static result => result.Optional))
+            {
+                throw new ArgumentException(
+                    $"the operation '{description.Id}' puts several images through one run and says a result may be left out: a run several images share gives every result for every image",
+                    nameof(operations));
             }
 
             if (description.AnyNumber && (description.Joint || !description.ExtraInputs.IsDefaultOrEmpty))
