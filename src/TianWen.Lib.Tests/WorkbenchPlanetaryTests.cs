@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Shouldly;
 using TianWen.Cli;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
 using TianWen.Lib.Imaging;
