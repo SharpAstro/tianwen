@@ -313,6 +313,118 @@ public sealed class StarRemovalEvalTests : IDisposable
         At(200, 200).ShouldBe(1f, "and the sky far from it counts");
     }
 
+    /// <summary>
+    /// The other rule, for draws on a real plate over bright nebula (R4g's lesson): the plate there holds faint stars no finder
+    /// lists, so the loss counts only what the draw was given. The star the plate kept teaches nothing, and neither does a
+    /// drawn star that does not stand over the noise.
+    /// </summary>
+    [Fact]
+    public async Task TheDrawnStarsMaskCountsOnlyTheStarsTheDrawWasGiven()
+    {
+        var root = _folders.Create("starless-masks-").FullName;
+        var export = Path.Combine(root, "export");
+        var channelSigma = Sigma * MathF.Sqrt(Channels);
+        var rng = new Random(8);
+        var noise = Enumerable.Range(0, Channels).Select(_ => Enumerable.Range(0, Size * Size)
+            .Select(_ => channelSigma * (float)(Math.Sqrt(-2 * Math.Log(1 - rng.NextDouble())) * Math.Cos(2 * Math.PI * rng.NextDouble()))).ToArray()).ToArray();
+        var kept = Star(60, 60, 15 * Sigma, 3.0);
+        var injected = Star(128, 128, 1.0, 3.0);
+        // A tenth of a sigma at its peak: under the quarter of a sigma a drawn star's light counts from.
+        var unseen = Star(200, 60, 0.1 * Sigma, 3.0);
+        var manifest = new List<string>();
+        var tile = WriteDraw(export, "S", 0, (c, i) => Sky + noise[c][i] + kept[i],
+            (c, i) => Sky + noise[c][i] + kept[i] + injected[i] + unseen[i], [InjectedAt(128, 128), InjectedAt(200, 60)], manifest);
+        await File.WriteAllLinesAsync(Path.Combine(export, DatasetDegradationExporter.InjectionManifestFileName), manifest,
+            TestContext.Current.CancellationToken);
+
+        var result = await StarRemovalMasks.RunAsync(export, StarRemovalMasks.Rule.DrawnStars, cancellationToken: TestContext.Current.CancellationToken);
+
+        (result.Draws, result.Sources).ShouldBe((1, 2L), "the sources of this rule are the stars the draw was given");
+        result.MaskedFraction.ShouldBeGreaterThan(0.99, "one star's footprint of a 256 px tile");
+        var bytes = await File.ReadAllBytesAsync(Path.Combine(export, StarRemovalMasks.KeepPathFor(tile).Replace('/', Path.DirectorySeparatorChar)),
+            TestContext.Current.CancellationToken);
+        float At(int x, int y) => (float)BitConverter.ToHalf(bytes, ((y * Size) + x) * 2);
+        At(128, 128).ShouldBe(1f, "the drawn star counts");
+        At(132, 128).ShouldBe(1f, "as far as its light stands over a quarter of the noise");
+        At(134, 128).ShouldBe(1f, "and one PSF width round that light, so a hole dug round the star costs too");
+        At(138, 128).ShouldBe(0f, "the sky beyond is not counted");
+        At(60, 60).ShouldBe(0f, "the star the plate kept teaches nothing");
+        At(200, 60).ShouldBe(0f, "a drawn star that does not stand over the noise is not counted");
+        At(200, 200).ShouldBe(0f, "and neither is the sky");
+        (await File.ReadAllTextAsync(Path.Combine(export, StarRemovalMasks.RuleFileName), TestContext.Current.CancellationToken))
+            .ShouldBe(nameof(StarRemovalMasks.Rule.DrawnStars), "the export records the rule its masks were written by");
+    }
+
+    /// <summary>
+    /// A drawn star with a broad halo lights tens of pixels. The mask stops three PSF widths from its centre (and the margin
+    /// past that): a wide counted zone on a real plate would count the plate's own faint stars again, and the halo is
+    /// taught by the draws on a synthetic background.
+    /// </summary>
+    [Fact]
+    public async Task TheDrawnStarsMaskStopsThreePsfWidthsFromAStarWithABroadHalo()
+    {
+        var root = _folders.Create("starless-masks-").FullName;
+        var export = Path.Combine(root, "export");
+        var star = Star(128, 128, 1.0, 3.0);
+        var halo = Star(128, 128, 50 * Sigma, 40.0);
+        var manifest = new List<string>();
+        var tile = WriteDraw(export, "S", 0, (_, _) => Sky, (_, i) => Sky + star[i] + halo[i], [InjectedAt(128, 128)], manifest);
+        await File.WriteAllLinesAsync(Path.Combine(export, DatasetDegradationExporter.InjectionManifestFileName), manifest,
+            TestContext.Current.CancellationToken);
+
+        await StarRemovalMasks.RunAsync(export, StarRemovalMasks.Rule.DrawnStars, cancellationToken: TestContext.Current.CancellationToken);
+
+        var bytes = await File.ReadAllBytesAsync(Path.Combine(export, StarRemovalMasks.KeepPathFor(tile).Replace('/', Path.DirectorySeparatorChar)),
+            TestContext.Current.CancellationToken);
+        float At(int x, int y) => (float)BitConverter.ToHalf(bytes, ((y * Size) + x) * 2);
+        At(137, 128).ShouldBe(1f, "the halo's light counts out to three PSF widths (9 px) from the star");
+        At(139, 128).ShouldBe(1f, "and the margin of one PSF width past it");
+        At(141, 128).ShouldBe(0f, "the halo beyond is left out, though it stands far over the noise there");
+        At(128, 141).ShouldBe(0f, "on every side");
+    }
+
+    /// <summary>
+    /// A draw that has its mask is skipped, so an export whose masks one rule wrote would keep them under the other's name.
+    /// The first run records its rule and the other is refused; masks from before the record existed are D4's.
+    /// </summary>
+    [Fact]
+    public async Task AnExportTakesOneMaskRule()
+    {
+        var root = _folders.Create("starless-masks-").FullName;
+        var export = Path.Combine(root, "export");
+        var star = Star(128, 128, 1.0, 3.0);
+        var manifest = new List<string>();
+        WriteDraw(export, "S", 0, (_, _) => Sky, (_, i) => Sky + star[i], [InjectedAt(128, 128)], manifest);
+        await File.WriteAllLinesAsync(Path.Combine(export, DatasetDegradationExporter.InjectionManifestFileName), manifest,
+            TestContext.Current.CancellationToken);
+        var ct = TestContext.Current.CancellationToken;
+
+        (await StarRemovalMasks.RefusalAsync(export, StarRemovalMasks.Rule.DrawnStars, ct)).ShouldBeNull("an export with no mask takes either rule");
+        await StarRemovalMasks.RunAsync(export, cancellationToken: ct);
+
+        (await StarRemovalMasks.RefusalAsync(export, StarRemovalMasks.Rule.PlateSources, ct)).ShouldBeNull("the rule that wrote the masks runs again");
+        var refusal = await StarRemovalMasks.RefusalAsync(export, StarRemovalMasks.Rule.DrawnStars, ct);
+        refusal.ShouldNotBeNull();
+        refusal.ShouldContain(nameof(StarRemovalMasks.Rule.PlateSources));
+        await Should.ThrowAsync<InvalidOperationException>(() => StarRemovalMasks.RunAsync(export, StarRemovalMasks.Rule.DrawnStars, cancellationToken: ct));
+
+        // An export masked before the record existed: its masks are D4's.
+        File.Delete(Path.Combine(export, StarRemovalMasks.RuleFileName));
+        (await StarRemovalMasks.RefusalAsync(export, StarRemovalMasks.Rule.DrawnStars, ct)).ShouldNotBeNull("masks with no record are the plate-sources rule's");
+        (await StarRemovalMasks.RefusalAsync(export, StarRemovalMasks.Rule.PlateSources, ct)).ShouldBeNull();
+
+        // Masks deleted to be redone by the other rule: a record left behind speaks for nothing, and the run rewrites it.
+        await StarRemovalMasks.RunAsync(export, StarRemovalMasks.Rule.PlateSources, cancellationToken: ct);
+        foreach (var keep in Directory.EnumerateFiles(export, "*" + StarRemovalMasks.KeepTileExtension,SearchOption.AllDirectories))
+        {
+            File.Delete(keep);
+        }
+        File.Exists(Path.Combine(export, StarRemovalMasks.RuleFileName)).ShouldBeTrue();
+        (await StarRemovalMasks.RefusalAsync(export, StarRemovalMasks.Rule.DrawnStars, ct)).ShouldBeNull("with no mask left the stale record is ignored");
+        await StarRemovalMasks.RunAsync(export, StarRemovalMasks.Rule.DrawnStars, cancellationToken: ct);
+        (await StarRemovalMasks.RefusalAsync(export, StarRemovalMasks.Rule.PlateSources, ct)).ShouldNotBeNull();
+    }
+
     [Fact]
     public async Task TheSkysChangeIsTakenApartPerSessionIntoLevelColourAndNoise()
     {

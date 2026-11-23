@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System;
 using System.Collections.Generic;
 using System.CommandLine;
@@ -41,9 +42,13 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
     {
         public string Name => name;
 
+        /// <summary>The channel count of every image this stand-in was handed: what tells one colour image from three mono planes.</summary>
+        public ConcurrentQueue<int> ChannelsSeen { get; } = new();
+
         public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
         {
             var (channels, width, height) = input.Shape;
+            ChannelsSeen.Enqueue(channels);
             var planes = new float[channels][,];
             for (var c = 0; c < channels; c++)
             {
@@ -376,7 +381,9 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
             WorkbenchFixtures.StartingFromResult("blue-denoised", "red-denoised", DenoiseColourOperation.Blue)), ct);
         var runner = new WorkbenchRunner(Catalog());
 
+        var seen = Denoiser.ChannelsSeen.Count;
         var report = await runner.RunAsync(folder, new WorkbenchRunOptions { Say = output.WriteLine }, ct);
+        var workbenchCalls = Denoiser.ChannelsSeen.Skip(seen).ToArray();
 
         report.Succeeded.ShouldBeTrue(string.Join("; ", report.Images.SelectMany(static image => image.Steps).Select(static step => step.Message)));
         ImageReport Of(string name) => report.Images.Single(image => image.Name == name);
@@ -395,10 +402,25 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
             ShouldBeTheSameFile(extra, verbs[extra], name);
         }
 
-        // The planes went through as one image and came back as three: none is another's.
-        var denoisedRed = WorkbenchFixtures.Read(plane);
-        var denoisedGreen = WorkbenchFixtures.Read(Path.Combine(folder, StepStore.FolderName, StepStore.FileNameOf(Of("green-denoised").Key)));
-        denoisedRed[0, 100, 100].ShouldNotBe(denoisedGreen[0, 100, 100]);
+        // The planes went through as one colour image (the stand-in saw three channels at once, not three mono planes) and
+        // came back as three, each its OWN input's: the stand-in scales by 0.8, so a swapped or reused plane would show.
+        // Denoiser is shared by the class's tests, so only what THIS run's workbench step handed it counts (the replay
+        // through the verbs above has called it again).
+        workbenchCalls.ShouldBe([3]);
+        foreach (var (written, input) in new[]
+        {
+            (plane, red),
+            (Path.Combine(folder, StepStore.FolderName, StepStore.FileNameOf(Of("green-denoised").Key)), green),
+            (Path.Combine(folder, StepStore.FolderName, StepStore.FileNameOf(Of("blue-denoised").Key)), blue),
+        })
+        {
+            var result = WorkbenchFixtures.Read(written);
+            var source = WorkbenchFixtures.Read(input);
+            foreach (var (x, y) in new[] { (100, 100), (60, 140), (150, 90) })
+            {
+                result[0, y, x].ShouldBe(source[0, y, x] * 0.8f, Math.Max(1f, MathF.Abs(source[0, y, x]) * 0.02f), Path.GetFileName(written));
+            }
+        }
     }
 
     /// <summary>
@@ -594,5 +616,97 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
         refused.Exit.ShouldBe(2);
         refused.Said.ShouldContain("2 gradient: refused");
         refused.Said.ShouldContain("past the image width 256");
+    }
+
+    [Fact(Timeout = 300_000)]
+    public async Task TheWorkbenchRunVerbPrintsTheNoteWhenTheProjectFileCannotBeRecordedInto()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("workbench-verb-note-").FullName;
+        var master = WorkbenchFixtures.WriteMaster(folder, "master", WorkbenchFixtures.Master(seed: 1));
+        await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("m", master,
+                WorkbenchFixtures.Edit(GradientOperation.Id, new JsonObject { ["backend"] = "classical" }))), ct);
+        var said = new List<string>();
+        var host = Substitute.For<IConsoleHost>();
+        host.When(h => h.WriteScrollable(Arg.Any<string>(), Arg.Any<bool>())).Do(call =>
+        {
+            var line = call.Arg<string>();
+            said.Add(line);
+            // The step speaks while the run works, before its results are recorded: the person removes project.json then.
+            if (line.Contains("[m 1 gradient]") && File.Exists(WorkbenchProjectFile.PathIn(folder)))
+            {
+                File.Delete(WorkbenchProjectFile.PathIn(folder));
+            }
+        });
+        host.When(h => h.WriteError(Arg.Any<string>())).Do(call => said.Add("error: " + call.Arg<string>()));
+        var catalog = Catalog();
+        var workbench = new WorkbenchSubCommand(host, catalog, new WorkbenchRunner(catalog)).Build();
+
+        var exit = await workbench.Parse(["run", folder]).InvokeAsync(cancellationToken: ct);
+
+        var text = string.Join(Environment.NewLine, said);
+        output.WriteLine(text);
+        exit.ShouldBe(0, "a run that only could not record is still a success");
+        text.ShouldContain("[workbench] note: ");
+        text.ShouldContain("removed or saved half way");
+        File.Exists(WorkbenchProjectFile.PathIn(folder)).ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// The verbs that take several masters name a file for each result, and refuse what they cannot do so with: -o some
+    /// other number of times than there are masters, the stars' files likewise or with <c>--no-stars</c>, and two
+    /// results named into one file, which would be one of them written over the other without a word.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task AVerbForSeveralMastersRefusesOutputsItCannotGiveEachAFileOfItsOwn()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("outputs-").FullName;
+        var a = WorkbenchFixtures.WriteMaster(folder, "a", WorkbenchFixtures.Master(seed: 1));
+        var b = WorkbenchFixtures.WriteMaster(folder, "b", WorkbenchFixtures.Master(seed: 2));
+        var (x, s) = (Path.Combine(folder, "x.fits"), Path.Combine(folder, "s.fits"));
+        var (image, said) = ImageCommand();
+
+        async Task RefusesAsync(string says, params string[] line)
+        {
+            said.Clear();
+            var exit = await image.Parse(line).InvokeAsync(cancellationToken: ct);
+            exit.ShouldBe(1, string.Join(' ', line));
+            string.Join(Environment.NewLine, said).ShouldContain(says);
+        }
+
+        await RefusesAsync("-o is given once for each input (2), or not at all; got 1", "match-psf", a, b, "-o", x);
+        await RefusesAsync("is named twice among the outputs", "match-psf", a, b, "-o", x, "-o", x);
+        // The same file under another spelling of its path is the same file.
+        await RefusesAsync("is named twice among the outputs", "deblur", a, b, "-o", x, "-o", Path.Combine(folder, ".", "x.fits"));
+        await RefusesAsync("--stars-output is given once for each master (2)", "remove-stars", a, b, "--stars-output", s);
+        await RefusesAsync("not with --no-stars", "remove-stars", a, "--no-stars", "--stars-output", s);
+        await RefusesAsync("is named twice among the starless and the stars outputs", "remove-stars", a, "-o", x, "--stars-output", x);
+        await RefusesAsync("is named twice among the starless and the stars outputs", "remove-stars", a, b, "--stars-output", s, "--stars-output", s);
+
+        // A refusal writes nothing: the two masters are all there is.
+        Directory.GetFiles(folder).Select(static file => Path.GetFileName(file)).Order(StringComparer.Ordinal).ToArray().ShouldBe(["a.fits", "b.fits"]);
+    }
+
+    /// <summary>The list of operations says what an edit of a shared run names, and what a step gives beside its own
+    /// image, so a person reading it learns both.</summary>
+    [Fact]
+    public async Task TheListOfOperationsSaysWhatASharedRunTakesAndWhatAStepGives()
+    {
+        var said = new List<string>();
+        var host = Substitute.For<IConsoleHost>();
+        host.When(h => h.WriteScrollable(Arg.Any<string>(), Arg.Any<bool>())).Do(call => said.Add(call.Arg<string>()));
+        var catalog = Catalog();
+        var workbench = new WorkbenchSubCommand(host, catalog, new WorkbenchRunner(catalog)).Build();
+
+        var exit = await workbench.Parse(new[] { "operations" }).InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
+
+        exit.ShouldBe(0, string.Join(Environment.NewLine, said));
+        // Under each operation of a shared run, and under no other.
+        var takesTheRun = said.Count(static line => line.Contains("takes the other images of its run, any number of them", StringComparison.Ordinal));
+        takesTheRun.ShouldBe(catalog.All.Count(static operation => operation.Description.Joint));
+        takesTheRun.ShouldBe(4, "match-psf, deblur, denoise and remove-stars");
+        said.ShouldContain(line => line.StartsWith($"    gives {RemoveStarsOperation.Stars}: ", StringComparison.Ordinal));
     }
 }

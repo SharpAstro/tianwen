@@ -124,7 +124,7 @@ internal sealed class SolveSubCommand(
 
         var outputOpt = new Option<string?>("--output", "-o")
         {
-            Description = "Write the image with the solved WCS to this FITS file, and leave the input as it is. Needs a successful solve.",
+            Description = "Write the image with the solved WCS to this FITS file, and leave the input as it is. The map sidecars beside the input (coverage, rejection, saturation, standard error) are written beside the file too, and any left beside it from an earlier file are removed. The input's own path is refused; --update-fits writes the input. Needs a successful solve.",
         };
 
         var annotateOpt = new Option<string?>("--annotate")
@@ -217,6 +217,19 @@ internal sealed class SolveSubCommand(
                 return 1;
             }
 
+            // -o leaves the input as it is, so it cannot name it: --update-fits is the flag that writes the input.
+            if (parseResult.GetValue(outputOpt) is { } noPath && string.IsNullOrWhiteSpace(noPath))
+            {
+                consoleHost.WriteError("[solve] -o needs the path of the file to write");
+                return 1;
+            }
+
+            if (parseResult.GetValue(outputOpt) is { } sameAsInput && IsSameFile(fitsPath, sameAsInput))
+            {
+                consoleHost.WriteError("[solve] -o names the input, which it leaves as it is; use --update-fits to write the solution into it");
+                return 1;
+            }
+
             if (!Image.TryReadImageFile(fitsPath, out var image, out var existingWcs))
             {
                 consoleHost.WriteError($"Failed to read image file: {fitsPath}");
@@ -262,7 +275,7 @@ internal sealed class SolveSubCommand(
                     // terminal: the input is never written.
                     try
                     {
-                        SolveOperation.WriteSolved(image, solvedWcs, outputPath);
+                        SolveOperation.WriteSolved(image, solvedWcs, outputPath, isFits ? fitsPath : null);
                         consoleHost.WriteScrollable($"[solve] wrote the solved image to {outputPath}");
                     }
                     catch (Exception e) when (e is IOException or UnauthorizedAccessException or NotSupportedException)
@@ -344,6 +357,10 @@ internal sealed class SolveSubCommand(
         });
         return solveCommand;
     }
+
+    /// <summary>Whether two paths name the same file (compared by full path; a case-only difference counts as the same
+    /// on a case-insensitive file system).</summary>
+    internal static bool IsSameFile(string a, string b) => TianWen.Lib.Imaging.Stacking.MasterCrop.IsSameFile(a, b);
 
     /// <summary>The code a solve ends with. No solution is the run's first answer and keeps its code, 2, whatever an
     /// export did; 3 is a solved run of which an export (or the <c>-o</c> image) failed; 0 a solved run with every

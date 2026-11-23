@@ -240,7 +240,7 @@ What exists, read from the code on 2026-11-19:
 - `image autocrop` is the CLI verb, and **it builds `CropSettings` and calls `CropOperation`**, whose `TryResolve` calls `MasterAutoCrop.Scan` with `MasterAutoCropRule.ForModel(--trim-declined,
   --margin)`, keeping only parsing and printing. A rectangle the user gives is `image crop <input> --x --y --width --height [-o]` (#2244;
   the owner, 2026-11-19: "we can add a crop verb, takes in four parameters, but that is a seperate thing"). It calls
-  `MasterCrop` in Lib, which refuses a rectangle not wholly inside the image in words and writes nothing, moves the WCS
+  `CropOperation` too (`TryResolve`, then `Write`), which goes on to `MasterCrop` in Lib, which refuses a rectangle not wholly inside the image in words and writes nothing, moves the WCS
   (`WCS.CroppedTo`) and carries the alignment provenance (`AlignmentProvenance.ForCrop`) and the stack cards (`STACK_N`,
   `SNAPSHOT`, `REJ_TOT`, `REJ_RATE`, `STRATEGY`; the two rejection cards stay those of the uncropped master). `image
   autocrop` writes through the same routine, so its output carries the same. The pixels are read once per crop.
@@ -270,7 +270,7 @@ able to set the rectangle by hand.
 - **While the frame is dragged the display clip draws it**, over the uncropped texture, so nothing is uploaded again. The clip
   and `Image.Crop` are given the same rectangle from one place; that they agree to the pixel is a test.
 - **The rectangle solver is in Lib** (rule 1, and the repo's rule that pure math lives in `TianWen.Lib`): the viewer and
-  `image autocrop` call `MasterAutoCrop` today, and the workbench will. W10.
+  `image autocrop` (through `CropOperation.TryResolve`) call `MasterAutoCrop` today, and so does the workbench. W10.
 - **`tianwen stack` does not call it yet.** Its autocrop (`MasterPostProcessor`) is the registration intersection (the
   rectangle every frame's outline covers) clipped by the in-memory coverage (`ClipToCoverage`, `LargestCoveredRectangle` at
   `AbsenceFraction` 0.5 over 8 px blocks, where absence is a block under half of full weight), and has no edge walk. The
@@ -441,7 +441,7 @@ that name. Every non-empty Missing cell names the open issue that carries it.
 
 | Group | Operation | Routine | Verb | Missing |
 |---|---|---|---|---|
-| Geometry | Crop, auto-crop | `Image.Crop`, `WCS.CroppedTo`, `MasterCrop`, `MasterAutoCrop` (the rectangle solver, in Lib) | `image crop` (a given rectangle, #2244), `image autocrop` (calls `MasterAutoCrop`) | `tianwen stack` still crops by its own rule: whether it should call `MasterAutoCrop` (#2291, see Crop and auto-crop) |
+| Geometry | Crop, auto-crop | `Image.Crop`, `WCS.CroppedTo`, `MasterCrop`, `MasterAutoCrop` (the rectangle solver, in Lib) | `image crop` (a given rectangle, #2244), `image autocrop` (through `CropOperation`, which calls `MasterAutoCrop`) | `tianwen stack` still crops by its own rule: whether it should call `MasterAutoCrop` (#2291, see Crop and auto-crop) |
 | Geometry | Rotate, flip | `Image.TransformAsync` and `WarpToReferenceGridAsync` (a matrix; no named rotate or flip; `Image.Affine` is a per-value line, not geometry) | none | The routine and verb; the WCS carried (#2280) |
 | Geometry | Resample, bin | `Image.BilinearResize` (WCS passed through unscaled), `Image.Downsample` | none | The verbs; the WCS scaled (#2281) |
 | Geometry | Align to a reference | `FrameRegistration` | `image align` | |
@@ -555,13 +555,13 @@ each step's output is bit-identical to its CLI verb's.
    and `remove-stars` (two results: the starless plate and the stars), `combine`, the recipe as one step, and
    `denoise-colour` (`image denoise --colour`: three planes in fixed places as one colour image, and three results).
    None is left.
-2. The canonical enhance (#2466): `image sharpen`, its settings turned into the `SharpenStep` records.
+2. The canonical enhance (#2466). Built as `EnhanceOperation`: its settings say which steps of `LinearEnhanceProgram`
+   are kept and at what strength, the program turns them into the `SharpenStep` records in the one place that already
+   did, and `image sharpen` takes its program from the operation and adds only its own stretches. Its steps as edits of
+   their own (the toggles of the Process step, each with before and after) are W6's.
 3. The deep-sky frame steps (#2467): scan, grade, calibrate, register and integrate, which take a set of frames, not an
    image.
-4. The planetary steps (#2468): grade, stack, de-rotate, sharpen, colour. Built: the AUTO stack (`planetary-stack`,
-   the routine of `planetary stack --auto`): a capture is an image's original, its linear master the step's result and
-   its sharpened master a result beside it. Left: the stack with settings of its own, the grades as a step, the
-   de-rotation of several stacks, the sharpening of a master, the colour.
+4. The planetary steps (#2468): grade, stack, de-rotate, sharpen, colour.
 5. An operation that writes no pixels (#2469). Built: the kind (the plan's "metadata": the finding is kept in the
    store, and the step after it takes its input with the finding applied) and the plate solve as the first, `tianwen
    solve` calling it and gaining `-o`. Statistics is not a step of an edit list: a measurement changes nothing a later

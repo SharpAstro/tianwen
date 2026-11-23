@@ -96,7 +96,9 @@ public sealed class N2nDenoiser(
     private InferenceSession? _session;
     private bool _disposed;
 
-    public string Name => "Denoiser (TianWen N2N, OSC)";
+    /// <summary>The name carries the model's file: a retrain is a new file (its contract), so it is a new name, and a
+    /// step's key, which holds what served it (<c>SharpenPipeline.DescribeRoles</c>), is then a new key.</summary>
+    public string Name => $"Denoiser (TianWen N2N, OSC, {ModelFileName})";
 
     /// <summary>
     /// Serves 3-channel input whose weights resolve with a contract beside them, and nothing else: a mono

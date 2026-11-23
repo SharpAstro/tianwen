@@ -55,7 +55,9 @@ public sealed class OnnxTianWenDeconvolver(
         _modelFileName = modelFileName;
     }
 
-    public string Name => "Deblur (TianWen E3.4d operator)";
+    /// <summary>The name carries the model's file: a retrain is a new file (its contract), so it is a new name, and a
+    /// step's key, which holds what served it (<c>SharpenPipeline.DescribeRoles</c>), is then a new key.</summary>
+    public string Name => $"Deblur (TianWen E3.4d operator, {_modelFileName})";
 
     /// <summary>
     /// Serves a three-channel frame under <see cref="EnhanceBackend.TianWen"/> with a kernel stated, when the weights and

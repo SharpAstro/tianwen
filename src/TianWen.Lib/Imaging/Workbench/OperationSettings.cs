@@ -223,6 +223,7 @@ public sealed record ContinuumSettings
 [JsonSerializable(typeof(CropSettings))]
 [JsonSerializable(typeof(LinearFitSettings))]
 [JsonSerializable(typeof(GradientSettings))]
+[JsonSerializable(typeof(EnhanceSettings))]
 [JsonSerializable(typeof(NoSettings))]
 [JsonSerializable(typeof(AddLineSettings))]
 [JsonSerializable(typeof(LrgbSettings))]
@@ -234,7 +235,6 @@ public sealed record ContinuumSettings
 [JsonSerializable(typeof(RemoveStarsSettings))]
 [JsonSerializable(typeof(CombineSettings))]
 [JsonSerializable(typeof(SolveSettings))]
-[JsonSerializable(typeof(PlanetaryStackSettings))]
 public sealed partial class OperationSettingsJsonContext : JsonSerializerContext
 {
 }

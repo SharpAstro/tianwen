@@ -28,6 +28,14 @@ public interface IEnhancerAvailability
     string? Refusal(EnhanceOptions options) => null;
 
     /// <summary>
+    /// The name of what would serve under <paramref name="options"/>, where that follows from them: a deferred
+    /// RC-Astro role is RC-Astro under one backend and the in-house model under another, and an enhance step's key
+    /// names the one its own settings would run (#2475). Null for an enhancer that is one thing whatever the options,
+    /// whose <see cref="IImageEnhancer.Name"/> says it.
+    /// </summary>
+    string? NameUnder(EnhanceOptions options) => null;
+
+    /// <summary>
     /// Whether <paramref name="role"/> is registered AND serves an input of <paramref name="channelCount"/>
     /// channels under <paramref name="options"/>: the ONE rule every caller asks. A registration is not
     /// an answer, because a deferred RC-Astro role is registered on every host and serves only where the

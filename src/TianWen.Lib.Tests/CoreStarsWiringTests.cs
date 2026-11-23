@@ -374,6 +374,103 @@ public sealed class CoreStarsWiringTests(ITestOutputHelper output) : IDisposable
         (stars[0, star.Y, star.X] / (frame[star.Y, star.X] - model[star.Y, star.X])).ShouldBe(1f, 1e-3f, "it is in the stars");
     }
 
+    // A flat sky with one star, and a plate a remover would make of it that stands over the input on the top half and
+    // under it on the bottom half (#2433).
+    private static (float[,] Frame, float[,] Plate) OvershootScene()
+    {
+        const int size = 64;
+        const float sky = 0.1f, noise = 1e-3f;
+        var rng = new Random(7);
+        var frame = new float[size, size];
+        var plate = new float[size, size];
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                var r2 = ((x - 40) * (x - 40)) + ((y - 40) * (y - 40));
+                var ground = sky + (float)(noise * StarInjection.Gaussian(rng));
+                frame[y, x] = ground + (float)(50 * noise * Math.Exp(-r2 / 8.0));
+                plate[y, x] = ground + (y < size / 2 ? 10 * noise : -10 * noise);
+            }
+        }
+        return (frame, plate);
+    }
+
+    [Fact(Timeout = 300_000)]
+    public async Task RemoveStarsHoldsThePlateUnderItsInputUnlessToldToKeepTheOvershoot()
+    {
+        // The switch is read where the command line is parsed, so it is driven there: a flipped condition would pass every
+        // test that hands the split its bool, and silently clamp or unclamp every scorer row (#2433, #2245).
+        var ct = TestContext.Current.CancellationToken;
+        var (frame, plate) = OvershootScene();
+        var dir = _folders.Create("keep-overshoot-").FullName;
+        var inputPath = Write(frame, dir, "master", wcs: null);
+        var (command, said) = ImageCommand(new FixedRemover(plate, PeakOf(frame)), db: null);
+
+        async Task<(Image Starless, Image Stars)> RunAsync(string name, params string[] more)
+        {
+            said.Clear();
+            var outPath = Path.Combine(dir, name + ".fits");
+            var exit = await command.Parse(["remove-stars", inputPath, "-o", outPath, "--no-protect-cores", .. more]).InvokeAsync(cancellationToken: ct);
+            foreach (var line in said)
+            {
+                output.WriteLine(line);
+            }
+            exit.ShouldBe(0);
+            return (Read(outPath), Read(ImageSubCommand.StarsOutput(outPath)));
+        }
+
+        var (held, heldStars) = await RunAsync("held");
+        var (kept, keptStars) = await RunAsync("kept", "--keep-overshoot");
+        for (var y = 0; y < frame.GetLength(0); y++)
+        {
+            for (var x = 0; x < frame.GetLength(1); x++)
+            {
+                held[0, y, x].ShouldBeLessThanOrEqualTo(frame[y, x], $"held: the plate at or under its input at {x},{y}");
+                heldStars[0, y, x].ShouldBeGreaterThanOrEqualTo(0f, $"held: no negative star at {x},{y}");
+            }
+        }
+        kept[0, 8, 8].ShouldBeGreaterThan(frame[8, 8], "--keep-overshoot: the remover's own plate stands over its input");
+        keptStars[0, 8, 8].ShouldBeLessThan(0f, "--keep-overshoot: so its stars there are negative");
+        held[0, 8, 8].ShouldBe(frame[8, 8], "held: at the input where the remover stood over it");
+        kept[0, 56, 8].ShouldBe(held[0, 56, 8], "under its input the two agree");
+    }
+
+    [Fact(Timeout = 300_000)]
+    public async Task FillDigsHoldsThePlateUnderItsInputUnlessToldToKeepTheOvershoot()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (frame, plate) = OvershootScene();
+        var dir = _folders.Create("keep-overshoot-fill-").FullName;
+        var (inputPath, starlessPath) = (Write(frame, dir, "master", wcs: null), Write(plate, dir, "master_starless", wcs: null));
+        var (command, said) = ImageCommand(new FixedRemover(plate, PeakOf(frame)), db: null);
+
+        async Task<Image> RunAsync(string name, params string[] more)
+        {
+            said.Clear();
+            var outPath = Path.Combine(dir, name + ".fits");
+            var exit = await command.Parse(["fill-digs", "--input", inputPath, "--starless", starlessPath, "-o", outPath, .. more]).InvokeAsync(cancellationToken: ct);
+            foreach (var line in said)
+            {
+                output.WriteLine(line);
+            }
+            exit.ShouldBe(0);
+            return Read(outPath);
+        }
+
+        var held = await RunAsync("held");
+        var kept = await RunAsync("kept", "--keep-overshoot");
+        for (var y = 0; y < frame.GetLength(0); y++)
+        {
+            for (var x = 0; x < frame.GetLength(1); x++)
+            {
+                held[0, y, x].ShouldBeLessThanOrEqualTo(frame[y, x], $"held: the plate at or under its input at {x},{y}");
+            }
+        }
+        kept[0, 8, 8].ShouldBeGreaterThan(frame[8, 8], "--keep-overshoot: the plate keeps what stood over its input");
+        held[0, 8, 8].ShouldBe(frame[8, 8], "held: at the input where the plate stood over it");
+    }
+
     [Fact]
     public async Task AHeadersPointingOrAMadeUpMatrixIsNoSolutionToPlaceStarsWith()
     {

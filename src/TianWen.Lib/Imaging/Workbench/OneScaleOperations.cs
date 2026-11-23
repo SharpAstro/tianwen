@@ -97,7 +97,7 @@ public sealed class MatchPsfOperation : JointOperation<NoSettings>
 /// (<see cref="NarrowbandCombination.DeblurAsync"/>): linear in, linear out, each result on its input's scale, several
 /// masters on one scale with the headroom below the deblurrer's ceiling. <c>image deblur</c> calls this.
 /// </summary>
-public sealed class DeblurOperation(IImageDeblurrer? deblurrer) : JointOperation<DeblurSettings>
+public sealed class DeblurOperation(IImageDeblurrer? deblurrer = null) : JointOperation<DeblurSettings>
 {
     /// <summary>The operation's id.</summary>
     public const string Id = "deblur";
@@ -183,7 +183,7 @@ public sealed class DeblurOperation(IImageDeblurrer? deblurrer) : JointOperation
 /// one colour image) is not this operation: there the order of the planes is their colour, and a run here must not
 /// depend on the order its images are handed in.
 /// </remarks>
-public sealed class DenoiseOperation(IDenoiseEnhancer? denoiser) : JointOperation<DenoiseSettings>
+public sealed class DenoiseOperation(IDenoiseEnhancer? denoiser = null) : JointOperation<DenoiseSettings>
 {
     /// <summary>The operation's id.</summary>
     public const string Id = "denoise";
@@ -274,7 +274,7 @@ public sealed class DenoiseOperation(IDenoiseEnhancer? denoiser) : JointOperatio
 /// that starts from the step (<see cref="ProjectImage.Result"/>).</para>
 /// <para>Hand it STARLESS planes: the stars are never denoised.</para>
 /// </remarks>
-public sealed class DenoiseColourOperation(IDenoiseEnhancer? denoiser) : MultiResultOperation<DenoiseSettings>
+public sealed class DenoiseColourOperation(IDenoiseEnhancer? denoiser = null) : MultiResultOperation<DenoiseSettings>
 {
     /// <summary>The operation's id.</summary>
     public const string Id = "denoise-colour";
@@ -400,7 +400,7 @@ public sealed class DenoiseColourOperation(IDenoiseEnhancer? denoiser) : MultiRe
 /// <para>What serves it is in the step's key: the remover's name and, with core protection on, the star catalogue
 /// that would answer for the stars inside a core.</para>
 /// </remarks>
-public sealed class RemoveStarsOperation(IStarRemover? starRemover, ICelestialObjectDB? objectDb = null, ILogger<RemoveStarsOperation>? logger = null)
+public sealed class RemoveStarsOperation(IStarRemover? starRemover = null, ICelestialObjectDB? objectDb = null, ILogger<RemoveStarsOperation>? logger = null)
     : JointOperation<RemoveStarsSettings>
 {
     /// <summary>The operation's id.</summary>

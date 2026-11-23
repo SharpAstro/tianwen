@@ -81,6 +81,10 @@ public sealed record ImageReport(
 /// <param name="Exported">The file an export wrote; null when none was asked for or it failed.</param>
 public sealed record WorkbenchReport(ImmutableArray<ImageReport> Images, string? Refusal, string? Exported = null)
 {
+    /// <summary>Something a person should know that is not a refusal (the run's results could not be recorded in an
+    /// unreadable project file); the run still succeeded. Null when there is nothing to say.</summary>
+    public string? Note { get; init; }
+
     /// <summary>True when nothing was refused: the project read, every image has its file, and no step is refused or blocked.</summary>
     public bool Succeeded => Refusal is null
         && Images.All(static image => image.Refusal is null
@@ -94,7 +98,9 @@ public sealed record WorkbenchRunOptions
     public string? Image { get; init; }
 
     /// <summary>Also write <see cref="Image"/>'s final result as this file. A derived result (a crop) has no file of
-    /// its own, so this is how one is had: the operation's own routine writes it, as its verb would.</summary>
+    /// its own, so this is how one is had: the operation's own routine writes it, as its verb would. A step that
+    /// writes no pixels (the plate solve) keeps only its finding, a header-only FITS file with no image, so the
+    /// image to have is this export.</summary>
     public string? ExportPath { get; init; }
 
     /// <summary>Takes each line a step reports, with the step named in front.</summary>
@@ -110,7 +116,8 @@ public sealed record WorkbenchRunOptions
 /// needs it. A project run twice runs nothing the second time; a changed setting changes the key of its step and of
 /// the steps after it, so those run and the ones before it do not (the plan's rule 2).</para>
 /// <para><b>Work is pulled from the end.</b> A step whose result is in the store needs nothing before it, so an
-/// earlier result that is gone is not made again for its sake.</para>
+/// earlier result that is gone is not made again for its sake. A step that writes no pixels is the exception: what
+/// it keeps is a finding, not an image, so it needs its input whenever its own result is needed.</para>
 /// <para><b>A stored step reads a file and writes a file.</b> Only a derived step hands its result over in memory,
 /// and only to the step after it.</para>
 /// <para><b>A step that writes no pixels keeps its finding.</b> The finding is in the store under a key of its own
@@ -227,9 +234,9 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
         // The report is read off the plan before the project file takes this run's keys, so "changed since the last
         // run" is said against the run before this one.
         var report = new WorkbenchReport([.. images.Select(image => planner.Plan(image.Name).Report())], refusal, exported);
-        if (run)
+        if (run && await RecordAsync(folder, project, planner, cancellationToken) is { } note)
         {
-            await RecordAsync(folder, project, planner, cancellationToken);
+            report = report with { Note = note };
         }
 
         return report;
@@ -271,6 +278,19 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
     // store) the file it has just been run into. Null when it, or something before it, gave no result.
     private static async ValueTask<OperationInput?> EnsureAsync(Node node, StepStore store, Action<string>? say, CancellationToken cancellationToken)
     {
+        var handed = await MakeAsync(node, store, say, cancellationToken);
+        if (handed is null && node is { Attempt: { } attempt, Step: { State: StepState.Refused, Message: { } why } })
+        {
+            // What it was refused for is kept for the length of the call, under the step's key or the key of the run
+            // it shares: another edit list that asks for the same one is told the same, and nothing runs again.
+            attempt.Refusal ??= why;
+        }
+
+        return handed;
+    }
+
+    private static async ValueTask<OperationInput?> MakeAsync(Node node, StepStore store, Action<string>? say, CancellationToken cancellationToken)
+    {
         if (node.File is { } file)
         {
             return OperationInput.FromFile(file);
@@ -299,6 +319,15 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             node.File = made;
             step.State = StepState.Kept;
             return OperationInput.FromFile(made);
+        }
+
+        if (node.Attempt is { Refusal: { } refusedEarlier })
+        {
+            // Another edit list of this call asked for this step, or for the run it shares, and it gave nothing. A
+            // remover that fails after minutes of work is not run again for each master of its run, to fail again.
+            step.State = StepState.Refused;
+            step.Message = refusedEarlier;
+            return null;
         }
 
         var inputs = await EnsureInputsAsync(node, step, store, say, cancellationToken);
@@ -473,8 +502,8 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                 return null;
             }
 
-            // The extra results first and the main one last: a step is kept only when all of them are there, so a run
-            // that ends in between is made again.
+            // The extra results first and the main one last. The order does not decide what is kept (InStore needs the main
+            // result and every extra, so a run that ends between two commits is made again either way).
             for (var i = stagings.Count - 1; i >= 0; i--)
             {
                 await store.CommitAsync(stagings[i], several.Description.Id, cancellationToken);
@@ -588,30 +617,34 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
     // minutes, so the file is read again under the file's lock and the keys go onto the edits that are still the ones
     // the run planned: an edit made to project.json meanwhile is kept, and an edit changed since gets no key of a
     // result it did not make.
-    private static async Task RecordAsync(string folder, WorkbenchProject project, Planner planner, CancellationToken cancellationToken)
+    // Returns a note when the file could not be read under the lock (missing, or saved half way): it is then left as
+    // it is, never overwritten with the run's start-of-run copy, and the next run finds the results again by their keys.
+    private static async Task<string?> RecordAsync(string folder, WorkbenchProject project, Planner planner, CancellationToken cancellationToken)
     {
         if (!TryRecord(folder, project, planner, out _))
         {
-            return;
+            return null;
         }
 
-        // A project file that cannot be read now is someone's edit caught half way. It is left as it is: this run's
-        // keys are found again by the next run, and a person's edit is not.
-        if ((await WorkbenchProjectFile.ReadAsync(folder, cancellationToken)).Project is null)
-        {
-            return;
-        }
-
-        await SharedFile.UpdateJsonAsync(
+        // A null from the callback leaves the file as the person left it: nothing is staged, so nothing is overwritten.
+        var written = await SharedFile.UpdateJsonIfAsync(
             WorkbenchProjectFile.PathIn(folder),
             WorkbenchJsonContext.Default.WorkbenchProject,
             onDisk =>
             {
-                TryRecord(folder, onDisk ?? project, planner, out var recorded);
+                if (onDisk is null)
+                {
+                    return null;
+                }
+
+                TryRecord(folder, onDisk, planner, out var recorded);
                 return recorded;
             },
             logger: null,
             cancellationToken);
+        return written
+            ? null
+            : $"{WorkbenchProjectFile.PathIn(folder)} could not be read at the end of the run (it was removed or saved half way), so this run's results are not recorded in it; the next run finds them again";
     }
 
     // The keys and outputs of this run's plan put onto what is in <paramref name="current"/>, wherever the edit is still
@@ -703,6 +736,11 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
         /// the images of the run, sorted by key. Empty otherwise.</summary>
         public string RunKey { get; init; } = string.Empty;
 
+        /// <summary>What this step came to in this call, shared by every node of the same key (the run's key, for a
+        /// step several images go through in one run), so a refusal is run into once and said to each. Null for an
+        /// original and for a derived step, which run nothing.</summary>
+        public Attempt? Attempt { get; init; }
+
         /// <summary>The keys of the step's extra results.</summary>
         public ImmutableArray<string> ExtraKeys { get; init; } = [];
 
@@ -715,6 +753,13 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
         /// <summary>The finding's file once it is in the store. <see cref="File"/> stays null for such a step: it has no
         /// image there.</summary>
         public string? Finding { get; set; }
+    }
+
+    // What a step, or the run several images share, came to in one call.
+    private sealed class Attempt
+    {
+        /// <summary>Why it gave nothing, once it has run and been refused.</summary>
+        public string? Refusal { get; set; }
     }
 
     private sealed class StepPlan
@@ -773,8 +818,16 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
     {
         private readonly Dictionary<string, ImagePlan> _plans = new(StringComparer.Ordinal);
 
+        // What each step of this call came to, by its key, or by its run's key where several images share the run.
+        private readonly Dictionary<string, Attempt> _attempts = new(StringComparer.Ordinal);
+
         // The images being planned, outermost first. An image named again while it is in here takes itself.
         private readonly List<string> _planning = [];
+
+        // What serves an operation under given settings, asked once a plan. For a step a model serves the answer can
+        // cost a licence probe (an RC-Astro role names its backend by asking whether its product is licensed), and a
+        // plan would otherwise ask it for every step of every image, on a status as on a run.
+        private readonly Dictionary<(IOperation Operation, string Settings), string> _served = [];
 
         public bool Knows(string name) => byName.ContainsKey(name);
 
@@ -912,27 +965,41 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                 return head;
             }
 
-            // The last of that image's edits that gives a result of this name.
+            // The last of that image's edits that gives a result of this name. An edit that is switched on and could
+            // not be planned stops the search where it is the one that would give it, or where no operation has its
+            // name and so nothing says what it gives: an earlier edit's result is never taken for the last one's.
             for (var i = source.Steps.Count - 1; i >= 0; i--)
             {
-                if (source.Steps[i].Node is { Operation: { } operation } producer
-                    && operation.Description.ExtraResults.Any(result => string.Equals(result.Name, wanted, StringComparison.Ordinal)))
+                var each = source.Steps[i];
+                if (!each.Edit.Enabled || (operations.TryGet(each.Edit.Operation, out var named) && !Gives(named, wanted)))
                 {
-                    var key = StepKey.OfResult(producer.Key, wanted);
-                    plan.Key = key;
-                    return new Node
-                    {
-                        Label = $"{origin} {wanted}",
-                        Key = key,
-                        Producer = producer,
-                        File = InStore(store, producer) is null ? null : store.Find(key),
-                    };
+                    continue;
                 }
+
+                if (each.Node is not { } producer)
+                {
+                    plan.Refusal = $"edit {each.Index + 1} of the image '{origin}' ({each.Edit.Operation}), the last that would give '{wanted}', cannot be made";
+                    return null;
+                }
+
+                var key = StepKey.OfResult(producer.Key, wanted);
+                plan.Key = key;
+                return new Node
+                {
+                    Label = $"{origin} {wanted}",
+                    Key = key,
+                    Producer = producer,
+                    File = InStore(store, producer) is null ? null : store.Find(key),
+                };
             }
 
             plan.Refusal = $"no edit of the image '{origin}' gives a result named '{wanted}'";
             return null;
         }
+
+        // True for an operation one of whose results has this name.
+        private static bool Gives(IOperation operation, string result)
+            => operation.Description.ExtraResults.Any(role => string.Equals(role.Name, result, StringComparison.Ordinal));
 
         // The step's node, with its key and where it stands; null, with the step refused or blocked, when it cannot be planned.
         private Node? PlanStep(ImagePlan plan, StepPlan step, Node previous)
@@ -1000,7 +1067,7 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                     }
                 }
 
-                var runKey = StepKey.OfStep(operation.Description, settings, operation.ServedBy(settings), [.. members.Select(static member => member.Key)]);
+                var runKey = StepKey.OfStep(operation.Description, settings, Served(operation, settings), [.. members.Select(static member => member.Key)]);
                 var memberKey = StepKey.OfMember(runKey, previous.Key);
                 node = new Node
                 {
@@ -1011,6 +1078,7 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                     Inputs = members,
                     Step = step,
                     RunKey = runKey,
+                    Attempt = AttemptOf(runKey),
                     ExtraKeys = [.. operation.Description.ExtraResults.Select(result => StepKey.OfResult(memberKey, result.Name))],
                 };
                 step.CommandLine = joint.CommandLine(
@@ -1020,7 +1088,7 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             }
             else
             {
-                var key = StepKey.OfStep(operation.Description, settings, operation.ServedBy(settings), [.. inputs.Select(static input => input.Key)]);
+                var key = StepKey.OfStep(operation.Description, settings, Served(operation, settings), [.. inputs.Select(static input => input.Key)]);
                 node = new Node
                 {
                     Label = label,
@@ -1029,6 +1097,7 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                     Settings = settings,
                     Inputs = inputs.MoveToImmutable(),
                     Step = step,
+                    Attempt = operation is IDerivedOperation ? null : AttemptOf(key),
                     FindingKey = operation is IFindingOperation ? StepKey.OfFinding(key) : string.Empty,
                     ExtraKeys = [.. operation.Description.ExtraResults.Select(result => StepKey.OfResult(key, result.Name))],
                 };
@@ -1066,6 +1135,18 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             return node;
         }
 
+        // The one record of what a step, or the run several images share, came to in this call, by its key.
+        private Attempt AttemptOf(string key)
+        {
+            if (!_attempts.TryGetValue(key, out var attempt))
+            {
+                attempt = new Attempt();
+                _attempts[key] = attempt;
+            }
+
+            return attempt;
+        }
+
         // Where in the store the results under this key would be: what a step's command line names for them.
         private StepOutputs OutputsOf(OperationDescription description, string key)
             => new(store.PathOf(key))
@@ -1073,6 +1154,17 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                 Extra = description.ExtraResults.ToImmutableDictionary(
                     static result => result.Name, result => store.PathOf(StepKey.OfResult(key, result.Name)), StringComparer.Ordinal),
             };
+
+        private string Served(IOperation operation, string settings)
+        {
+            if (!_served.TryGetValue((operation, settings), out var served))
+            {
+                served = operation.ServedBy(settings);
+                _served[(operation, settings)] = served;
+            }
+
+            return served;
+        }
 
         private static Node? Refuse(StepPlan step, string why)
         {

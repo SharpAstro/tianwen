@@ -246,6 +246,41 @@ internal sealed class TogetherOperation : JointOperation<AddSettings>
     }
 }
 
+/// <summary>A stored operation that says of itself whatever it is told to: what a catalog refuses is read off it.</summary>
+internal sealed class DescribedOperation(OperationDescription description) : Operation<AddSettings>
+{
+    public override OperationDescription Description { get; } = description;
+
+    protected override JsonTypeInfo<AddSettings> SettingsInfo => WorkbenchTestJsonContext.Default.AddSettings;
+
+    public override ImmutableArray<string> CommandLine(AddSettings settings, IReadOnlyList<string> inputs, string output) => [Description.Id];
+
+    public override ValueTask<OperationOutcome> RunAsync(AddSettings settings, IReadOnlyList<OperationInput> inputs, string outputPath, Action<string>? say,
+        CancellationToken cancellationToken)
+        => ValueTask.FromResult(OperationOutcome.Done);
+}
+
+/// <summary>The same, of the kind several images go through in one run. Its run writes nothing: it fails with the
+/// words it was given, and counts how often it ran.</summary>
+internal sealed class DescribedJointOperation(OperationDescription description, string fails = "it gave up") : JointOperation<AddSettings>
+{
+    public int Runs { get; private set; }
+
+    public override OperationDescription Description { get; } = description;
+
+    protected override JsonTypeInfo<AddSettings> SettingsInfo => WorkbenchTestJsonContext.Default.AddSettings;
+
+    public override ImmutableArray<string> CommandLine(AddSettings settings, IReadOnlyList<string> members, IReadOnlyList<StepOutputs> outputs)
+        => [Description.Id, .. members];
+
+    public override ValueTask<OperationOutcome> RunJointAsync(AddSettings settings, IReadOnlyList<OperationInput> members, IReadOnlyList<StepOutputs> outputs,
+        Action<string>? say, CancellationToken cancellationToken)
+    {
+        Runs++;
+        return ValueTask.FromResult(OperationOutcome.Failed(fails));
+    }
+}
+
 /// <summary>A stored operation that writes half a result and then fails, and counts how often it ran.</summary>
 internal sealed class BreakOperation : Operation<AddSettings>
 {
@@ -526,6 +561,30 @@ public sealed class WorkbenchRunnerTests : IDisposable
 
         States(report).ShouldBe([StepState.Ran]);
         (await File.ReadAllTextAsync(WorkbenchProjectFile.PathIn(folder), ct)).ShouldBe(halfWay, "an edit caught half way is not written over with the run's own copy");
+        report.Succeeded.ShouldBeTrue();
+        report.Note.ShouldNotBeNull().ShouldContain("not recorded", Case.Insensitive, "a person who saved a broken file is told");
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task AProjectFileRemovedWhileARunWorksIsNotWrittenBackFromTheRunsCopy()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (folder, _) = await ProjectAsync("removed", m => WorkbenchFixtures.Project(WorkbenchFixtures.Picture("m", m, WorkbenchFixtures.Edit("add", Amount(1)))));
+        _add.DuringRun = () => File.Delete(WorkbenchProjectFile.PathIn(folder));
+
+        var report = await _runner.RunAsync(folder, cancellationToken: ct);
+
+        File.Exists(WorkbenchProjectFile.PathIn(folder)).ShouldBeFalse("the run's start-of-run copy is not put back over what the person did");
+        report.Note.ShouldNotBeNull().ShouldContain("removed", Case.Insensitive, "the note says the file is gone, not only unreadable");
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task ARunThatRecordsEverythingHasNoNote()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (folder, _) = await ProjectAsync("no-note", m => WorkbenchFixtures.Project(WorkbenchFixtures.Picture("m", m, WorkbenchFixtures.Edit("add", Amount(1)))));
+
+        (await _runner.RunAsync(folder, cancellationToken: ct)).Note.ShouldBeNull();
     }
 
     [Fact(Timeout = 120_000)]
@@ -681,6 +740,123 @@ public sealed class WorkbenchRunnerTests : IDisposable
         await EditAsync(folder, project => project with { Images = project.Images.Add(WorkbenchFixtures.StartingFromResult("bare", "a", TogetherOperation.Twin)) });
         var exported = await runner.RunAsync(folder, new WorkbenchRunOptions { Image = "bare", ExportPath = Path.Combine(folder, "bare.fits") }, ct);
         WorkbenchFixtures.Read(exported.Exported.ShouldNotBeNull(exported.Refusal))[0, 40, 50].ShouldBe(value + 1f, 1e-5f);
+    }
+
+    // A star removal that fails after minutes of model work is not paid for once for each master of its run.
+    [Fact(Timeout = 120_000)]
+    public async Task ARunThatIsRefusedIsRunOnceAndSaidToEveryEditListThatAsksForIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var givesUp = new DescribedJointOperation(
+            new OperationDescription("give-up", Version: 1, Title: "Give up", Verb: "none", OperationOutputKind.Stored, ExtraInputs: [], Settings: []) { Joint = true },
+            fails: "the remover gave up");
+        var breaking = new BreakOperation();
+        var runner = new WorkbenchRunner(new OperationCatalog([givesUp, breaking, _add]));
+        var (folder, _) = await ProjectAsync("refused-once", m => WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("a", m, WorkbenchFixtures.Edit("add", Amount(1))),
+            WorkbenchFixtures.Picture("b", m, WorkbenchFixtures.Edit("add", Amount(2))),
+            WorkbenchFixtures.Picture("c", m, WorkbenchFixtures.Edit("add", Amount(3))),
+            WorkbenchFixtures.Starting("a-out", "a", WorkbenchFixtures.Edit("give-up", null, "b", "c")),
+            WorkbenchFixtures.Starting("b-out", "b", WorkbenchFixtures.Edit("give-up", null, "c", "a")),
+            WorkbenchFixtures.Starting("c-out", "c", WorkbenchFixtures.Edit("give-up", null, "a", "b")),
+            // The same step in two edit lists is one step, and fails once too.
+            WorkbenchFixtures.Picture("d", m, WorkbenchFixtures.Edit("break")),
+            WorkbenchFixtures.Picture("e", m, WorkbenchFixtures.Edit("break"))));
+
+        var report = await runner.RunAsync(folder, cancellationToken: ct);
+
+        givesUp.Runs.ShouldBe(1, "a run that gave nothing for one master is not run again for the next");
+        var outs = report.Images.Skip(3).Take(3).Select(static image => image.Steps[0]).ToArray();
+        outs.Select(static step => step.State).ShouldBe([StepState.Refused, StepState.Refused, StepState.Refused]);
+        outs.Select(static step => step.Message).ShouldBe(["the remover gave up", "the remover gave up", "the remover gave up"]);
+        breaking.Runs.ShouldBe(1, "and so for a step two images share");
+        var shared = report.Images.Skip(6).Select(static image => image.Steps[0]).ToArray();
+        shared.Select(static step => step.State).ShouldBe([StepState.Refused, StepState.Refused]);
+        shared.Select(static step => step.Message).ShouldBe([BreakOperation.WhyItFails, BreakOperation.WhyItFails]);
+
+        // What is remembered is the call's: the next run tries again.
+        await runner.RunAsync(folder, cancellationToken: ct);
+
+        givesUp.Runs.ShouldBe(2);
+        breaking.Runs.ShouldBe(2);
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task AStepIsKeptOnlyWhileEveryOneOfItsResultsIsInTheStore()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var together = new TogetherOperation();
+        var runner = new WorkbenchRunner(new OperationCatalog([together, _add]));
+        var (folder, _) = await ProjectAsync("whole-or-again", m => WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("a", m, WorkbenchFixtures.Edit("together", Amount(10)))));
+        var first = await runner.RunAsync(folder, cancellationToken: ct);
+        var step = first.Images[0].Steps[0];
+        step.State.ShouldBe(StepState.Ran, step.Message);
+        var twin = Path.Combine(folder, StepStore.FolderName, StepStore.FileNameOf(StepKey.OfResult(step.Key, TogetherOperation.Twin)));
+        File.Exists(twin).ShouldBeTrue();
+
+        // Its main result is there and its second one is gone: the step is not whole, so it is made again, both of them.
+        File.Delete(twin);
+        var status = await runner.StatusAsync(folder, cancellationToken: ct);
+        var second = await runner.RunAsync(folder, cancellationToken: ct);
+
+        States(status).ShouldBe([StepState.WillRun]);
+        States(second).ShouldBe([StepState.Ran]);
+        together.Runs.ShouldBe(2);
+        File.Exists(twin).ShouldBeTrue();
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task AResultIsTheLastEditsThatGivesItAndNeverAnEarlierOnesWhereTheLastCannotBeMade()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var runner = new WorkbenchRunner(new OperationCatalog([new TogetherOperation(), _add]));
+        var (folder, _) = await ProjectAsync("last-gives", m => WorkbenchFixtures.Project(
+            // The second edit would give the twin last, and its settings are refused.
+            WorkbenchFixtures.Picture("a", m, WorkbenchFixtures.Edit("together", Amount(10)), WorkbenchFixtures.Edit("together", new JsonObject { ["nope"] = 1 })),
+            WorkbenchFixtures.StartingFromResult("twin-of-a", "a", TogetherOperation.Twin),
+            // Here the edit that cannot be made is one that gives no twin, so the twin is the first edit's.
+            WorkbenchFixtures.Picture("b", m, WorkbenchFixtures.Edit("together", Amount(20)), WorkbenchFixtures.Edit("add", new JsonObject { ["nope"] = 1 })),
+            WorkbenchFixtures.StartingFromResult("twin-of-b", "b", TogetherOperation.Twin),
+            // And an edit no operation has the name of says nothing of what it gives, so it stops the search too.
+            WorkbenchFixtures.Picture("c", m, WorkbenchFixtures.Edit("together", Amount(30)), WorkbenchFixtures.Edit("no-such-operation")),
+            WorkbenchFixtures.StartingFromResult("twin-of-c", "c", TogetherOperation.Twin)));
+
+        var status = await runner.StatusAsync(folder, cancellationToken: ct);
+
+        ImageReport Of(string name) => status.Images.Single(image => image.Name == name);
+        Of("a").Steps[1].State.ShouldBe(StepState.Refused);
+        Of("twin-of-a").Refusal.ShouldNotBeNull().ShouldContain("edit 2 of the image 'a' (together)");
+        Of("twin-of-a").Refusal.ShouldNotBeNull().ShouldContain("cannot be made");
+        Of("twin-of-b").Refusal.ShouldBeNull("an edit that gives no such result does not stand between an image and the result");
+        Of("twin-of-c").Refusal.ShouldNotBeNull().ShouldContain("edit 2 of the image 'c' (no-such-operation)");
+    }
+
+    [Fact]
+    public void ACatalogRefusesAnOperationThatSaysOneThingOfItsRunAndIsAnother()
+    {
+        static OperationDescription Says(string id) => new(id, Version: 1, Title: id, Verb: "none", OperationOutputKind.Stored, ExtraInputs: [], Settings: []);
+        var twin = new OperationResultRole("twin", "A second result.");
+        var other = new OperationInputRole("other", "Another image.");
+
+        // It says several images go through it in one run and has no such run; and the reverse.
+        Should.Throw<ArgumentException>(() => new OperationCatalog([new DescribedOperation(Says("says-joint") with { Joint = true })]))
+            .Message.ShouldContain("'says-joint' says several images go through it in one run");
+        Should.Throw<ArgumentException>(() => new OperationCatalog([new DescribedJointOperation(Says("is-joint"))]))
+            .Message.ShouldContain("'is-joint' says nothing of a run several images share");
+        // The images of a shared run are all it takes: it names none by role.
+        Should.Throw<ArgumentException>(() => new OperationCatalog([new DescribedJointOperation(Says("joint-with-roles") with { Joint = true, ExtraInputs = [other] })]))
+            .Message.ShouldContain("'joint-with-roles' puts several images through one run and also names images");
+        // Only a shared run is told where its extra results go, so any other operation's would be a file nobody writes.
+        Should.Throw<ArgumentException>(() => new OperationCatalog([new DescribedOperation(Says("extra-results") with { ExtraResults = [twin] })]))
+            .Message.ShouldContain("'extra-results' says it gives extra results");
+
+        // What says what it is, is taken.
+        new OperationCatalog(
+        [
+            new DescribedJointOperation(Says("joint") with { Joint = true, ExtraResults = [twin] }),
+            new DescribedOperation(Says("plain") with { ExtraInputs = [other] }),
+        ]).All.Count.ShouldBe(2);
     }
 
     [Fact(Timeout = 120_000)]

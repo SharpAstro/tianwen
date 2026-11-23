@@ -16,6 +16,7 @@ using TianWen.Cli;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.PlateSolve;
+using TianWen.Lib.Geometry;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.BackgroundExtraction;
 using TianWen.Lib.Imaging.Enhancement;
@@ -254,7 +255,8 @@ public sealed class WorkbenchSolveTests(ITestOutputHelper output) : IDisposable
         solve.Refusal(new SolveSettings { SearchRa = 5.5 }).ShouldNotBeNull().ShouldContain("searchRa and searchDec");
         solve.Refusal(new SolveSettings { SearchRa = 25, SearchDec = 0 }).ShouldNotBeNull().ShouldContain("0 to 24");
         solve.Refusal(new SolveSettings { SearchRa = 5, SearchDec = -91 }).ShouldNotBeNull().ShouldContain("-90 to 90");
-        solve.Refusal(new SolveSettings { SearchRadius = 0 }).ShouldNotBeNull().ShouldContain("searchRadius");
+        solve.Refusal(new SolveSettings { SearchRadius = 0 }).ShouldBeNull("a radius is read only with a place to look, so a blind solve ignores it");
+        solve.Refusal(new SolveSettings { SearchRa = 5, SearchDec = 5, SearchRadius = 0 }).ShouldNotBeNull().ShouldContain("searchRadius");
 
         solve.CommandLine(new SolveSettings(), ["in.fits"], "out.fits").ToArray()
             .ShouldBe([StepCommandLine.Program, "solve", "in.fits", "-o", "out.fits", "--range", "0.03"]);
@@ -434,5 +436,171 @@ public sealed class WorkbenchSolveTests(ITestOutputHelper output) : IDisposable
         Image.TryReadFitsFile(flatWritten, out _, out var carried).ShouldBeTrue();
         carried.ShouldNotBeNull();
         carried.Value.CenterDec.ShouldBe(Solution().CenterDec, 1e-9, "the solution went on with the pixels");
+    }
+
+    private (SolveSubCommand Verb, List<string> Said) VerbWith(FixedPlateSolver solver)
+    {
+        var said = new List<string>();
+        var host = Substitute.For<IConsoleHost>();
+        host.When(h => h.WriteScrollable(Arg.Any<string>(), Arg.Any<bool>())).Do(call => said.Add(call.Arg<string>()));
+        host.When(h => h.WriteError(Arg.Any<string>())).Do(call => said.Add("error: " + call.Arg<string>()));
+        return (new SolveSubCommand(host, solver, Substitute.For<ICelestialObjectDB>()), said);
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task SolveOToAPathThatCannotBeWrittenEndsWith3AndLeavesTheInputAsItWas()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("verb-o-").FullName;
+        var master = WorkbenchFixtures.WriteMaster(folder, "master", WorkbenchFixtures.Master(seed: 1));
+        var before = File.ReadAllBytes(master);
+        var (verb, said) = VerbWith(new FixedPlateSolver(Solution()));
+        var command = verb.Build();
+
+        // A folder that is not there cannot hold a file.
+        var exit = await command.Parse([master, "-o", Path.Combine(folder, "absent", "out.fits")]).InvokeAsync(cancellationToken: ct);
+
+        exit.ShouldBe(3, string.Join(Environment.NewLine, said));
+        File.ReadAllBytes(master).ShouldBe(before, "-o never writes the input");
+
+        said.Clear();
+        var good = Path.Combine(folder, "out.fits");
+        (await command.Parse([master, "-o", good]).InvokeAsync(cancellationToken: ct)).ShouldBe(0, string.Join(Environment.NewLine, said));
+        File.ReadAllBytes(master).ShouldBe(before, "-o leaves the input byte for byte as it was");
+        File.Exists(good).ShouldBeTrue();
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task SolveOCannotNameTheInputAndUpdateFitsIsTheFlagThatWritesIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("verb-same-").FullName;
+        var master = WorkbenchFixtures.WriteMaster(folder, "master", WorkbenchFixtures.Master(seed: 1));
+        var before = File.ReadAllBytes(master);
+        var solver = new FixedPlateSolver(Solution());
+        var (verb, said) = VerbWith(solver);
+
+        var exit = await verb.Build().Parse([master, "-o", Path.Combine(folder, ".", Path.GetFileName(master))]).InvokeAsync(cancellationToken: ct);
+
+        exit.ShouldBe(1, string.Join(Environment.NewLine, said));
+        said.ShouldContain(line => line.Contains("--update-fits"));
+        solver.Solves.ShouldBe(0, "refused before anything is read or solved");
+        File.ReadAllBytes(master).ShouldBe(before);
+        SolveSubCommand.IsSameFile(master, Path.Combine(folder, "other.fits")).ShouldBeFalse();
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task ABlindSolveIgnoresASearchRadiusOfZero()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("verb-radius-").FullName;
+        var master = WorkbenchFixtures.WriteMaster(folder, "master", WorkbenchFixtures.Master(seed: 1));
+        var solver = new FixedPlateSolver(Solution());
+        var (verb, said) = VerbWith(solver);
+
+        var exit = await verb.Build().Parse([master, "--search-radius", "0"]).InvokeAsync(cancellationToken: ct);
+
+        exit.ShouldBe(0, string.Join(Environment.NewLine, said));
+        solver.Asked[0].Origin.ShouldBeNull();
+        solver.Asked[0].Radius.ShouldBeNull();
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task SolveOCarriesTheMapSidecarsAndASolveStepKeepsItsInputsFileForACropAfterIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("verb-sidecar-").FullName;
+        var master = WorkbenchFixtures.WriteMaster(folder, "master", WorkbenchFixtures.Master(seed: 1));
+        IntegrationFitsWriter.WriteCoverageMap(master, WorkbenchFixtures.Master(seed: 2), frameCount: 7);
+        var (verb, said) = VerbWith(new FixedPlateSolver(Solution()));
+        var solved = Path.Combine(folder, "solved.fits");
+
+        var exit = await verb.Build().Parse([master, "-o", solved]).InvokeAsync(cancellationToken: ct);
+
+        exit.ShouldBe(0, string.Join(Environment.NewLine, said));
+        IntegrationFitsWriter.TryReadCoverageMap(solved, out var coverage).ShouldBeTrue("the coverage plane goes with the solved file, as a crop carries it");
+        coverage.ShouldNotBeNull().Release();
+
+        // The step hands on the input with its file, so a crop after it finds the same sidecar the verb chain does.
+        var solve = new SolveOperation(null);
+        var applied = solve.Apply(new SolveSettings(), [OperationInput.FromFile(master)], Path.Combine(folder, "finding.fits"));
+        applied.Path.ShouldBe(master);
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task ASolveStepAfterACropSolvesTheDerivedImageFromItsPixels()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("derived-solve-").FullName;
+        var master = WorkbenchFixtures.WriteMaster(folder, "master", WorkbenchFixtures.Master(seed: 1));
+        await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(WorkbenchFixtures.Picture("m", master,
+            WorkbenchFixtures.Edit(CropOperation.Id, new JsonObject { ["x"] = 10, ["y"] = 10, ["width"] = 100, ["height"] = 80 }),
+            WorkbenchFixtures.Edit(SolveOperation.Id))), ct);
+        var solver = new FixedPlateSolver(Solution());
+        var runner = new WorkbenchRunner(new OperationCatalog([new CropOperation(), new SolveOperation(solver)]));
+
+        var report = await runner.RunAsync(folder, new WorkbenchRunOptions { Say = output.WriteLine }, ct);
+
+        report.Succeeded.ShouldBeTrue(Messages(report));
+        solver.Solves.ShouldBe(1);
+        solver.Asked[0].File.ShouldNotBe(master, "a derived image has no file of its own: it is solved from its pixels, through a temporary one");
+        PlateSolutionFile.Read(report.Images[0].Steps[1].Output.ShouldNotBeNull()).ShouldNotBeNull();
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task SolveOThenACropWritesTheCropOfTheMasterWithItsStackAndAlignmentCards()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("verb-cards-").FullName;
+        var master = Path.Combine(folder, "master.fits");
+        var cards = SharpenPipeline.SwModifyHeader();
+        cards["STACK_N"] = (7, "frames");
+        cards["STRATEGY"] = ("Mean", "strategy");
+        new AlignmentProvenance("Sidereal", CanvasOriginX: 5, CanvasOriginY: 9, ReferenceFrame: "ref.fits").AddHeaderCards(cards);
+        WorkbenchFixtures.Master(seed: 1).WriteToFitsFile(master, WorkbenchFixtures.Wcs(), cards);
+        IntegrationFitsWriter.WriteCoverageMap(master, WorkbenchFixtures.Master(seed: 2), frameCount: 7);
+        var (verb, said) = VerbWith(new FixedPlateSolver(Solution()));
+        var solved = Path.Combine(folder, "solved.fits");
+
+        var exit = await verb.Build().Parse([master, "-o", solved]).InvokeAsync(cancellationToken: ct);
+
+        exit.ShouldBe(0, string.Join(Environment.NewLine, said));
+        var rect = new PixelRect(10, 10, 100, 80);
+        var fromMaster = Path.Combine(folder, "crop-master.fits");
+        var fromSolved = Path.Combine(folder, "crop-solved.fits");
+        MasterCrop.CropFile(master, rect, fromMaster).Succeeded.ShouldBeTrue();
+        MasterCrop.CropFile(solved, rect, fromSolved).Succeeded.ShouldBeTrue();
+
+        // The solved file carries the master's cards, so the crop of it has them: the same file as a solve step's crop,
+        // whose input is the master itself. The solution is the one thing the two differ in (the master's own WCS is not
+        // the solver's), so the cards are compared, not the bytes of the header.
+        using var a = Image.OpenFitsHeader(fromMaster);
+        using var b = Image.OpenFitsHeader(fromSolved);
+        var ha = a.ReadFirstImageHduHeaderOnly().ShouldNotBeNull().Header;
+        var hb = b.ReadFirstImageHduHeaderOnly().ShouldNotBeNull().Header;
+        hb.GetIntValue("STACK_N", 0).ShouldBe(7);
+        ha.GetIntValue("STACK_N", 0).ShouldBe(7);
+        foreach (var key in new[] { "STRATEGY", "ALIGNMNT", "REFFRAME" })
+        {
+            hb.GetStringValue(key).ShouldBe(ha.GetStringValue(key), key);
+            hb.GetStringValue(key).ShouldNotBeNullOrEmpty(key);
+        }
+        hb.GetIntValue("CANVASX0", -1).ShouldBe(ha.GetIntValue("CANVASX0", -2));
+        hb.GetIntValue("CANVASY0", -1).ShouldBe(ha.GetIntValue("CANVASY0", -2));
+
+        IntegrationFitsWriter.TryReadCoverageMap(fromSolved, out var coverage).ShouldBeTrue();
+        coverage.ShouldNotBeNull().Release();
+        File.ReadAllBytes(IntegrationFitsWriter.ExistingSidecarPath(IntegrationFitsWriter.CoveragePathFor(fromSolved)).ShouldNotBeNull())
+            .ShouldBe(File.ReadAllBytes(IntegrationFitsWriter.ExistingSidecarPath(IntegrationFitsWriter.CoveragePathFor(fromMaster)).ShouldNotBeNull()));
+    }
+
+    [Fact]
+    public void TwoPathsDifferingOnlyInCaseAreOneFileOnlyWhereTheFileSystemSaysSo()
+    {
+        var folder = _folders.Create("case-only-").FullName;
+        var caseInsensitive = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS();
+
+        MasterCrop.IsSameFile(Path.Combine(folder, "A.fits"), Path.Combine(folder, "a.fits")).ShouldBe(caseInsensitive);
+        MasterCrop.IsSameFile(Path.Combine(folder, "A.fits"), Path.Combine(folder, "A.fits")).ShouldBeTrue();
     }
 }
