@@ -11,6 +11,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Shouldly;
 using TianWen.AI.Imaging;
+using TianWen.AI.Imaging.GraXpert;
 using TianWen.AI.Imaging.Onnx;
 using TianWen.AI.Imaging.RcAstro;
 using TianWen.Cli;
@@ -96,6 +97,18 @@ public sealed class WorkbenchEnhanceParityTests(ITestOutputHelper output) : IDis
             var (tuning, kernel) = (options.Tuning, options.Tuning?.Deconvolution);
             FormattableString said = $"backend {options.Backend}, gradient {options.Gradient}, deblurSharpen {tuning?.DeblurSharpen}, denoiseStrength {tuning?.DenoiseStrength}, denoiseIterations {tuning?.DenoiseIterations}, kernel {kernel?.FwhmRed}/{kernel?.FwhmGreen}/{kernel?.FwhmBlue} beta {kernel?.Beta} resample {kernel?.Resample}";
             return said.ToString(CultureInfo.InvariantCulture);
+        }
+    }
+
+    /// <summary>A model resolver for which every model is installed, by its name alone: nothing is loaded here.</summary>
+    private sealed class EveryModelPresent : IModelResolver
+    {
+        public string Resolve(string modelFileName) => modelFileName;
+
+        public bool TryResolve(string modelFileName, out string? absolutePath)
+        {
+            absolutePath = modelFileName;
+            return true;
         }
     }
 
@@ -460,6 +473,24 @@ public sealed class WorkbenchEnhanceParityTests(ITestOutputHelper output) : IDis
         // is what would run.
         Over(licensed: false).ServedBy(new EnhanceSettings()).ShouldContain(N2nDenoiser.ModelFileName);
         Over(licensed: false).ServedBy(new EnhanceSettings { Backend = EnhanceBackend.ForceRcAstro }).ShouldContain("denoise RC-Astro NoiseXTerminator (nxt)");
+    }
+
+    [Fact]
+    public void TheGradientRoleIsNamedUnderTheStepsOwnGradientBackend()
+    {
+        // The corrector a host registers, on a computer where GraXpert's weights are installed. Nothing is loaded:
+        // a name is asked of two correctors that have run nothing.
+        using var graXpert = new GraXpertBackgroundExtractor(new EveryModelPresent());
+        var classical = new ClassicalBackgroundExtractor();
+        var enhance = new EnhanceOperation(new SharpenPipeline(gradientCorrector: new FallbackGradientCorrector(new EveryModelPresent(), graXpert, classical)));
+
+        // Auto picks GraXpert here, and a step that says the classical fit is keyed by the classical fit, which is what
+        // runs: its key does not name GraXpert, and does not move when GraXpert is installed or removed.
+        enhance.ServedBy(new EnhanceSettings()).ShouldContain($"gradient {graXpert.Name}");
+        var classicalStep = enhance.ServedBy(new EnhanceSettings { GradientBackend = GradientBackend.Classical });
+        classicalStep.ShouldContain($"gradient {classical.Name}");
+        classicalStep.ShouldNotContain("GraXpert");
+        enhance.ServedBy(new EnhanceSettings { GradientBackend = GradientBackend.Graxpert }).ShouldContain($"gradient {graXpert.Name}");
     }
 
     [Fact(Timeout = 600_000)]

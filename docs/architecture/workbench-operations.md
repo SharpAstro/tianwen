@@ -59,7 +59,8 @@ The rules that bite:
   name, so on a computer where `auto` means GraXpert a result is not taken for the classical fit's. The enhance's is the
   pipeline's word for every role (`SharpenPipeline.DescribeRoles`), asked with the options the step's settings make:
   a role whose backend follows from them is named by the one they choose (`IEnhancerAvailability.NameUnder`), so a
-  step that says `backend: tianWen` is keyed by the in-house model where RC-Astro is licensed too. An in-house
+  step that says `backend: tianWen` is keyed by the in-house model where RC-Astro is licensed too, and one that
+  says `gradientBackend: classical` by the classical fit where GraXpert is installed too. An in-house
   enhancer's name carries its model file, so a retrained model is another key. Naming an RC-Astro role asks whether
   its product is licensed, which is a
   subprocess, so **the runner asks what serves once for an operation and its settings in a plan**
