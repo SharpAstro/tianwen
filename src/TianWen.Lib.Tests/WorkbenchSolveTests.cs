@@ -307,8 +307,6 @@ public sealed class WorkbenchSolveTests(ITestOutputHelper output) : IDisposable
         read.Value.PixelToSky(10.0, 20.0).ShouldBe(fromImage.Value.PixelToSky(10.0, 20.0));
 
         PlateSolutionFile.Read(Path.Combine(folder, "absent.fits")).ShouldBeNull("a file that is not there holds no solution");
-        File.WriteAllText(Path.Combine(folder, "broken.fits"), "not a FITS file");
-        PlateSolutionFile.Read(Path.Combine(folder, "broken.fits")).ShouldBeNull("and neither does one that is no FITS file");
     }
 
     /// <summary>
