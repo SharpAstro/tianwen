@@ -13,7 +13,8 @@ public sealed class OperationCatalog
     /// <summary>A catalog of <paramref name="operations"/>.</summary>
     /// <exception cref="ArgumentException">Two operations share an id, or one says it is derived and has no
     /// derivation, or that it writes no pixels and has no finding (or the reverse): either would make a step's key or
-    /// its handling depend on which one was found.</exception>
+    /// its handling depend on which one was found. Or one says it gives extra results and cannot be told where they
+    /// go: its step would never be whole in the store, and would run on every run.</exception>
     public OperationCatalog(IEnumerable<IOperation> operations)
     {
         ArgumentNullException.ThrowIfNull(operations);
@@ -25,6 +26,12 @@ public sealed class OperationCatalog
             {
                 throw new ArgumentException(
                     $"the operation '{description.Id}' says its output is {description.Output} and its type says otherwise", nameof(operations));
+            }
+
+            if (!description.ExtraResults.IsDefaultOrEmpty && operation is not (IJointOperation or IMultiResultOperation))
+            {
+                throw new ArgumentException(
+                    $"the operation '{description.Id}' says it gives extra results and has no way to be told where they go", nameof(operations));
             }
 
             if (!_byId.TryAdd(description.Id, operation))

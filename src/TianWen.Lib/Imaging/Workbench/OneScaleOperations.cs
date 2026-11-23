@@ -263,6 +263,133 @@ public sealed class DenoiseOperation(IDenoiseEnhancer? denoiser) : JointOperatio
 }
 
 /// <summary>
+/// Three mono planes denoised together as ONE colour image, so the denoiser sees their colour
+/// (<see cref="NarrowbandCombination.DenoiseColourAsync"/>), and handed back as three, each on its own scale.
+/// <c>image denoise --colour</c> calls this.
+/// </summary>
+/// <remarks>
+/// <para>Its own image is red, and it takes green and blue: which plane is which colour is its place among the
+/// inputs. That is why this is not <see cref="DenoiseOperation"/>, whose images go through in any order.</para>
+/// <para>Red's plane is the step's own result; green's and blue's are its extra results, each an image of the project
+/// that starts from the step (<see cref="ProjectImage.Result"/>).</para>
+/// <para>Hand it STARLESS planes: the stars are never denoised.</para>
+/// </remarks>
+public sealed class DenoiseColourOperation(IDenoiseEnhancer? denoiser) : MultiResultOperation<DenoiseSettings>
+{
+    /// <summary>The operation's id.</summary>
+    public const string Id = "denoise-colour";
+
+    /// <summary>The name of the extra result that is the green plane.</summary>
+    public const string Green = "green";
+
+    /// <summary>The name of the extra result that is the blue plane.</summary>
+    public const string Blue = "blue";
+
+    /// <inheritdoc/>
+    public override OperationDescription Description { get; } = new(
+        Id, Version: 1, Title: "Denoise as colour", Verb: "image denoise --colour", OperationOutputKind.Stored,
+        ExtraInputs:
+        [
+            new OperationInputRole("green", "The green plane."),
+            new OperationInputRole("blue", "The blue plane."),
+        ],
+        Settings:
+        [
+            new OperationSetting("strength", "Strength in 0 to 1. Left out: the denoiser's own (NoiseXTerminator's is set from each plate's noise)."),
+        ])
+    {
+        ExtraResults =
+        [
+            new OperationResultRole(Green, "The green plane, denoised."),
+            new OperationResultRole(Blue, "The blue plane, denoised."),
+        ],
+    };
+
+    /// <inheritdoc/>
+    protected override JsonTypeInfo<DenoiseSettings> SettingsInfo => OperationSettingsJsonContext.Default.DenoiseSettings;
+
+    /// <inheritdoc/>
+    public override string? Refusal(DenoiseSettings settings)
+        => settings.Strength is null or (>= 0f and <= 1f) ? null : "strength is 0 to 1, or left out for the denoiser's own";
+
+    /// <summary>The denoiser registered here; empty where there is none.</summary>
+    public override string ServedBy(DenoiseSettings settings) => denoiser?.Name ?? string.Empty;
+
+    /// <summary>Where the three planes go: red's as the main result, green's and blue's as the extra ones.</summary>
+    public static StepOutputs Outputs(string red, string green, string blue)
+        => new(red) { Extra = ImmutableDictionary<string, string>.Empty.Add(Green, green).Add(Blue, blue) };
+
+    /// <inheritdoc/>
+    public override ImmutableArray<string> CommandLine(DenoiseSettings settings, IReadOnlyList<string> inputs, StepOutputs outputs)
+    {
+        var line = ImmutableArray.CreateBuilder<string>();
+        line.Add(StepCommandLine.Program);
+        line.Add("image");
+        line.Add("denoise");
+        line.AddRange(inputs);
+        line.Add("--colour");
+        // -o once for each plane in the planes' order, as the verb takes it. A plane with no place is not named.
+        foreach (var place in Places(outputs))
+        {
+            if (place is not null)
+            {
+                line.Add("-o");
+                line.Add(place);
+            }
+        }
+
+        if (settings.Strength is { } strength)
+        {
+            line.Add("--strength");
+            line.Add(StepCommandLine.Number(strength));
+        }
+
+        return line.ToImmutable();
+    }
+
+    /// <inheritdoc/>
+    public override async ValueTask<OperationOutcome> RunAsync(DenoiseSettings settings, IReadOnlyList<OperationInput> inputs, StepOutputs outputs,
+        Action<string>? say, CancellationToken cancellationToken)
+    {
+        if (inputs.Count != 3)
+        {
+            return OperationOutcome.BadInput($"'{Id}' takes three mono planes, red, green and blue, and was handed {inputs.Count}");
+        }
+
+        if (!OperationInputs.TryReadMasters(inputs, out var masters, out var wcs, out var refusal))
+        {
+            return OperationOutcome.BadInput(refusal);
+        }
+
+        var options = DenoiseOperation.OptionsOf(settings);
+        if (!IEnhancerAvailability.Serves(denoiser, 3, options))
+        {
+            return OperationOutcome.NotServed(
+                "no denoiser serves this input here. Register one with AddRcAstroAi() (NoiseXTerminator, else TianWen's own N2N model on colour data).");
+        }
+
+        var denoised = await NarrowbandCombination.DenoiseColourAsync(masters[0], masters[1], masters[2], denoiser, options, cancellationToken);
+        var places = Places(outputs);
+        for (var i = 0; i < denoised.Length; i++)
+        {
+            say?.Invoke(string.Create(CultureInfo.InvariantCulture,
+                $"{inputs[i].Name}: noise {SyntheticLuminance.BlockNoise(masters[i]):G4} -> {SyntheticLuminance.BlockNoise(denoised[i]):G4} over {SyntheticLuminance.NoiseBlockPx} px blocks ({denoiser.Name}, strength {ColourComposition.DescribeStrength(options)})"));
+            if (places[i] is { } place)
+            {
+                OperationOutput.Write(denoised[i], place, wcs);
+                say?.Invoke($"wrote {place}");
+            }
+        }
+
+        return OperationOutcome.Done;
+    }
+
+    // The place of each plane's result, in the planes' order; null for one that has none.
+    private static string?[] Places(StepOutputs outputs)
+        => [outputs.Path, outputs.Extra.TryGetValue(Green, out var green) ? green : null, outputs.Extra.TryGetValue(Blue, out var blue) ? blue : null];
+}
+
+/// <summary>
 /// Star removal (<see cref="NarrowbandCombination"/>'s split, with its core protection and dig fill): the starless
 /// plate, and as an extra result the stars it took out, each on its input's scale, so
 /// <see cref="AddStarsOperation"/> puts them back exactly. <c>image remove-stars</c> calls <see cref="SplitAsync"/>.

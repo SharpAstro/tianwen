@@ -40,6 +40,7 @@ public static class WorkbenchServiceCollectionExtensions
         services.AddSingleton<IOperation, MatchPsfOperation>();
         services.AddSingleton<IOperation>(static sp => new DeblurOperation(sp.GetService<IImageDeblurrer>()));
         services.AddSingleton<IOperation>(static sp => new DenoiseOperation(sp.GetService<IDenoiseEnhancer>()));
+        services.AddSingleton<IOperation>(static sp => new DenoiseColourOperation(sp.GetService<IDenoiseEnhancer>()));
         services.AddSingleton<IOperation>(static sp => new RemoveStarsOperation(
             sp.GetService<IStarRemover>(), sp.GetService<ICelestialObjectDB>(), sp.GetService<ILogger<RemoveStarsOperation>>()));
         services.AddSingleton<IOperation>(static sp => new CombineOperation(

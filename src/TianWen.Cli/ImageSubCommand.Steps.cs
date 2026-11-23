@@ -339,6 +339,7 @@ internal sealed partial class ImageSubCommand
             Options = { outputOpt, colourOpt, strengthOpt },
         };
         var denoise = new DenoiseOperation(denoiser);
+        var denoiseColour = new DenoiseColourOperation(denoiser);
         cmd.SetAction(async (parseResult, ct) =>
         {
             var paths = parseResult.Required(mastersArg);
@@ -353,30 +354,15 @@ internal sealed partial class ImageSubCommand
                 return await RunJointStepAsync("denoise", denoise, settings, paths, [.. outputs.Select(static output => new StepOutputs(output))], ct);
             }
 
-            // --colour: three mono planes as ONE colour image. Their order is their colour, so this is not that operation.
-            if (!TryReadMasters(paths, out var masters, out var wcs) || !OneGrid(masters))
-            {
-                return 1;
-            }
-            if (masters.Count != 3)
+            // --colour: three mono planes as ONE colour image. Their order is their colour, so this is not that operation
+            // but one of its own (DenoiseColourOperation), which an edit list runs too: red's plane is its result, green's
+            // and blue's its extra results.
+            if (paths.Length != 3)
             {
                 consoleHost.WriteError("[denoise] --colour takes three mono planes: red, green and blue.");
                 return 1;
             }
-            var options = DenoiseOperation.OptionsOf(settings);
-            if (!IEnhancerAvailability.Serves(denoiser, 3, options))
-            {
-                consoleHost.WriteError("[denoise] no denoiser serves this input here. Register one with AddRcAstroAi() (NoiseXTerminator, else TianWen's own N2N model on colour data).");
-                return 3;
-            }
-            var denoised = await NarrowbandCombination.DenoiseColourAsync(masters[0], masters[1], masters[2], denoiser, options, ct);
-            for (var i = 0; i < denoised.Length; i++)
-            {
-                consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                    $"[denoise] {Path.GetFileName(paths[i])}: noise {SyntheticLuminance.BlockNoise(masters[i]):G4} -> {SyntheticLuminance.BlockNoise(denoised[i]):G4} over {SyntheticLuminance.NoiseBlockPx} px blocks ({denoiser.Name}, strength {ColourComposition.DescribeStrength(options)})"));
-                WriteStep(denoised[i], outputs[i], wcs, "denoise");
-            }
-            return 0;
+            return await RunSeveralStepAsync("denoise", denoiseColour, settings, paths, DenoiseColourOperation.Outputs(outputs[0], outputs[1], outputs[2]), ct);
         });
         return cmd;
     }
@@ -594,6 +580,27 @@ internal sealed partial class ImageSubCommand
             return 1;
         }
         var outcome = await operation.RunJointAsync(settings, [.. inputs.Select(OperationInput.FromFile)], outputs,
+            line => consoleHost.WriteScrollable($"[{verb}] {line}"), ct);
+        if (!outcome.Succeeded)
+        {
+            consoleHost.WriteError($"[{verb}] {outcome.Message}");
+            return outcome.Failure is OperationFailure.NotServed ? 3 : 1;
+        }
+        return 0;
+    }
+
+    // One run of an operation with fixed inputs that gives several results (IMultiResultOperation), given files and said
+    // under the verb's name. The exit code: 0, 3 where nothing here serves it, else 1.
+    private async Task<int> RunSeveralStepAsync<TSettings>(string verb, MultiResultOperation<TSettings> operation, TSettings settings, IReadOnlyList<string> inputs,
+        StepOutputs outputs, CancellationToken ct)
+        where TSettings : class, new()
+    {
+        if (operation.Refusal(settings) is { } refusal)
+        {
+            consoleHost.WriteError($"[{verb}] {refusal}");
+            return 1;
+        }
+        var outcome = await operation.RunAsync(settings, [.. inputs.Select(OperationInput.FromFile)], outputs,
             line => consoleHost.WriteScrollable($"[{verb}] {line}"), ct);
         if (!outcome.Succeeded)
         {

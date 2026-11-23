@@ -322,6 +322,11 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             return await RunJointAsync(node, step, joint, inputs, store, say, cancellationToken);
         }
 
+        if (operation is IMultiResultOperation several)
+        {
+            return await RunSeveralAsync(node, step, several, inputs, store, say, cancellationToken);
+        }
+
         using var staging = store.Stage(node.Key);
         var outcome = await operation.RunAsync(node.Settings, inputs, staging.Path, Named(say, node), cancellationToken);
         if (outcome.Succeeded && !File.Exists(staging.Path))
@@ -422,6 +427,57 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             foreach (var staged in stagings)
             {
                 await store.CommitAsync(staged, joint.Description.Id, cancellationToken);
+            }
+        }
+        finally
+        {
+            foreach (var staged in stagings)
+            {
+                staged.Dispose();
+            }
+        }
+
+        node.File = store.Find(node.Key);
+        step.State = StepState.Ran;
+        return node.File is { } stored ? OperationInput.FromFile(stored) : null;
+    }
+
+    // One run with fixed inputs that gives several results: the main one and each extra one are staged, the operation
+    // writes them all, and all are taken into the store, each under its own key.
+    private static async ValueTask<OperationInput?> RunSeveralAsync(Node node, StepPlan step, IMultiResultOperation several, List<OperationInput> inputs, StepStore store,
+        Action<string>? say, CancellationToken cancellationToken)
+    {
+        var stagings = new List<StepStaging>();
+        try
+        {
+            var main = store.Stage(node.Key);
+            stagings.Add(main);
+            var extras = ImmutableDictionary.CreateBuilder<string, string>(StringComparer.Ordinal);
+            foreach (var result in several.Description.ExtraResults)
+            {
+                var staged = store.Stage(StepKey.OfResult(node.Key, result.Name));
+                stagings.Add(staged);
+                extras[result.Name] = staged.Path;
+            }
+
+            var outcome = await several.RunAsync(node.Settings, inputs, new StepOutputs(main.Path) { Extra = extras.ToImmutable() }, Named(say, node), cancellationToken);
+            if (outcome.Succeeded && stagings.Find(static staged => !File.Exists(staged.Path)) is { } missing)
+            {
+                outcome = OperationOutcome.Failed($"'{several.Description.Id}' reported its results and did not write {Path.GetFileName(missing.Path)}");
+            }
+
+            if (!outcome.Succeeded)
+            {
+                step.State = StepState.Refused;
+                step.Message = outcome.Message;
+                return null;
+            }
+
+            // The extra results first and the main one last: a step is kept only when all of them are there, so a run
+            // that ends in between is made again.
+            for (var i = stagings.Count - 1; i >= 0; i--)
+            {
+                await store.CommitAsync(stagings[i], several.Description.Id, cancellationToken);
             }
         }
         finally
@@ -974,11 +1030,15 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                     Inputs = inputs.MoveToImmutable(),
                     Step = step,
                     FindingKey = operation is IFindingOperation ? StepKey.OfFinding(key) : string.Empty,
+                    ExtraKeys = [.. operation.Description.ExtraResults.Select(result => StepKey.OfResult(key, result.Name))],
                 };
                 // A step's command line names files: an original, a result in the store, or where in the store a result
                 // would be. A derived step has no file, and neither has a step that writes no pixels, so run by hand it
                 // writes one there, which the store does not take for a result (its index does not name it).
-                step.CommandLine = operation.CommandLine(settings, [.. node.Inputs.Select(input => input.File ?? store.PathOf(input.Key))], store.PathOf(key));
+                ImmutableArray<string> files = [.. node.Inputs.Select(input => input.File ?? store.PathOf(input.Key))];
+                step.CommandLine = operation is IMultiResultOperation withResults
+                    ? withResults.CommandLine(settings, files, OutputsOf(operation.Description, key))
+                    : operation.CommandLine(settings, files, store.PathOf(key));
             }
 
             step.Node = node;

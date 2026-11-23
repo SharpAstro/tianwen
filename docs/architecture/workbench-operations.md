@@ -123,6 +123,7 @@ operation by its id.
 | `match-psf` | stored, one run for several | `image match-psf` | the other masters of the run |
 | `deblur` | stored, one run for several | `image deblur` | the other masters of the run |
 | `denoise` | stored, one run for several | `image denoise` | the other masters of the run |
+| `denoise-colour` | stored; green and blue as extra results | `image denoise --colour` | `green`, `blue`. Its own image is red |
 | `remove-stars` | stored, one run for several; the stars as a second result | `image remove-stars` | the other masters of the run |
 | `combine` | stored | `image combine` | `green`, `blue`, and optionally `ha`. Its own image is red |
 | `solve` | no pixels: the plate solution is stored | `solve` | |
@@ -148,12 +149,31 @@ says `Joint`). Each master gets its own result.
   asks for the same run whatever order it names the others in. The first list that needs it runs it and every image's
   result goes into the store, each under its own key; the other lists find theirs there (`Kept`).
 - **So a result must not depend on the order of the images.** That is the operation's promise. `image denoise
-  --colour`, where the order of three planes is their colour, is for that reason not the denoise operation.
+  --colour`, where the order of three planes is their colour, is for that reason not the denoise operation but one of
+  its own, with fixed inputs (below).
 - **A result can have a second result beside it** (`OperationDescription.ExtraResults`): star removal gives the starless
   plate and, as `stars`, the stars it took out. Each extra result is kept in the store under a key of its own, and a
   step is kept only when all of its results are there.
 - **Its verb takes `-o` once for each master**, in the masters' order, and `image remove-stars` takes `--stars-output`
   the same way, so a step's command line names every file it writes.
+
+## Fixed inputs, several results
+
+`image denoise --colour` puts three mono planes through the denoiser as ONE colour image and hands back three
+(`denoise-colour`; `IMultiResultOperation`, `MultiResultOperation<TSettings>`). Which plane is which colour is its
+place among the inputs: the edit list's own image is red, and it takes green and blue.
+
+- **Red's plane is the step's own result; green's and blue's are its extra results**, each kept in the store under
+  `StepKey.OfResult(step, name)`. An image of the project starts from one with `from` and `result`.
+- **The step is kept only when all three are in the store**, as a shared run's is.
+- **A catalog refuses an operation that names extra results and is neither kind**: nothing could tell it where they
+  go, so its step would never be whole and would run on every run.
+
+```json
+{ "name": "red-denoised", "from": "red-starless", "edits": [ { "operation": "denoise-colour", "inputs": [ "green-starless", "blue-starless" ] } ] },
+{ "name": "green-denoised", "from": "red-denoised", "result": "green" },
+{ "name": "blue-denoised", "from": "red-denoised", "result": "blue" }
+```
 
 ## An image that starts from another
 
@@ -287,9 +307,7 @@ that gave no result.
 Each is a later leg of W1 (#1641) or a later phase, and none is assumed by the code above.
 
 - **The remaining operations.** The canonical enhance (#2466), the deep-sky frame steps (#2467) and the planetary
-  steps (#2468). Every colour step of #2465 is here but the one below.
-- **`image denoise --colour`** (#2465): three planes denoised as one colour image, where the order of the planes is
-  their colour, so it is not a run several images share.
+  steps (#2468). Every colour step of #2465 is here.
 - **A set of frames as an input** (calibrate, register, integrate; #2467).
 - **Statistics** (`image stats`, `image sources`, `image channel-offsets`). A measurement changes nothing a later step
   reads, so as an edit of a list it would only give every step after it another key. It is a fact about a step's
