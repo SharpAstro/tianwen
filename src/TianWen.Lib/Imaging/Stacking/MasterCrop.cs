@@ -87,23 +87,7 @@ public static class MasterCrop
     /// </summary>
     public static MasterCropResult CropLoaded(string inputPath, Image image, WCS? wcs, PixelRect rect, string outputPath)
     {
-        AlignmentProvenance? provenance = null;
-        var carried = new Dictionary<string, (object Value, string Comment)>();
-        var frameCount = 0;
-        IntegrationStrategyKind? strategy = null;
-        using (var fits = Image.OpenFitsHeader(inputPath))
-        {
-            if (fits.ReadFirstImageHduHeaderOnly()?.Header is { } header)
-            {
-                provenance = AlignmentProvenance.FromHeader(header);
-                CarryStackCards(header, carried);
-                frameCount = Math.Max(0, header.GetIntValue("STACK_N", 0));
-                if (Enum.TryParse<IntegrationStrategyKind>(header.GetStringValue("STRATEGY"), ignoreCase: true, out var kind))
-                {
-                    strategy = kind;
-                }
-            }
-        }
+        var (provenance, carried, frameCount, strategy) = ReadStackFacts(inputPath);
 
         if (Validate(rect, image.Width, image.Height) is not null)
         {
@@ -141,24 +125,12 @@ public static class MasterCrop
     /// <returns>The sidecars written and what was left out and why.</returns>
     public static (IReadOnlyList<string> Written, IReadOnlyList<string> LeftOut) CarrySidecars(string inputPath, int width, int height, string outputPath)
     {
-        if (string.Equals(Path.GetFullPath(inputPath), Path.GetFullPath(outputPath), StringComparison.OrdinalIgnoreCase))
+        if (IsSameFile(inputPath, outputPath))
         {
             return ([], []);
         }
 
-        var frameCount = 0;
-        IntegrationStrategyKind? strategy = null;
-        using (var fits = Image.OpenFitsHeader(inputPath))
-        {
-            if (fits.ReadFirstImageHduHeaderOnly()?.Header is { } header)
-            {
-                frameCount = Math.Max(0, header.GetIntValue("STACK_N", 0));
-                if (Enum.TryParse<IntegrationStrategyKind>(header.GetStringValue("STRATEGY"), ignoreCase: true, out var kind))
-                {
-                    strategy = kind;
-                }
-            }
-        }
+        var (_, _, frameCount, strategy) = ReadStackFacts(inputPath);
 
         var maps = ReadCroppedMaps(inputPath, width, height, new PixelRect(0, 0, width, height));
         try
@@ -280,6 +252,46 @@ public static class MasterCrop
         }
 
         return count > 0 ? sum / count : 0.0;
+    }
+
+    /// <summary>Whether two paths name the same file (compared by full path; a case-only difference counts as the same
+    /// only on a case-insensitive file system). The one rule the crop and the solve verb share.</summary>
+    public static bool IsSameFile(string a, string b)
+        => string.Equals(Path.GetFullPath(a), Path.GetFullPath(b),
+            OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+
+    /// <summary>
+    /// The header cards a crop of the whole frame of the master in <paramref name="inputPath"/> would carry: the stack
+    /// cards and the alignment provenance (origin unmoved, a crop at 0,0), as extras for
+    /// <see cref="Image.WriteToFitsFile(string, WCS?, IReadOnlyDictionary{string, ValueTuple{object, string}}?, FitsSampleStorage?)"/>.
+    /// The one reader both the crop and the solved file go through. Empty when the file has none.
+    /// </summary>
+    public static Dictionary<string, (object Value, string Comment)> WholeFrameCards(string inputPath)
+    {
+        var (provenance, carried, _, _) = ReadStackFacts(inputPath);
+        provenance?.ForCrop(0, 0).AddHeaderCards(carried);
+        return carried;
+    }
+
+    private static (AlignmentProvenance? Provenance, Dictionary<string, (object Value, string Comment)> Carried, int FrameCount, IntegrationStrategyKind? Strategy) ReadStackFacts(string inputPath)
+    {
+        AlignmentProvenance? provenance = null;
+        var carried = new Dictionary<string, (object Value, string Comment)>();
+        var frameCount = 0;
+        IntegrationStrategyKind? strategy = null;
+        using var fits = Image.OpenFitsHeader(inputPath);
+        if (fits.ReadFirstImageHduHeaderOnly()?.Header is { } header)
+        {
+            provenance = AlignmentProvenance.FromHeader(header);
+            CarryStackCards(header, carried);
+            frameCount = Math.Max(0, header.GetIntValue("STACK_N", 0));
+            if (Enum.TryParse<IntegrationStrategyKind>(header.GetStringValue("STRATEGY"), ignoreCase: true, out var kind))
+            {
+                strategy = kind;
+            }
+        }
+
+        return (provenance, carried, frameCount, strategy);
     }
 
     /// <summary>

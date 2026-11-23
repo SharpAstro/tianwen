@@ -16,6 +16,7 @@ using TianWen.Cli;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.PlateSolve;
+using TianWen.Lib.Geometry;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.BackgroundExtraction;
 using TianWen.Lib.Imaging.Enhancement;
@@ -544,5 +545,62 @@ public sealed class WorkbenchSolveTests(ITestOutputHelper output) : IDisposable
         solver.Solves.ShouldBe(1);
         solver.Asked[0].File.ShouldNotBe(master, "a derived image has no file of its own: it is solved from its pixels, through a temporary one");
         PlateSolutionFile.Read(report.Images[0].Steps[1].Output.ShouldNotBeNull()).ShouldNotBeNull();
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task SolveOThenACropWritesTheCropOfTheMasterWithItsStackAndAlignmentCards()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("verb-cards-").FullName;
+        var master = Path.Combine(folder, "master.fits");
+        var cards = SharpenPipeline.SwModifyHeader();
+        cards["STACK_N"] = (7, "frames");
+        cards["STRATEGY"] = ("Mean", "strategy");
+        new AlignmentProvenance("Sidereal", CanvasOriginX: 5, CanvasOriginY: 9, ReferenceFrame: "ref.fits").AddHeaderCards(cards);
+        WorkbenchFixtures.Master(seed: 1).WriteToFitsFile(master, WorkbenchFixtures.Wcs(), cards);
+        IntegrationFitsWriter.WriteCoverageMap(master, WorkbenchFixtures.Master(seed: 2), frameCount: 7);
+        var (verb, said) = VerbWith(new FixedPlateSolver(Solution()));
+        var solved = Path.Combine(folder, "solved.fits");
+
+        var exit = await verb.Build().Parse([master, "-o", solved]).InvokeAsync(cancellationToken: ct);
+
+        exit.ShouldBe(0, string.Join(Environment.NewLine, said));
+        var rect = new PixelRect(10, 10, 100, 80);
+        var fromMaster = Path.Combine(folder, "crop-master.fits");
+        var fromSolved = Path.Combine(folder, "crop-solved.fits");
+        MasterCrop.CropFile(master, rect, fromMaster).Succeeded.ShouldBeTrue();
+        MasterCrop.CropFile(solved, rect, fromSolved).Succeeded.ShouldBeTrue();
+
+        // The solved file carries the master's cards, so the crop of it has them: the same file as a solve step's crop,
+        // whose input is the master itself. The solution is the one thing the two differ in (the master's own WCS is not
+        // the solver's), so the cards are compared, not the bytes of the header.
+        using var a = Image.OpenFitsHeader(fromMaster);
+        using var b = Image.OpenFitsHeader(fromSolved);
+        var ha = a.ReadFirstImageHduHeaderOnly().ShouldNotBeNull().Header;
+        var hb = b.ReadFirstImageHduHeaderOnly().ShouldNotBeNull().Header;
+        hb.GetIntValue("STACK_N", 0).ShouldBe(7);
+        ha.GetIntValue("STACK_N", 0).ShouldBe(7);
+        foreach (var key in new[] { "STRATEGY", "ALIGNMNT", "REFFRAME" })
+        {
+            hb.GetStringValue(key).ShouldBe(ha.GetStringValue(key), key);
+            hb.GetStringValue(key).ShouldNotBeNullOrEmpty(key);
+        }
+        hb.GetIntValue("CANVASX0", -1).ShouldBe(ha.GetIntValue("CANVASX0", -2));
+        hb.GetIntValue("CANVASY0", -1).ShouldBe(ha.GetIntValue("CANVASY0", -2));
+
+        IntegrationFitsWriter.TryReadCoverageMap(fromSolved, out var coverage).ShouldBeTrue();
+        coverage.ShouldNotBeNull().Release();
+        File.ReadAllBytes(IntegrationFitsWriter.ExistingSidecarPath(IntegrationFitsWriter.CoveragePathFor(fromSolved)).ShouldNotBeNull())
+            .ShouldBe(File.ReadAllBytes(IntegrationFitsWriter.ExistingSidecarPath(IntegrationFitsWriter.CoveragePathFor(fromMaster)).ShouldNotBeNull()));
+    }
+
+    [Fact]
+    public void TwoPathsDifferingOnlyInCaseAreOneFileOnlyWhereTheFileSystemSaysSo()
+    {
+        var folder = _folders.Create("case-only-").FullName;
+        var caseInsensitive = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS();
+
+        MasterCrop.IsSameFile(Path.Combine(folder, "A.fits"), Path.Combine(folder, "a.fits")).ShouldBe(caseInsensitive);
+        MasterCrop.IsSameFile(Path.Combine(folder, "A.fits"), Path.Combine(folder, "A.fits")).ShouldBeTrue();
     }
 }

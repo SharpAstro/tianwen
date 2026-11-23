@@ -260,7 +260,10 @@ public sealed class SolveOperation(IPlateSolver? plateSolver) : FindingOperation
     /// </remarks>
     public static void WriteSolved(Image image, WCS solution, string path, string? inputPath = null)
     {
-        image.WriteToFitsFile(path, PlateSolutionFile.AsHeld(solution));
+        // The cards a crop of the whole frame carries (stack cards, alignment provenance) are read BEFORE the write: the
+        // output may be the input's own path.
+        var cards = inputPath is not null ? MasterCrop.WholeFrameCards(inputPath) : null;
+        image.WriteToFitsFile(path, PlateSolutionFile.AsHeld(solution), cards);
         if (inputPath is not null)
         {
             MasterCrop.CarrySidecars(inputPath, image.Width, image.Height, path);
