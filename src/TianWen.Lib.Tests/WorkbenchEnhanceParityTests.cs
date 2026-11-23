@@ -179,7 +179,8 @@ public sealed class WorkbenchEnhanceParityTests(ITestOutputHelper output) : IDis
     /// <summary>
     /// With a deblurrer live (#2475's review): the two settings <c>image sharpen</c> passes on only when their option
     /// was typed, the starless deconvolution's blend and the SCNR mode, are held to the verb by the same comparison.
-    /// A verb that dropped either would run another program and write another file. A colour input, since SCNR does
+    /// A verb that dropped either would run another program and write another file. So is the SCNR's strength with
+    /// its mode left to the program, which the step's line has to carry by itself. A colour input, since SCNR does
     /// nothing to one plane.
     /// </summary>
     [Fact(Timeout = 600_000)]
@@ -195,7 +196,9 @@ public sealed class WorkbenchEnhanceParityTests(ITestOutputHelper output) : IDis
         await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(
             WorkbenchFixtures.Picture("program", master, WorkbenchFixtures.Edit(EnhanceOperation.Id)),
             WorkbenchFixtures.Picture("deconvolved", master, WorkbenchFixtures.Edit(EnhanceOperation.Id, new JsonObject { ["deconvolveBlend"] = 0.6 })),
-            WorkbenchFixtures.Picture("fringed", master, WorkbenchFixtures.Edit(EnhanceOperation.Id, new JsonObject { ["scnr"] = "none" }))), ct);
+            WorkbenchFixtures.Picture("fringed", master, WorkbenchFixtures.Edit(EnhanceOperation.Id, new JsonObject { ["scnr"] = "none" })),
+            // The mode left to the program and its strength stated: the program's own SCNR, at a half.
+            WorkbenchFixtures.Picture("half", master, WorkbenchFixtures.Edit(EnhanceOperation.Id, new JsonObject { ["scnrAmount"] = 0.5 }))), ct);
         var runner = new WorkbenchRunner(new OperationCatalog([new EnhanceOperation(pipeline)]));
 
         var report = await runner.RunAsync(folder, new WorkbenchRunOptions { Say = output.WriteLine }, ct);
@@ -232,12 +235,17 @@ public sealed class WorkbenchEnhanceParityTests(ITestOutputHelper output) : IDis
         LineOf("program").ShouldNotContain("--scnr");
         LineOf("deconvolved").ShouldContain("--deconv-blend");
         LineOf("fringed").ShouldContain("--scnr");
+        LineOf("half").ShouldNotContain("--scnr");
+        LineOf("half").ShouldContain("--scnr-amount");
 
-        // And the three are three programs: a stated blend keeps the starless deconvolution a deblurrer would drop, and a
-        // stated mode takes out the SCNR the program runs with one. Equal files would make the comparison above empty.
+        // And they are four programs: a stated blend keeps the starless deconvolution a deblurrer would drop, a stated
+        // mode takes out the SCNR the program runs with one, and a stated strength runs the program's own SCNR at it.
+        // Equal files would make the comparison above empty.
         var program = WorkbenchFixtures.Read(Result("program"));
         Differ(program, WorkbenchFixtures.Read(Result("deconvolved"))).ShouldBeTrue("the starless deconvolution ran where its blend was stated");
         Differ(program, WorkbenchFixtures.Read(Result("fringed"))).ShouldBeTrue("the SCNR did not run where its mode was stated as none");
+        Differ(program, WorkbenchFixtures.Read(Result("half"))).ShouldBeTrue("the program's own SCNR ran at the strength stated");
+        Differ(WorkbenchFixtures.Read(Result("fringed")), WorkbenchFixtures.Read(Result("half"))).ShouldBeTrue("and a half of it is not none of it");
 
         string[] LineOf(string name) => [.. report.Images.Single(each => each.Name == name).Steps[0].CommandLine];
         string Result(string name) => report.Images.Single(each => each.Name == name).Steps[0].Output.ShouldNotBeNull();

@@ -264,7 +264,15 @@ public sealed class EnhanceOperation(SharpenPipeline pipeline, ILogger<EnhanceOp
 
         if (settings.Scnr is { } scnr)
         {
-            line.AddRange("--scnr", scnr.ToString().ToLowerInvariant(), "--scnr-amount", StepCommandLine.Number(settings.ScnrAmount));
+            line.AddRange("--scnr", scnr.ToString().ToLowerInvariant());
+        }
+
+        // The strength is the program's whenever it runs SCNR, whether the mode was stated or left to the program
+        // (ProgramAsync), so the line carries it wherever it is not the verb's own 1: a mode left out with a strength
+        // of a half ran at a half, and a line without it would replay at 1 and write another file.
+        if (settings.Scnr is not null || settings.ScnrAmount != 1f)
+        {
+            line.AddRange("--scnr-amount", StepCommandLine.Number(settings.ScnrAmount));
         }
 
         Add(line, "--deblur-sharpen", settings.DeblurSharpen is { } deblurSharpen ? StepCommandLine.Number(deblurSharpen) : null);
