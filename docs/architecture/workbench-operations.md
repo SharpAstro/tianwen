@@ -69,6 +69,34 @@ stored operations here read. Written as a file from a FILE it also carries the a
 sidecars (`MasterCrop.CropLoaded`). An operation that reads a map sidecar after a derived crop finds none; none exists
 yet, and the one that will (SPCC's saturation map, #2284) has to settle this first.
 
+## The operations
+
+`tianwen workbench operations` prints this list from the code, with every setting at its default. An edit names an
+operation by its id.
+
+| Id | Kept | Verb | The images it takes after its own |
+|---|---|---|---|
+| `crop` | derived | `image crop`, `image autocrop` | |
+| `gradient` | stored | `image flatten` | |
+| `linear-fit` | stored | `image linear-fit` | `reference`: the master whose scale it is put on |
+| `align` | stored | `image align` | `reference`: the master whose grid it is put on |
+| `continuum` | stored | `image continuum` | `continuum`: the broadband master the continuum is read from |
+| `add-line` | stored | `image add-line` | `line`: the narrowband master whose emission goes in |
+| `luminance` | stored | `image luminance` | `red`, `blue`, and optionally a measure copy of red, green and blue. Its own image is green |
+| `lrgb` | stored | `image lrgb` | `luminance`: the luminance whose detail it is given |
+| `add-stars` | stored | `image add-stars` | `stars`: the stars a star removal took out |
+| `fill-digs` | stored | `image fill-digs` | `input`: the master the stars were removed from. Its own image is the starless plate |
+| `protect-cores` | stored | `image protect-cores` | `input`: the master the stars were removed from. Its own image is the starless plate |
+
+- **An optional image comes last** (`OperationInputRole.Optional`): an edit that names fewer images leaves the last ones
+  out. `luminance` takes two, or five with its three measure copies; any other number is refused.
+- **Several masters on one grid are read in one place** (`OperationInputs.TryReadMasters`): each as a master, its
+  absent ring masked, and a refusal in words when they are not on one grid.
+- **Two verbs changed so a step's line can name its file.** `image lrgb` takes `-o`, and `image align -o` takes a FITS
+  file where one master is aligned (it still takes a folder for several).
+- **The star catalogue of a protected core is `CoreCatalogue`** in Lib: which catalogue is asked, read once, and what is
+  said about it. The verbs and the operations call it; what would answer is in the step's key.
+
 ## A step's key
 
 `StepKey.OfStep` digests this text with XxHash128 (`ContentDigest`, as the stack manifest does):
@@ -174,9 +202,9 @@ that gave no result.
 
 Each is a later leg of W1 (#1641) or a later phase, and none is assumed by the code above.
 
-- **The remaining operations.** The other colour steps (#2465: `match-psf`, `deblur`, `denoise`, `remove-stars`,
-  `protect-cores`, `fill-digs`, `continuum`, `add-line`, `luminance`, `lrgb`, `add-stars`, `align`, `combine`), the
-  canonical enhance (#2466), the deep-sky frame steps (#2467) and the planetary steps (#2468).
+- **The remaining operations.** Of the colour steps (#2465) the four that put several masters through one run
+  (`match-psf`, `deblur`, `denoise`, `remove-stars`) and `combine`, the recipe as one step; the canonical enhance
+  (#2466), the deep-sky frame steps (#2467) and the planetary steps (#2468).
 - **A step with two results** (star removal: the starless plate and the stars), and a second image that starts from
   one of them (#2465). The store's index entry and the project's `inputs` are where it goes.
 - **A set of frames as an input** (calibrate, register, integrate; #2467), and an operation that writes no pixels

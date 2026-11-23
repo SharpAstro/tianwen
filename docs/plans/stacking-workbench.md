@@ -542,8 +542,10 @@ each step's output is bit-identical to its CLI verb's.
 
 **Still to do in W1**, each a leg of its own with its own issue, and #1641 stays open until the last:
 
-1. The other colour steps (#2465): `match-psf`, `deblur`, `denoise`, `remove-stars` (two results: the starless plate and
-   the stars), `protect-cores`, `fill-digs`, `continuum`, `add-line`, `luminance`, `lrgb`, `add-stars`, `align`, `combine`.
+1. The other colour steps (#2465). Built: `align`, `continuum`, `add-line`, `luminance`, `lrgb`, `add-stars`,
+   `fill-digs` and `protect-cores`, which take fixed images and give one result. Left: `match-psf`, `deblur`, `denoise`
+   and `remove-stars` (two results: the starless plate and the stars), which put several masters through one run, and
+   `combine`, the recipe as one step.
 2. The canonical enhance (#2466): `image sharpen`, its settings turned into the `SharpenStep` records.
 3. The deep-sky frame steps (#2467): scan, grade, calibrate, register and integrate, which take a set of frames, not an
    image.
