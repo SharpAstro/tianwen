@@ -125,6 +125,25 @@ public interface IJointOperation : IOperation
 }
 
 /// <summary>
+/// An operation with fixed inputs whose one run gives more than one result
+/// (<see cref="OperationDescription.ExtraResults"/>): three planes denoised as one colour image, and each handed back.
+/// </summary>
+/// <remarks>
+/// What each input is, is its place among the inputs. That is the difference from <see cref="IJointOperation"/>, whose
+/// images are handed over sorted and whose results must not depend on their order.
+/// </remarks>
+public interface IMultiResultOperation : IOperation
+{
+    /// <summary>The command that does the run from a terminal, program name first: every input and every file it writes.</summary>
+    ImmutableArray<string> CommandLine(string canonicalSettings, IReadOnlyList<string> inputs, StepOutputs outputs);
+
+    /// <summary>Does the work and writes the main result and each extra result to the file
+    /// <paramref name="outputs"/> names for it. A refusal writes nothing that counts.</summary>
+    ValueTask<OperationOutcome> RunAsync(string canonicalSettings, IReadOnlyList<OperationInput> inputs, StepOutputs outputs, Action<string>? say,
+        CancellationToken cancellationToken);
+}
+
+/// <summary>
 /// An operation with its settings as a type. A verb builds the settings from its options and calls
 /// <see cref="RunAsync"/>; the runner goes through <see cref="IOperation"/> and reaches the same method, so the two
 /// cannot differ.
@@ -248,6 +267,35 @@ public abstract class JointOperation<TSettings> : Operation<TSettings>, IJointOp
     ValueTask<OperationOutcome> IJointOperation.RunJointAsync(string canonicalSettings, IReadOnlyList<OperationInput> members, IReadOnlyList<StepOutputs> outputs,
         Action<string>? say, CancellationToken cancellationToken)
         => RunJointAsync(Parse(canonicalSettings), members, outputs, say, cancellationToken);
+}
+
+/// <summary>An <see cref="Operation{TSettings}"/> whose one run gives several results (<see cref="IMultiResultOperation"/>).</summary>
+/// <typeparam name="TSettings">The settings, as for <see cref="Operation{TSettings}"/>.</typeparam>
+public abstract class MultiResultOperation<TSettings> : Operation<TSettings>, IMultiResultOperation
+    where TSettings : class, new()
+{
+    /// <inheritdoc cref="IMultiResultOperation.CommandLine"/>
+    public abstract ImmutableArray<string> CommandLine(TSettings settings, IReadOnlyList<string> inputs, StepOutputs outputs);
+
+    /// <inheritdoc cref="IMultiResultOperation.RunAsync"/>
+    public abstract ValueTask<OperationOutcome> RunAsync(TSettings settings, IReadOnlyList<OperationInput> inputs, StepOutputs outputs, Action<string>? say,
+        CancellationToken cancellationToken);
+
+    /// <summary>With one place for a result, the main result alone is named.</summary>
+    public sealed override ImmutableArray<string> CommandLine(TSettings settings, IReadOnlyList<string> inputs, string output)
+        => CommandLine(settings, inputs, new StepOutputs(output));
+
+    /// <summary>With one place for a result, the main result alone is written.</summary>
+    public sealed override ValueTask<OperationOutcome> RunAsync(TSettings settings, IReadOnlyList<OperationInput> inputs, string outputPath, Action<string>? say,
+        CancellationToken cancellationToken)
+        => RunAsync(settings, inputs, new StepOutputs(outputPath), say, cancellationToken);
+
+    ImmutableArray<string> IMultiResultOperation.CommandLine(string canonicalSettings, IReadOnlyList<string> inputs, StepOutputs outputs)
+        => CommandLine(Parse(canonicalSettings), inputs, outputs);
+
+    ValueTask<OperationOutcome> IMultiResultOperation.RunAsync(string canonicalSettings, IReadOnlyList<OperationInput> inputs, StepOutputs outputs,
+        Action<string>? say, CancellationToken cancellationToken)
+        => RunAsync(Parse(canonicalSettings), inputs, outputs, say, cancellationToken);
 }
 
 /// <summary>An <see cref="Operation{TSettings}"/> that writes no pixels (<see cref="IFindingOperation"/>).</summary>

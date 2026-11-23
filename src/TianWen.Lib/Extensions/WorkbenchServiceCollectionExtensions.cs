@@ -47,6 +47,7 @@ public static class WorkbenchServiceCollectionExtensions
         services.AddSingleton<IOperation, MatchPsfOperation>();
         services.AddSingleton<IOperation, DeblurOperation>();
         services.AddSingleton<IOperation, DenoiseOperation>();
+        services.AddSingleton<IOperation, DenoiseColourOperation>();
         services.AddSingleton<IOperation, RemoveStarsOperation>();
         services.AddSingleton<IOperation, CombineOperation>();
         // The enhance runs on the host's pipeline, with whatever enhancers the host registered; a host that registered

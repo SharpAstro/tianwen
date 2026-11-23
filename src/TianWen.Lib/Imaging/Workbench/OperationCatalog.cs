@@ -15,7 +15,8 @@ public sealed class OperationCatalog
     /// derivation, or that it writes no pixels and has no finding (or the reverse): either would make a step's key or
     /// its handling depend on which one was found. Or one says of its run what its type does not: that several images
     /// go through it in one run (<see cref="OperationDescription.Joint"/>) with no such run, or the reverse; that such
-    /// a run takes images by role; or that it gives extra results with no run that could be told where they go.</exception>
+    /// a run takes images by role; or that it gives extra results and cannot be told where they go: its step would
+    /// never be whole in the store, and would run on every run.</exception>
     public OperationCatalog(IEnumerable<IOperation> operations)
     {
         ArgumentNullException.ThrowIfNull(operations);
@@ -45,7 +46,7 @@ public sealed class OperationCatalog
                     nameof(operations));
             }
 
-            if (!description.ExtraResults.IsDefaultOrEmpty && operation is not IJointOperation)
+            if (!description.ExtraResults.IsDefaultOrEmpty && operation is not (IJointOperation or IMultiResultOperation))
             {
                 throw new ArgumentException(
                     $"the operation '{description.Id}' says it gives extra results and has no way to be told where they go", nameof(operations));
