@@ -649,8 +649,7 @@ public sealed class WorkbenchEnhanceParityTests(ITestOutputHelper output) : IDis
         var note = EnhanceOperation.ResolveWhiteBalance(new ColourCalibration(1f, 1f, 1f, ColourCalibrationSource.Spcc), [1.1f, 1f, 0.9f]).Note;
         // The note words its numbers in the current culture, so the expectation is built with the same format: the
         // STATED triple is the one named first, in any locale.
-        var noteLine = ImageSubCommand.InSharpenOptions(note.ShouldNotBeNull());
-        noteLine.ShouldStartWith($"--white-balance ({1.1f:F3}, {1f:F3}, {0.9f:F3}) replaces the input's own");
+        ImageSubCommand.InSharpenOptions(note.ShouldNotBeNull()).ShouldStartWith($"--white-balance ({1.1f:F3}, {1f:F3}, {0.9f:F3}) replaces the input's own");
 
         // A line that names no setting is said as it is.
         ImageSubCommand.InSharpenOptions("wrote master.fits").ShouldBe("wrote master.fits");
