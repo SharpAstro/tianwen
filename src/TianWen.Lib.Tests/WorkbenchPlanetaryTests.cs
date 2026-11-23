@@ -468,10 +468,10 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
             var identity = await PlanetaryIdentification.IdentifyMasterAsync(master, path: null, cancellationToken: TestContext.Current.CancellationToken);
 
             (identity.Planet, identity.PlanetFrom).ShouldBe(((CatalogIndex?)null, "nothing names one"));
-            // The fixture master carries a FILTER card (Luminance): the master's own header, not a path.
-            (identity.FilterNm, identity.FilterFrom).ShouldBe(((double?)550, "the master's FILTER"));
-            // No aperture: the camera (synthetic) is named in the reason, with no telescope remembered for it.
-            (identity.ApertureMm, identity.TelescopeFrom).ShouldBe(((int?)null, "none named or remembered for synthetic"));
+            // The header names no filter, and there is no file name to read one from.
+            (identity.FilterNm, identity.FilterFrom).ShouldBe(((double?)null, "none named"));
+            // No aperture and no camera: nothing to remember a telescope for either.
+            (identity.ApertureMm, identity.TelescopeFrom).ShouldBe(((int?)null, "none named"));
         }
         finally
         {
