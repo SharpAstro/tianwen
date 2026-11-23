@@ -567,3 +567,26 @@ The first is the star catalogues, loaded once for the process and meant to be ke
 static, a cache, a fixture that outlives its class) is NOT looked up: the probe says when the heap stepped, not who
 holds it. They cost memory and nothing else measured here: a held plane of floats has no references for the collector
 to walk.
+
+## A job cancelled after its steps finished (#2493)
+
+Run 45131970579, attempt 1, job 137551412713 (`test-functional (2/3)`): every step succeeded, `Complete job` included,
+by 07:42:55 (it started at 07:39:09, so 3m46s of work). Then the GitHub-hosted runner went silent and no log was ever
+uploaded (the log blob answers `BlobNotFound`). At 07:57:55 the job was cancelled with "The job has exceeded the
+maximum execution time of 15m0s", its `timeout-minutes`. (07:57:55 is 15m0s after the last step ended at 07:42:55, not
+after the start at 07:39:09, which would be 07:54:09; so GitHub's timeout clock evidently ran from the job's last
+report, not from its start.) The `gate` job saw a `cancelled` need and exited 1, which
+the PR's checks showed as the bare "Process completed with exit code 1" that #2493 was filed on.
+
+A scan of every `dotnet.yml` run since 2026-11-16 found no other case. The cause is the hosted runner, not a test: the
+steps were done in under four minutes. The timeout is not to be raised for it, and the job is not to be split (the
+org rule: a repeating failure is measured and fixed, never given more time or retries).
+
+What changed: `gate` now checks each need on its own and prints one `::error title=gate::<job> was <result>`
+annotation per refusing need with a sentence on what that result means (`failure`: a step failed; `cancelled`: its
+`timeout-minutes` or a runner that stopped answering, which the job's annotations and step times tell apart; `skipped`:
+a job it depends on did not succeed). The annotation carries the job id (`test-functional`), not the shard
+(`test-functional (2/3)`), because the `needs` context holds only the id: the shard is found on the run page. Which results pass is unchanged.
+
+A second occurrence: comment on #2493 with the run id and job id, and file it upstream with GitHub as a hosted runner
+that stopped reporting after its last step.
