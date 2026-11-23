@@ -162,6 +162,8 @@ public sealed class WorkbenchAnyNumberTests : IDisposable
             // Two is even: the step gives its sum and leaves its extra result out.
             WorkbenchFixtures.Starting("pair", "x", WorkbenchFixtures.Edit("sum", null, "y")),
             WorkbenchFixtures.StartingFromResult("first", "pair", SumOperation.Odd),
+            // One hop past it: told the reason too, on every run.
+            WorkbenchFixtures.Starting("past", "first"),
             // An image handed in twice is no set.
             WorkbenchFixtures.Starting("twice", "x", WorkbenchFixtures.Edit("sum", null, "x"))), ct);
         var sum = new SumOperation();
@@ -187,6 +189,47 @@ public sealed class WorkbenchAnyNumberTests : IDisposable
         Of(again, "pair").Steps[0].State.ShouldBe(StepState.Kept, "a step is whole in the store without the result it may leave out");
         sum.Runs.ShouldBe(1);
         Of(again, "first").Refusal.ShouldNotBeNull().ShouldContain("gave no 'odd'");
+        foreach (var each in new[] { report, status, again })
+        {
+            Of(each, "past").Refusal.ShouldNotBeNull().ShouldContain("gave no 'odd'");
+        }
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task AResultTheStepGaveAndTheStoreLostMakesTheStepRunAgain()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("lost-").FullName;
+        var x = WorkbenchFixtures.WriteMaster(folder, "x", WorkbenchFixtures.Master(seed: 1));
+        var y = WorkbenchFixtures.WriteMaster(folder, "y", WorkbenchFixtures.Master(seed: 2));
+        var z = WorkbenchFixtures.WriteMaster(folder, "z", WorkbenchFixtures.Master(seed: 3));
+        await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("x", x),
+            WorkbenchFixtures.Picture("y", y),
+            WorkbenchFixtures.Picture("z", z),
+            // Three is odd: the step gives the result it may leave out.
+            WorkbenchFixtures.Starting("three", "x", WorkbenchFixtures.Edit("sum", null, "y", "z")),
+            WorkbenchFixtures.StartingFromResult("first", "three", SumOperation.Odd)), ct);
+        var sum = new SumOperation();
+        var runner = new WorkbenchRunner(new OperationCatalog([sum]));
+        var made = await runner.RunAsync(folder, cancellationToken: ct);
+        made.Succeeded.ShouldBeTrue();
+        var given = Path.Combine(folder, StepStore.FolderName, StepStore.FileNameOf(made.Images.Single(image => image.Name == "first").Key));
+        File.Exists(given).ShouldBeTrue();
+
+        // Lost from the store by hand: not a result the step left out, so the step is not whole.
+        File.Delete(given);
+        var status = await runner.StatusAsync(folder, cancellationToken: ct);
+        var again = await runner.RunAsync(folder, cancellationToken: ct);
+
+        ImageReport Of(WorkbenchReport of, string name) => of.Images.Single(image => image.Name == name);
+        Of(status, "three").Steps[0].State.ShouldNotBe(StepState.Kept, "a status does not call a step whole that lost a result it gave");
+        Of(status, "first").Refusal.ShouldBeNull();
+        again.Succeeded.ShouldBeTrue();
+        Of(again, "three").Steps[0].State.ShouldBe(StepState.Ran);
+        sum.Runs.ShouldBe(2);
+        Of(again, "first").Refusal.ShouldBeNull();
+        File.Exists(given).ShouldBeTrue("the step ran again and gave it again");
     }
 
     [Fact]

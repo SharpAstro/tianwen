@@ -489,8 +489,8 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             var main = store.Stage(node.Key);
             stagings.Add(main);
             var extras = ImmutableDictionary.CreateBuilder<string, string>(StringComparer.Ordinal);
-            // The places of the results the step may leave out: one of these not written is no failure.
-            var mayBeLeftOut = new HashSet<string>(StringComparer.Ordinal);
+            // The places of the results the step may leave out, by name: one of these not written is no failure.
+            var mayBeLeftOut = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var result in several.Description.ExtraResults)
             {
                 var staged = store.Stage(StepKey.OfResult(node.Key, result.Name));
@@ -498,12 +498,12 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                 extras[result.Name] = staged.Path;
                 if (result.Optional)
                 {
-                    mayBeLeftOut.Add(staged.Path);
+                    mayBeLeftOut[staged.Path] = result.Name;
                 }
             }
 
             var outcome = await several.RunAsync(node.Settings, inputs, new StepOutputs(main.Path) { Extra = extras.ToImmutable() }, Named(say, node), cancellationToken);
-            if (outcome.Succeeded && stagings.Find(staged => !mayBeLeftOut.Contains(staged.Path) && !File.Exists(staged.Path)) is { } missing)
+            if (outcome.Succeeded && stagings.Find(staged => !mayBeLeftOut.ContainsKey(staged.Path) && !File.Exists(staged.Path)) is { } missing)
             {
                 outcome = OperationOutcome.Failed($"'{several.Description.Id}' reported its results and did not write {Path.GetFileName(missing.Path)}");
             }
@@ -516,8 +516,10 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             }
 
             // The extra results first and the main one last. The order does not decide what is kept (InStore needs the main
-            // result and every extra, so a run that ends between two commits is made again either way).
-            for (var i = stagings.Count - 1; i >= 0; i--)
+            // result and every extra, so a run that ends between two commits is made again either way). The main one's
+            // entry names the results the step left out, so a result the store loses later is not taken for one of them.
+            ImmutableArray<string> leftOut = [.. mayBeLeftOut.Where(static place => !File.Exists(place.Key)).Select(static place => place.Value).Order(StringComparer.Ordinal)];
+            for (var i = stagings.Count - 1; i >= 1; i--)
             {
                 // A result the step left out has no file to take in.
                 if (File.Exists(stagings[i].Path))
@@ -525,6 +527,8 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                     await store.CommitAsync(stagings[i], several.Description.Id, cancellationToken);
                 }
             }
+
+            await store.CommitAsync(main, several.Description.Id, leftOut, cancellationToken);
         }
         finally
         {
@@ -542,9 +546,15 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
     // What an image is told when the result it starts from is one its step may leave out, and did.
     private static string LeftOut(string result) => $"the step it starts from gave no '{result}' for these images";
 
-    // A step's main result in the store, when its extra results are there too: a step is kept whole or made again.
+    // A step's main result in the store, when its extra results are there too: a step is kept whole or made again. A
+    // result it may leave out is there, or named by the main result's entry as left out; one it gave and the store has
+    // lost since makes the step run again.
     private static string? InStore(StepStore store, Node node)
-        => store.Find(node.Key) is { } file && node.ExtraKeys.All(key => store.Find(key) is not null) ? file : null;
+        => store.Find(node.Key) is { } file
+            && node.ExtraKeys.All(key => store.Find(key) is not null)
+            && node.OptionalResults.All(name => store.Find(StepKey.OfResult(node.Key, name)) is not null || store.LeftOut(node.Key, name))
+            ? file
+            : null;
 
     private static async ValueTask<List<OperationInput>?> EnsureInputsAsync(Node node, StepPlan step, StepStore store, Action<string>? say, CancellationToken cancellationToken)
     {
@@ -769,6 +779,10 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
 
         /// <summary>The keys of the step's extra results.</summary>
         public ImmutableArray<string> ExtraKeys { get; init; } = [];
+
+        /// <summary>The names of the results the step may leave out: each is in the store, or the step's entry says it
+        /// was left out.</summary>
+        public ImmutableArray<string> OptionalResults { get; init; } = [];
 
         /// <summary>For an extra result: the step that gives it. Null otherwise.</summary>
         public Node? Producer { get; init; }
@@ -1158,6 +1172,7 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                     FindingKey = operation is IFindingOperation ? StepKey.OfFinding(key) : string.Empty,
                     // The results a step is not whole without: one it may leave out is not among them.
                     ExtraKeys = [.. operation.Description.ExtraResults.Where(static result => !result.Optional).Select(result => StepKey.OfResult(key, result.Name))],
+                    OptionalResults = [.. operation.Description.ExtraResults.Where(static result => result.Optional).Select(static result => result.Name)],
                 };
                 // A step's command line names files: an original, a result in the store, or where in the store a result
                 // would be. A derived step has no file, and neither has a step that writes no pixels, so run by hand it

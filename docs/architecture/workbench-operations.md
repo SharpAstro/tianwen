@@ -248,8 +248,10 @@ names the others.
   are in its header or its file's name.
 - **A result a step may leave out** (`OperationResultRole.Optional`): the stacks through an IR-pass or an L filter are
   joined as the `luminance`, which is the step's extra result where there is one. The step is whole in the store
-  without it. An image that starts from a result the step left out is refused in words, by a status and a run alike,
-  and an edit of that image is `Blocked`.
+  without it: its main result's entry in the index names what it left out (`StepStoreEntry.LeftOut`), so a result it
+  gave and the store lost later makes the step run again, where one it left out does not. An image that starts from a
+  result the step left out is refused in words, by a status and a run alike, and so is an image one hop past it (its
+  refusal carries the reason); an edit of either is `Blocked`.
 - **Only a step with results of its own can leave one out** (`MultiResultOperation<TSettings>`, with fixed inputs or a
   set). A run several images share gives every result for every image, and one it does not write is a refusal of the
   step. A catalog refuses an operation that says `AnyNumber` and also names images by their place, or shares its run.

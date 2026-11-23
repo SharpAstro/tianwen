@@ -162,6 +162,13 @@ public sealed record StepStoreEntry
 
     /// <summary>The file's size when it was written.</summary>
     public long Bytes { get; set; }
+
+    /// <summary>
+    /// On a step's main result: the names of the results the step may leave out and did. A result the step gave and
+    /// the store has lost is then told from one it never gave: the first makes the step run again, the second does not.
+    /// An entry written before this was kept names none, so such a step runs once more.
+    /// </summary>
+    public ImmutableArray<string> LeftOut { get; set; } = [];
 }
 
 // Files a person reads and may write by hand: indented, camelCase, enums as words. A member the type does not have is
