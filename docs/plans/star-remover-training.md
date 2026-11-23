@@ -9247,6 +9247,126 @@ the first angle is a step after the model and not another arm:
     the lead giving the first text's time in place of "before any export or score of either"), and a sixth, the
     push that carries this sentence, which gives the fifth its time and changes nothing else.
     The question, its bars and the guards' bars are as first pushed at 20:10:54; no round changed them.
+  - **R4h's and R4i's read, 2026-11-23 (seed 0 of each, the last step's weights, the sheets looked at first): R4i is
+    KILLED, and its question is missed on both halves. The black point by sky noise is no candidate, trained in or
+    set at inference.** R4h, the control, reads as R4d does and is the baseline for what comes next.
+    - **The sheets, before any row** (`arm_look.py`: the cores and the fields, each arm beside R4d and
+      StarXTerminator; then the 26 star sheets). **R4h:** as R4d on every panel. **R4i:** as trained it takes the
+      bright core of 30 Doradus and leaves a magenta wash where it stood, which core protection hands back only in
+      part; the Tarantula's knots are dimmer than R4d leaves them; M31's nucleus, the Lagoon's core, the crowded
+      field and the bright star on Andromeda are as R4d's. **Merope, both nights:** R4i leaves the star standing on
+      2022-01-05 and turns her nebula brown on both nights; R4h leaves the star on 2022-01-05 too and keeps the
+      nebula's colour, where R4d greens it on 2022-01-04.
+    - **The training, read as registered, and where the rule does not reach.** R4i halved first at step 84,000; its
+      median window over the 60,000 steps after that is 0.49 of the median from step 30,000 to it (6.44e-6 against
+      1.313e-5), with 18 new bests after the first halving; it stopped itself at 170,500 (best 158,500), no resume:
+      trained as the others. **R4h's first halving came at step 28,500, before the step 30,000 the rule's reference
+      starts at, so the registered ratio has no denominator and cannot be formed.** What its log says: at the first
+      rate the held-out readings were unsteady (lowest window 2.447e-5 at 16,500, one reading of 1.5e-3 at 17,500),
+      so the plateau rule halved 12,000 steps after that best; after it the run set 46 new bests, halved again at
+      84,000, 137,500 and 162,500, and stopped itself at 223,500 (best 211,500), no resume. A stall as the rule has
+      it needs a run with no new best after its first halving, so R4h did not stall; with the reference taken from
+      step 10,000, which is NOT the registered figure, the ratio reads 0.29. Whether a pair whose first halvings
+      stand at 28,500 and 84,000 "trained alike" the registration does not say beyond its two examples (one evicted
+      past the cap, one stalled), and neither happened. This read takes the pair as trained alike, and that is the
+      owner's to refuse (told 2026-11-23); refused, R4i is "neither" and no nearer: its question is missed either
+      way.
+    - **The question, R4i against R4h, as trained** (`bright_star_nights.py` on each arm's ring file, red, a ring
+      where StarXTerminator takes under 3 sigma left out):
+
+      | | R4d | R4h | R4i | bar | read |
+      |---|---|---|---|---|---|
+      | the widest gap between the two Pleiades nights, eight Pleiads, four rings from 8 to 80 px | 113 points (Merope, 60-80 px) | 47 (Atlas, 22-40 px) | **71** (Merope, 8-22 px) | at most 25 | **missed** |
+      | rows of 26 whose innermost ring is taken under 80 % | 7 | 9 | **10** | at most 4, and 3 fewer than R4h | **missed** |
+
+      R4i is worse than its control on both.
+    - **The guards on R4i** (the 40 sigma read's table, each row as that table reads it):
+
+      | row | R4d | R4h | R4i | bar | read |
+      |---|---|---|---|---|---|
+      | Tarantula crowded flat, chain | 91.3 | 91.9 | 91.7 | at least 90.3 | held |
+      | Sagittarius crowded flat, chain | 97.0 | 97.4 | 97.3 | at least 96.3 | held |
+      | Andromeda dark flat and dug, chain | 98.5, 0.7 | 98.6, 0.5 | 98.4, 0.9 | at least 95, at most 3 | held |
+      | Tarantula dark flat, chain | 96.5 | 95.9 | 96.2 | at least 91 | held |
+      | glow green median on Andromeda, chain | -8.5 | -47.9 | 24.1 | within 450 | held |
+      | glow green median on the Tarantula, chain | 106.5 | -14.7 | 178.8 | within 500 | held |
+      | M31 nucleus, chain | 0.0 % | 0.0 % | 0.0 % | under 10 % | held |
+      | purity, chain | 0.8 | 0.9 | 0.8 | at most 1.0 | held |
+      | light taken from the Tarantula field, chain | 81, 82 % | 81, 84 % | 81, **85 %** | at most 83, 84 % | **failed** by a point |
+      | Gaia BP 17-19 with the level set aside, chain | 90.7 | 91.4 | 92.3 | at least 89.7 | held |
+      | light added on each master's nebula, as trained | 0.0 % | 0.0 % | 0.1, 0.0, 0.0 % | at most 1.0 % | held |
+      | brightest tenth of the Tarantula's peaks standing, as trained | 17 of 77 | 18 of 77 | **0 of 77** | at least 11 | **failed** |
+      | faint stars left on the Lagoon's core, as trained | 29 % | 30 % | 31 % | at most 37 % | held |
+      | faint stars left on 30 Doradus, as trained | 22 % | 17 % | 20 % | at most 27 % | held |
+      | the Lagoon's broad light taken, as trained | 2.67 | 1.91 | 1.37 | at most 2.67 | held |
+
+      R4h misses neither failed row, so neither is the exporter's. The peaks row is the one the 40 sigma read failed
+      at inference (1 of 77), and it is what the sheet shows on 30 Doradus's core: on the Tarantula R4i's broad
+      light taken as trained is 10.05, twice R4h's 5.06.
+    - **R4h's own read: what the exporter's changes did to R4d's rows.** Through the chain every star row is
+      within a point of R4d's (the table above), and the nebula rows are R4d's or better: 18 of 77 peaks standing,
+      the Lagoon's broad light taken 1.91 where R4d reads 2.67. Three things are not within a point. As trained
+      Andromeda's dark flat is 60.4 with 24.7 % dug where R4d reads 69.4 and 19.5; the light taken from the
+      Tarantula field over the whole frame is 84 % where R4d's is 82; and **the bright Pleiads are left standing
+      more than R4d leaves them** (below). One seed does not say whether that is the exporter's knot fix or the
+      run: R4g, trained on R4d's own cache, left the Pleiads whole too.
+    - **Against the predictions.** R4h, "every row within a point of R4d's, the peaks within 5 of 17": the peaks
+      hold (18); the three rows just named do not. R4i, all three missed: the nights' gap (10 to 25 predicted, 71
+      read), the innermost ring (3 to 5 rows, 10 read), and the peaks (11 to 20 of 77, 0 read), where the prediction
+      reasoned that the drawn knots are stretched the same way.
+    - **Reported, no bar.**
+      - **The best step's weights** (R4h's at 211,500, R4i's at 158,500) say the same. Innermost ring under 80 %:
+        9 and 9 of 26; the nights' gap 46 and 72 points; R4i's brightest Tarantula peaks standing 0 of 77 (R4h 16);
+        the Tarantula's crowded flat through the chain 91.5 and 91.5; R4i's field light 81 and 84 %.
+      - **All 26 ring rows,** the share of StarXTerminator's take at 8 to 22 px, red, R4d / R4h / R4i. Antares:
+        2026-04-21 47 / 50 / 79, 2024-05-28 78 / 78 / 89, 2023-05-15 84 / 87 / 67. sigma Sco: 85 / 88 / 89 and 91 /
+        92 / 94. The Pleiads of 2022-01-05: Taygeta 94 / 90 / 90, Asterope 96 / 96 / 97, 22 Tau 96 / 97 / 97, Maia
+        55 / 44 / 30, Merope 74 / 50 / 16, Alcyone 17 / 0 / 0, Electra 76 / 30 / 13, Atlas 78 / 50 / 41. Those of
+        2022-01-04: Taygeta 98 / 95 / 96, Asterope 98 / 98 / 98, 22 Tau 99 / 98 / 99, Maia 97 / 81 / 71, Merope 98 /
+        91 / 87, Alcyone 82 / 31 / 13, Electra 95 / 72 / 71, Atlas 98 / 91 / 91. Alnitak 97 / 96 / 92, iota Ori 95
+        / 94 / 97, lambda Cen 96 / 96 / 95, the star south of Merope 97 / 101 / 105 and 94 / 99 / 102. So the depth
+        helps Antares on two of three nights and costs most of the five bright Pleiads on both.
+      - **The faint stars on bright nebula** (the row with its magnitude check, "Faint stars on bright nebula"
+        below): on the Lagoon R4h leaves 34.5 % of 84 and R4i 33.3 % (R4d 34.5, StarXTerminator 15.5). Planted stars
+        of 20 to 150 sky sigma, left on bright nebula and on dark sky: R4h 67.8 % and 6.8 %, R4i 73.7 % and 6.8 %
+        (R4d 68.8 and 6.8, StarXTerminator 42.4 and 0.5). The black point does not move either.
+      - **As trained,** R4h / R4i: Andromeda's dark flat 60.4 / 76.3 with 24.7 / 14.7 % dug; the Tarantula's 79.3
+        / 86.0 with 15.1 / 11.2 % left; its crowded flat 88.0 / 87.8; Gaia BP 17-19 96.3 / 96.4; the M31 nucleus
+        taken in its worst channel 5.2 / 3.2 %; broad light taken on Andromeda 2.83 / 2.93 and on the Tarantula
+        5.06 / 10.05. The depth digs less on dark sky and leaves less, and pays for it on the nebula.
+    - **What a frame whose noise is no longer its own does (#2341), for R4i, deciding nothing**
+      (`smoothed_black_point.py`, which mirrors `Image.TryEstimateSkyNoise`; the three scoring masters smoothed by a
+      Gaussian of 1.5 px, their canvas ring kept). Smoothed, the sky noise the product reads falls to 0.21 to 0.28
+      of the master's on Andromeda, 0.16 to 0.23 on the Tarantula and 0.12 on the Sagittarius master, so a black
+      point 40 of those sigma under the median lies 8.5 to 11.3, 6.6 to 9.0 and 4.7 of the MASTER's sigma under it.
+      Covered pixels under that black point, R / G / B:
+
+      | master | smoothed | the master itself |
+      |---|---|---|
+      | Andromeda | **5.2 / 12.5 / 1.9 %**, 92 to 98 % of them in patches of 50 px or more (231 to 327 patches a channel) | 8, 2 and 7 px |
+      | Tarantula | 0 / 0.000 (5 px) / 0.011 % | none |
+      | Sagittarius (one plane) | 0.019 %, a quarter of it in 7 patches | 1 px |
+
+      So the hazard is a frame's, not the rule's everywhere: on Andromeda the median stands on the galaxy's light and
+      the plain sky of the corners lies under a black point that close, on the other two it does not. R4i as
+      trained on the smoothed Andromeda master hands that sky back at the black point: its plate stands over its
+      input on 10.1 % of the frame (`nebula_rows.py`, in the smoothed frame's own noise, which is why its other
+      figures there are no match for the table's), in green by more than one master sigma on 9.3 % of the frame and
+      by 3.3 master sigma at the median of those pixels; on the other two masters it adds nothing (0.00 %). The
+      sheet of a dark corner (`r4i-smoothed-andromeda.png`, x 300, y 2591) shows the sky flat at the black point and
+      the stars left standing, dimmed; the stars there are 1.5 px wider than any the model was shown, so that half
+      is the smoothing's and says nothing of the black point. The guard #2341 asks for is needed before any model
+      with a depth ships; R4i is not that model.
+    - **What it says.** (1) **Training the black point in does not do what #2309 hoped.** The two Pleiades nights
+      still stand 71 points apart, the bright Pleiads are left more than before, and the model takes the Tarantula's
+      knots and 30 Doradus's core, the same failure the depth showed at inference on 2026-11-21. With that read
+      (no depth holds both the knots and the stars' inner rings) the black point by sky noise is tried in both
+      ways and closed. What #2309 found stays true and unsolved: one pixel a channel sets the stretch, and R4h's two
+      nights stand 47 points apart. (2) **R4h is the baseline every later arm is read against**: the fixed
+      exporter, R4d's rows through the chain, and the nebula rows no worse. (3) **The bright Pleiads are left
+      standing by R4g, R4h and R4i, more than by R4d,** and one seed of each cannot say why; an arm that needs
+      those rows needs a second seed of its parent first.
+    - **Nothing is adopted.**
 - **The scorecard's blind side, found by the owner's eye (2026-11-19, #2245).** Asked for renders after weeks of
   rows alone, the owner pointed out within minutes, on the Lagoon, 30 Doradus and M31: flat blotches with floor3
   (#2243; their cause and floor4 are under "The dig floor inside bright nebula" below), bright stars back inside a core with core protection (#2242), faint residue stars as trained, and, once
