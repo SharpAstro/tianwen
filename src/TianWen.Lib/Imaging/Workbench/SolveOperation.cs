@@ -57,6 +57,23 @@ public static class PlateSolutionFile
         writer.Finish();
     }
 
+    /// <summary>
+    /// The solution as a FITS header holds it: its numbers after the cards have been written and read once.
+    /// </summary>
+    /// <remarks>
+    /// A card holds fewer digits than a double, and a long number is written in another form than a short one
+    /// (<c>1.398765432110E-05</c> for the solver's double, <c>1.39876543211E-05</c> for the same number read back).
+    /// So a solution written straight from the solver and one written after it was read from a file differ in their
+    /// cards' text, though in no digit a card keeps. Held once, a solution is written the same way ever after: it is
+    /// what <see cref="Read"/> gives of a file <see cref="Write"/> wrote.
+    /// </remarks>
+    public static WCS AsHeld(WCS solution)
+    {
+        var header = new Header();
+        solution.WriteToHeader(header);
+        return WCS.FromHeader(header) ?? solution;
+    }
+
     /// <summary>The solution in <paramref name="path"/>, or null when the file is not there or holds none.</summary>
     public static WCS? Read(string path)
     {
@@ -230,7 +247,12 @@ public sealed class SolveOperation(IPlateSolver? plateSolver) : FindingOperation
     /// The image with its plate solution, as <c>tianwen solve</c> writes it (<c>-o</c>, <c>--update-fits</c>): the
     /// image re-encoded from what was read, with the solution's cards in its header.
     /// </summary>
-    public static void WriteSolved(Image image, WCS solution, string path) => image.WriteToFitsFile(path, solution);
+    /// <remarks>
+    /// Written from the solution as a header holds it (<see cref="PlateSolutionFile.AsHeld"/>), so the file the verb
+    /// writes from the solver's answer and the file a project writes from the solution it kept are one file, to the
+    /// byte. No digit a card keeps is changed by it.
+    /// </remarks>
+    public static void WriteSolved(Image image, WCS solution, string path) => image.WriteToFitsFile(path, PlateSolutionFile.AsHeld(solution));
 
     /// <inheritdoc/>
     public override async ValueTask<OperationOutcome> FindAsync(SolveSettings settings, IReadOnlyList<OperationInput> inputs, string findingPath, Action<string>? say,

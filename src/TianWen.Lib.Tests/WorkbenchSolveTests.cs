@@ -306,6 +306,18 @@ public sealed class WorkbenchSolveTests(ITestOutputHelper output) : IDisposable
         read.Value.CD2_2.ShouldBe(fromImage.Value.CD2_2);
         read.Value.PixelToSky(10.0, 20.0).ShouldBe(fromImage.Value.PixelToSky(10.0, 20.0));
 
+        // Held once, a solution is the one the file gives, and holding it again changes nothing: what is written from
+        // it is written the same way ever after.
+        var held = PlateSolutionFile.AsHeld(solution);
+        held.CenterRA.ShouldBe(read.Value.CenterRA);
+        held.CRPix1.ShouldBe(read.Value.CRPix1);
+        held.CD1_2.ShouldBe(read.Value.CD1_2);
+        held.CD2_1.ShouldBe(read.Value.CD2_1);
+        var heldAgain = PlateSolutionFile.AsHeld(held);
+        (heldAgain.CenterRA, heldAgain.CenterDec, heldAgain.CRPix1, heldAgain.CRPix2, heldAgain.CD1_1, heldAgain.CD1_2, heldAgain.CD2_1, heldAgain.CD2_2)
+            .ShouldBe((held.CenterRA, held.CenterDec, held.CRPix1, held.CRPix2, held.CD1_1, held.CD1_2, held.CD2_1, held.CD2_2));
+        held.CD2_1.ShouldBe(solution.CD2_1, 1e-16, "no digit a card keeps is changed");
+
         PlateSolutionFile.Read(Path.Combine(folder, "absent.fits")).ShouldBeNull("a file that is not there holds no solution");
     }
 

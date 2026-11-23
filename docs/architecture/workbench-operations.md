@@ -88,6 +88,12 @@ A plate solve finds something out about its input and changes no pixel (`Operati
 data (`PlateSolutionFile`): the cards `WCS.WriteToHeader` writes, read back through `WCS.FromHeader`. So the step after
 a solve works on the numbers a verb reads off the solved image, to the last digit a card holds.
 
+**The solved image is written from the solution as a header holds it** (`PlateSolutionFile.AsHeld`,
+`SolveOperation.WriteSolved`). A card keeps fewer digits than a double, and a long number is written in another form
+than a short one, so the solver's answer and the same answer read back from a file would give two files that differ in a
+card's text and in no digit. Held once, a solution is written the same way ever after, which is what makes the verb's
+file and a step's export one file.
+
 - `tianwen solve` builds `SolveSettings` and calls `SolveOperation.SolveAsync`, and writes the solved image with
   `SolveOperation.WriteSolved`. It gains `-o`: the image with the solution in a file of its own, the input left as it
   is, which is how a project's solve step is done from a terminal (`--update-fits` still writes the input in place).
