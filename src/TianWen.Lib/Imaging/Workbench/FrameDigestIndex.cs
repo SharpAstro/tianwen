@@ -70,6 +70,10 @@ public sealed class FrameDigestIndex
     /// <summary>Frames whose digest came from the index, over every set asked for.</summary>
     public int FromIndex { get; private set; }
 
+    /// <summary>True when the last <see cref="SaveAsync"/> could not write the index (the folder is read-only, the disk is
+    /// full, a lock outlasted its budget); the run is unaffected and the next save tries again.</summary>
+    public bool NotSaved { get; private set; }
+
     /// <summary>Frames that were read to know their digest.</summary>
     public int Digested { get; private set; }
 
@@ -221,13 +225,23 @@ public sealed class FrameDigestIndex
             return;
         }
 
-        if (Path.GetDirectoryName(_file) is { Length: > 0 } folder)
+        try
         {
-            Directory.CreateDirectory(folder);
-        }
+            if (Path.GetDirectoryName(_file) is { Length: > 0 } folder)
+            {
+                Directory.CreateDirectory(folder);
+            }
 
-        await SharedFile.UpdateJsonAsync(_file, WorkbenchJsonContext.Default.FrameDigestIndexFile, Merged, logger: null, cancellationToken);
-        _dirty = false;
+            await SharedFile.UpdateJsonAsync(_file, WorkbenchJsonContext.Default.FrameDigestIndexFile, Merged, logger: null, cancellationToken);
+            _dirty = false;
+            NotSaved = false;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // The index is an optimisation: a read-only folder, a full disk or a lock held past its budget costs the next
+            // run a second read of the frames, never the run. _dirty stays set, so the next save tries again.
+            NotSaved = true;
+        }
     }
 
     // The file as it is to be: this index's entries, and what another program wrote meanwhile for folders this one did
@@ -248,7 +262,9 @@ public sealed class FrameDigestIndex
     }
 
     private static ImmutableArray<FrameDigestEntry> EntriesOf(FrameDigestIndexFile? file)
-        => file is null || file.Frames.IsDefault ? [] : file.Frames;
+        => file is null || file.Frames.IsDefault
+            ? []
+            : [.. file.Frames.Where(static entry => entry is { Path.Length: > 0, Digest.Length: > 0 })];
 
     // Two names of one file, as the file system this runs on compares them.
     private static StringComparer PathComparer => OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;

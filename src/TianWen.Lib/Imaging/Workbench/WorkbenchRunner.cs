@@ -91,6 +91,9 @@ public sealed record WorkbenchReport(ImmutableArray<ImageReport> Images, string?
     /// <summary>Frames whose digest the index had (<see cref="FrameDigestIndex"/>), their size and time unmoved.</summary>
     public int FramesFromIndex { get; init; }
 
+    /// <summary>True when the frame digest index could not be written (the run is unaffected; the frames are read again next time).</summary>
+    public bool FramesIndexNotSaved { get; init; }
+
     /// <summary>True when nothing was refused: the project read, every image has its file, and no step is refused or blocked.</summary>
     public bool Succeeded => Refusal is null
         && Images.All(static image => image.Refusal is null
@@ -282,6 +285,7 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
         {
             FramesDigested = frames.Digested,
             FramesFromIndex = frames.FromIndex,
+            FramesIndexNotSaved = frames.NotSaved,
         };
         if (run && await RecordAsync(folder, project, planner, cancellationToken) is { } note)
         {
