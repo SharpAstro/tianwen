@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text.Json.Serialization;
 using TianWen.Lib.Imaging.BackgroundExtraction;
 using TianWen.Lib.Imaging.Enhancement;
+using TianWen.Lib.Imaging.StarRemoval;
 
 namespace TianWen.Lib.Imaging.Workbench;
 
@@ -68,6 +69,64 @@ public sealed record GradientSettings
     public ImmutableArray<ImmutableArray<float>> Exclusions { get; set; } = [];
 }
 
+/// <summary>The settings of an operation that has none: its inputs say all there is to say.</summary>
+public sealed record NoSettings;
+
+/// <summary>The settings of <see cref="AddLineOperation"/>.</summary>
+public sealed record AddLineSettings
+{
+    /// <summary>The continuum scale between the line and the broadband master (<c>--scale</c>), as <c>image continuum
+    /// --dry-run</c> says it on the masters WITH their stars. There is no default: the step is refused without it.</summary>
+    public double? Scale { get; set; }
+
+    /// <summary>How much of the pure line goes in, in the broadband's own units (<c>--weight</c>).</summary>
+    public double Weight { get; set; } = 1.0;
+}
+
+/// <summary>The settings of <see cref="LrgbOperation"/>.</summary>
+public sealed record LrgbSettings
+{
+    /// <summary>The blur in pixels a channel keeps its own colour above (<c>--colour-sigma</c>).</summary>
+    public float ColourSigma { get; set; } = LuminanceDetail.DefaultColourSigma;
+}
+
+/// <summary>The settings of <see cref="FillDigsOperation"/>.</summary>
+public sealed record FillDigsSettings
+{
+    /// <summary>Leave the filled plate where it stands over the input (<c>--keep-overshoot</c>).</summary>
+    public bool KeepOvershoot { get; set; }
+}
+
+/// <summary>The settings of <see cref="ProtectCoresOperation"/>.</summary>
+public sealed record ProtectCoresSettings
+{
+    /// <summary>The star catalogue asked for the stars inside a protected core (<c>--core-catalogue</c>).</summary>
+    public CoreCatalogueChoice Catalogue { get; set; } = CoreCatalogueChoice.Auto;
+}
+
+/// <summary>Which measured scale a continuum subtraction uses.</summary>
+public enum ContinuumMethod
+{
+    /// <summary>The least-deviation residual over the continuum's signal.</summary>
+    Flattest,
+
+    /// <summary>The stars' median flux ratio.</summary>
+    Photometric,
+}
+
+/// <summary>The settings of <see cref="ContinuumOperation"/>.</summary>
+public sealed record ContinuumSettings
+{
+    /// <summary>Subtract with this scale rather than a measured one (<c>--scale</c>).</summary>
+    public double? Scale { get; set; }
+
+    /// <summary>Which measured scale to subtract with (<c>--method</c>). Both are always reported.</summary>
+    public ContinuumMethod Method { get; set; } = ContinuumMethod.Flattest;
+
+    /// <summary>A continuum pixel carries the flattest fit only this many of its noise above its median (<c>--significance</c>).</summary>
+    public double Significance { get; set; } = ContinuumSubtractor.DefaultSignificance;
+}
+
 // The canonical form of an operation's settings, which a step's key is made from: one line, every setting written,
 // camelCase, enums as words. A member the settings do not have is refused: a misspelt setting would otherwise run at
 // its default and say nothing.
@@ -78,6 +137,12 @@ public sealed record GradientSettings
 [JsonSerializable(typeof(CropSettings))]
 [JsonSerializable(typeof(LinearFitSettings))]
 [JsonSerializable(typeof(GradientSettings))]
+[JsonSerializable(typeof(NoSettings))]
+[JsonSerializable(typeof(AddLineSettings))]
+[JsonSerializable(typeof(LrgbSettings))]
+[JsonSerializable(typeof(FillDigsSettings))]
+[JsonSerializable(typeof(ContinuumSettings))]
+[JsonSerializable(typeof(ProtectCoresSettings))]
 public sealed partial class OperationSettingsJsonContext : JsonSerializerContext
 {
 }

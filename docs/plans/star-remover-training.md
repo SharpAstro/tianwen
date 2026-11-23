@@ -9715,7 +9715,8 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     `plant_read.py`), **at most 45.0 % left on both training seeds** (the 45.0 %, StarXTerminator's 42.4 and our fourteen, 46.8 to 74.6, twelve
     of them 61.0 or over, are unclamped plates made on `bh-bin12`; the R4j read is made on a build with `--keep-overshoot`,
     main since #2435, with `--no-protect-cores --no-fill-digs --keep-overshoot`, which holds the plates over their input
-    as `bh-bin12` left them). R4h's own figure, the parent's, is taken when R4h is scored and written here before any
+    as `bh-bin12` left them; the two builds were not compared byte for byte, so the first R4j score row first checks that an
+    unchanged model, R4h, gives the same plate on both). R4h's own figure, the parent's, is taken when R4h is scored and written here before any
     score of R4j exists; if R4h alone reads 45.0 or under, the bar cannot show the mask's doing and the read says so.
   - **Guards, on each seed:** R4h's and R4i's, on the same terms (every row of the 40 sigma read's table at its bar,
     as trained or through the chain as that table reads it; a row R4h misses too is the exporter's, and R4j is then

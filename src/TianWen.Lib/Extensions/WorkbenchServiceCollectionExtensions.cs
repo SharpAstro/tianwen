@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging.BackgroundExtraction;
 using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Imaging.Workbench;
@@ -23,6 +24,16 @@ public static class WorkbenchServiceCollectionExtensions
         services.AddClassicalBackgroundExtraction();
         services.AddSingleton<IOperation>(static sp => new CropOperation(sp.GetService<ILogger<CropOperation>>()));
         services.AddSingleton<IOperation, LinearFitOperation>();
+        services.AddSingleton<IOperation, AlignOperation>();
+        services.AddSingleton<IOperation, ContinuumOperation>();
+        services.AddSingleton<IOperation, AddLineOperation>();
+        services.AddSingleton<IOperation, LuminanceOperation>();
+        services.AddSingleton<IOperation, LrgbOperation>();
+        services.AddSingleton<IOperation, AddStarsOperation>();
+        services.AddSingleton<IOperation, FillDigsOperation>();
+        // GetService: the embedded catalogue answers for the stars inside a protected core, and a host without it still
+        // protects cores (those stars then stay with them).
+        services.AddSingleton<IOperation>(static sp => new ProtectCoresOperation(sp.GetService<ICelestialObjectDB>()));
         services.AddSingleton<IOperation>(static sp => new GradientOperation(
             sp.GetRequiredService<IBackgroundExtractor>(),
             sp.GetRequiredService<IGradientCorrector>(),

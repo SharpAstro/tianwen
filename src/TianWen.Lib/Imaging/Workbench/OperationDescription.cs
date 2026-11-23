@@ -23,7 +23,9 @@ public sealed record OperationSetting(string Name, string Summary, string? Measu
 /// <summary>An image an operation takes besides the one its edit list holds: a linear fit's reference.</summary>
 /// <param name="Name">What the input is, for a message and a listing.</param>
 /// <param name="Summary">What it is used for.</param>
-public sealed record OperationInputRole(string Name, string Summary);
+/// <param name="Optional">True for an input the operation runs without. Optional inputs come last, so an edit that
+/// names fewer images leaves out the last ones.</param>
+public sealed record OperationInputRole(string Name, string Summary, bool Optional = false);
 
 /// <summary>
 /// What an operation is, said once: the edit list, the step store, the command line shown under a step and a window's
