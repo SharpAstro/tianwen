@@ -691,6 +691,13 @@ view folded into it, below). The master says what it was read as (`OBJECT`,
 | filter (mono) | `--wavelength` | FireCapture's `Filter`, SharpCap's filter wheel; the file's name | broadband, 550 nm |
 | telescope | `--aperture-mm` with `--design`, or `--telescope` | the SER header (a TianWen recording's); FireCapture's `Scope`; the file's name, then its folders (inches, cm, EdgeHD, C-series, Skymax, PDS, a number beside a design's word) | the telescope last said for the same camera (`PlanetaryTelescopeMemory`), else none and the preset |
 
+**Three choices (2026-11-23, #2468).** AUTO still asks nothing, and a person may choose three things of the finished
+masters, none of which tunes the stack to its capture: the strength past the derived gains, sharpening a colour
+master's luminance only, and the colour balance's saturation or none (`PlanetaryAutoChoices`). `planetary stack --auto`
+takes them as `--strength`, `--sharpen-luminance`, and `--colour-saturation` or `--no-colour-balance`, and refuses
+every other setting as before; `planetary sharpen --auto --sharpened` takes the first two. The viewer's Full view has
+set the strength and the saturation from its panel since #1880.
+
 The rules for the frames were set on #1391 before anything was read, and amended twice after the reading, both said there:
 - **The ring test.** Over the 200 SERs on hand, every Jupiter's median blob elongation read 1.064 to 1.112 and every
   Saturn's 2.401 to 3.139, so the threshold is their geometric mean, **1.63**, used only where Saturn's rings are at least

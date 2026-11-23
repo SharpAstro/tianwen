@@ -560,15 +560,25 @@ each step's output is bit-identical to its CLI verb's.
    did, and `image sharpen` takes its program from the operation and adds only its own stretches. Its steps as edits of
    their own (the toggles of the Process step, each with before and after) are W6's.
 3. The deep-sky frame steps (#2467): scan, grade, calibrate, register and integrate, which take a set of frames, not an
-   image.
+   image. Decided by the owner on 2026-11-23: a set's key comes from a digest index beside the store (a frame whose
+   size and time have not moved is not read again; `--verify-frames` reads them all), there is one `stack` step
+   around `tianwen stack` since that is the one verb, each master is a result of it under its group's name, its
+   settings are the 24 options that choose which frames are stacked and how they are registered and integrated, and
+   a comet run is a leg of its own. Built: a folder as an image's original, its key and the index
+   (`FrameDigestIndex`). Left: results named by the run, the masters' sidecars in the store, and the operation.
 4. The planetary steps (#2468): grade, stack, de-rotate, sharpen, colour. Built: the AUTO stack (`planetary-stack`,
    the routine of `planetary stack --auto`): a capture is an image's original, its linear master the step's result and
    its sharpened master a result beside it; and the de-rotation and join of several mono stacks
    (`planetary-compose`, the routine of `planetary compose`): any number of stacks as a set are one step, the colour
    master its result and the luminance a result it gives where a stack through an IR-pass or an L filter was among
    them; and the sharpening of a master again (`planetary-sharpen`, the routine of `planetary sharpen --auto`), which
-   is how a composed or a cropped master is sharpened. Left: the stack with settings of its own, the grades as a
-   step, the colour.
+   is how a composed or a cropped master is sharpened. The owner's call of 2026-11-23 closes the leg with these
+   three: AUTO takes three choices about the finished masters (`PlanetaryAutoChoices`: the strength past the derived
+   gains, luminance-only sharpening, the colour balance's saturation or none), on the stack step and, for the first
+   two, on the sharpen step. Not steps: grading (`planetary grade`) writes nothing a later step reads, so it is one
+   of [the facts a gate may test](#the-facts-a-gate-may-test), W9's; `planetary colour` measures masters against
+   OPAL's maps and is not what balances one; and a look (`planetary look`) is a rendering and never a new master, so
+   it belongs to W3's colour step and the export.
 5. An operation that writes no pixels (#2469). Built: the kind (the plan's "metadata": the finding is kept in the
    store, and the step after it takes its input with the finding applied) and the plate solve as the first, `tianwen
    solve` calling it and gaining `-o`. Statistics is not a step of an edit list: a measurement changes nothing a later

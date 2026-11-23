@@ -319,7 +319,7 @@ internal sealed class PlanetaryStackSubCommand(
 
         var autoOpt = new Option<bool>("--auto")
         {
-            Description = "AUTO (#817): nothing asked. The capture is identified (its planet, its filter and its telescope, read from its header, its capture program's settings beside it, its file and folder names and its frames, the telescope else the one last given for its camera) and stacked and sharpened at the measured defaults, as the viewer's Full view does: master_<capture>_auto.fits, its _sharpened and its PNG. --planet, --wavelength (one, for a mono capture), --aperture-mm with --design, or --telescope give what it would read, and a telescope given is remembered for the capture's camera; every other setting is refused.",
+            Description = "AUTO (#817): nothing asked. The capture is identified (its planet, its filter and its telescope, read from its header, its capture program's settings beside it, its file and folder names and its frames, the telescope else the one last given for its camera) and stacked and sharpened at the measured defaults, as the viewer's Full view does: master_<capture>_auto.fits, its _sharpened and its PNG. --planet, --wavelength (one, for a mono capture), --aperture-mm with --design, or --telescope give what it would read, and a telescope given is remembered for the capture's camera. Three choices about the finished masters go with it and do not tune the stack: --strength, --sharpen-luminance, and --colour-saturation or --no-colour-balance. Every other setting is refused.",
         };
         var designOpt = PlanetaryMasterScore.DesignOption();
         // What lets a project's planetary stack step (PlanetaryStackOperation) be done from a terminal: its two files
@@ -356,11 +356,13 @@ internal sealed class PlanetaryStackSubCommand(
         };
 
         // What --auto refuses: every setting it would otherwise take, since AUTO's are the measured defaults (A2, #1389).
+        // Not among them are AUTO's three choices about the finished masters (PlanetaryAutoChoices, #2468): the strength,
+        // the luminance-only sharpening, and the colour balance's saturation or none. None of them tunes the stack.
         Option[] autoRefuses =
         [
             keepOpt, pointKeepOpt, qualityOpt, globalOpt, drizzleOpt, drizzlePixfracOpt, drizzleGlobalOpt, noPerPointOpt, noSignalGateOpt,
-            noChannelAlignOpt, noCropOpt, colourSaturationOpt, whitePointOpt, noColourBalanceOpt, colourMatrixOpt, noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, fixOpt, strengthOpt,
-            sharpenLuminanceOpt, channelLimbOpt, limbKOpt, edgeReachOpt, plateScaleOpt, learnedOpt, pupil.Obstruction, tileSizeOpt, apSpacingOpt, maxApOpt, placementOpt, patchSizeOpt, meshSpacingOpt, meshInfluenceOpt,
+            noChannelAlignOpt, noCropOpt, whitePointOpt, colourMatrixOpt, noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, fixOpt,
+            channelLimbOpt, limbKOpt, edgeReachOpt, plateScaleOpt, learnedOpt, pupil.Obstruction, tileSizeOpt, apSpacingOpt, maxApOpt, placementOpt, patchSizeOpt, meshSpacingOpt, meshInfluenceOpt,
             meshRegularizationOpt, estimatorOpt, correlationOpt, interpolationOpt, referenceFramesOpt, derotateOpt, noDerotateOpt, turnNorthOverOpt, northOpt, eachFileOpt,
             legacyOpt, truthOpt, halvesOpt, epochOpt, reportOnlyOpt,
         ];
@@ -696,6 +698,23 @@ internal sealed class PlanetaryStackSubCommand(
                     consoleHost.WriteError($"--auto stacks at the measured defaults: {refused.Name} is a setting it does not take.");
                     return 1;
                 }
+                // The step's own refusals (PlanetaryStackOperation.Refusal), asked before any work so a verb and its step refuse alike.
+                if (TianWen.Lib.Imaging.Workbench.PlanetarySharpenOperation.StrengthRefusal(parseResult.GetValue(strengthOpt)) is { } strengthRefusal)
+                {
+                    consoleHost.WriteError($"--strength: {strengthRefusal}.");
+                    return 1;
+                }
+                var chosenSaturation = parseResult.GetValue(colourSaturationOpt);
+                if (!(chosenSaturation >= 0 && double.IsFinite(chosenSaturation)))
+                {
+                    consoleHost.WriteError("--colour-saturation is 0 or more.");
+                    return 1;
+                }
+                if (parseResult.GetValue(noColourBalanceOpt) && parseResult.GetResult(colourSaturationOpt) is { Implicit: false })
+                {
+                    consoleHost.WriteError("--colour-saturation is the colour balance's: with --no-colour-balance there is nothing it saturates.");
+                    return 1;
+                }
                 if (AutoGiven() is not { } given)
                 {
                     return 1;
@@ -730,7 +749,14 @@ internal sealed class PlanetaryStackSubCommand(
                 {
                     consoleHost.WriteScrollable($"[planetary] {baseName}: {stream.FrameCount} frames, {stream.Width}x{stream.Height}, layout {stream.Layout}, at the measured defaults...");
                     autoFileStarts = PlanetaryQualityCurve.FileStartsOf(stream);
-                    result = await PlanetaryAuto.RunAsync(stream, identity, stageTimer, ct);
+                    // What was chosen of the result, each at AUTO's own default when its option was not given.
+                    var autoChoices = new PlanetaryAutoChoices
+                    {
+                        Strength = parseResult.GetValue(strengthOpt),
+                        LuminanceOnly = parseResult.GetValue(sharpenLuminanceOpt),
+                        ColourSaturation = parseResult.GetValue(noColourBalanceOpt) ? null : parseResult.GetValue(colourSaturationOpt),
+                    };
+                    result = await PlanetaryAuto.RunAsync(stream, identity, autoChoices, stageTimer, ct);
                 }
                 stageTimer.Enter(PlanetaryStackStage.Writing);
                 try

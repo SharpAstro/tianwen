@@ -454,6 +454,210 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
         second.Images.SelectMany(static image => image.Steps).Select(static step => step.State).ShouldBe([StepState.Kept, StepState.Kept, StepState.Kept]);
     }
 
+    [Fact(Timeout = 300_000)]
+    [Trait("Category", "Heavy")]
+    public async Task AStrengthIsItsVerbsOptionOnTheStackAndOnTheSharpening()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("planetary-strength-").FullName;
+        // A mono capture, which stacks in seconds: the strength is the one of AUTO's choices a mono master has. The two
+        // that are a colour master's are held by the heavy tests after this one. This test is Heavy too: 30 s on the
+        // Windows PR leg of #2483's run 45168746400.
+        var capture = ViewerBestStackTests.WriteCapture(Path.Combine(folder, "Jupiter_Red_2024-12-15T12_56_44_OTA1.ser"),
+            telescope: "254 mm f/4.7 Newtonian, Test OTA");
+        await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("strong", capture, WorkbenchFixtures.Edit(PlanetaryStackOperation.Id, new JsonObject { ["strength"] = 1.5 })),
+            // The master sharpened again at another strength: only the sharpening runs.
+            WorkbenchFixtures.Starting("stronger", "strong", WorkbenchFixtures.Edit(PlanetarySharpenOperation.Id, new JsonObject { ["strength"] = 2 }))), ct);
+        var runner = new WorkbenchRunner(new OperationCatalog([new PlanetaryStackOperation(), new PlanetarySharpenOperation()]));
+
+        var report = await runner.RunAsync(folder, new WorkbenchRunOptions { Say = output.WriteLine }, ct);
+
+        report.Succeeded.ShouldBeTrue(Messages(report));
+        ImageReport Of(string name) => report.Images.Single(image => image.Name == name);
+        var (stacked, again) = (Of("strong").Steps[0], Of("stronger").Steps[0]);
+        var ownSharpened = Path.Combine(folder, StepStore.FolderName, StepStore.FileNameOf(StepKey.OfResult(stacked.Key, PlanetaryStackOperation.Sharpened)));
+
+        // Each step's command line through its real verb, the strength on it.
+        var said = new List<string>();
+        var host = Substitute.For<IConsoleHost>();
+        host.When(h => h.WriteScrollable(Arg.Any<string>(), Arg.Any<bool>())).Do(call => said.Add(call.Arg<string>()));
+        host.When(h => h.WriteError(Arg.Any<string>())).Do(call => said.Add("error: " + call.Arg<string>()));
+        var renderer = new MasterPreviewRenderer(catalogDb: null, NullLogger.Instance);
+        var stack = new PlanetaryStackSubCommand(host, renderer, new FakeExternal(output, root: _folders.Create("memory-"))).Build();
+        var stackLine = stacked.CommandLine.ToArray();
+        stackLine.ShouldContain("--strength");
+        var (verbMaster, verbSharpened) = (Path.Combine(folder, "strong-verb.fits"), Path.Combine(folder, "strong-verb-sharpened.fits"));
+        (stackLine[Array.IndexOf(stackLine, "--master") + 1], stackLine[Array.IndexOf(stackLine, "--sharpened") + 1]) = (verbMaster, verbSharpened);
+        output.WriteLine(StepCommandLine.Display(stackLine));
+
+        var stackExit = await stack.Parse(stackLine[3..]).InvokeAsync(cancellationToken: ct);
+
+        stackExit.ShouldBe(0, string.Join(Environment.NewLine, said));
+        ShouldBeTheSameFile(stacked.Output.ShouldNotBeNull(), verbMaster, "the master stacked with a strength");
+        ShouldBeTheSameFile(ownSharpened, verbSharpened, "its sharpened master at that strength");
+
+        var sharpen = new PlanetarySharpenSubCommand(host, renderer, new FakeExternal(output, root: _folders.Create("memory-"))).Build();
+        var sharpenLine = again.CommandLine.ToArray();
+        sharpenLine.ShouldContain("--strength");
+        var written = Path.Combine(folder, "stronger-verb.fits");
+        sharpenLine[Array.IndexOf(sharpenLine, "--sharpened") + 1] = written;
+        output.WriteLine(StepCommandLine.Display(sharpenLine));
+        said.Clear();
+
+        var sharpenExit = await sharpen.Parse(sharpenLine[3..]).InvokeAsync(cancellationToken: ct);
+
+        sharpenExit.ShouldBe(0, string.Join(Environment.NewLine, said));
+        ShouldBeTheSameFile(again.Output.ShouldNotBeNull(), written, "the master sharpened again at another strength");
+
+        // A strength is another sharpening: the stack's own at 1.5 is not the one made again at 2. Equal files would
+        // make the comparisons above empty.
+        WorkbenchFixtures.Read(ownSharpened).GetChannelSpan(0).SequenceEqual(WorkbenchFixtures.Read(again.Output.ShouldNotBeNull()).GetChannelSpan(0)).ShouldBeFalse();
+
+        // The research path takes no strength under --auto, and a list of strengths is no step's.
+        var master = stacked.Output.ShouldNotBeNull();
+        said.Clear();
+        (await sharpen.Parse(new[] { master, "--auto", "--strength", "1.5" }).InvokeAsync(cancellationToken: ct)).ShouldBe(1);
+        string.Join(Environment.NewLine, said).ShouldContain("is a setting it does not take");
+        said.Clear();
+        (await sharpen.Parse(new[] { master, "--auto", "--sharpened", Path.Combine(folder, "x.fits"), "--strength", "1,1.5" }).InvokeAsync(cancellationToken: ct))
+            .ShouldBe(1);
+        string.Join(Environment.NewLine, said).ShouldContain("one number above 0");
+        File.Exists(Path.Combine(folder, "x.fits")).ShouldBeFalse();
+    }
+
+    // A colour capture: the balance and the luminance-only sharpening are a colour master's.
+    private static string ColourCapture(string folder)
+        => ViewerBestStackTests.WriteCapture(Path.Combine(folder, "Jupiter_2024-12-15T12_56_44_OTA1.ser"),
+            telescope: "254 mm f/4.7 Newtonian, Test OTA", dispersed: true);
+
+    // A console host that keeps what a verb says.
+    private static (IConsoleHost Host, List<string> Said) Listening()
+    {
+        var said = new List<string>();
+        var host = Substitute.For<IConsoleHost>();
+        host.When(h => h.WriteScrollable(Arg.Any<string>(), Arg.Any<bool>())).Do(call => said.Add(call.Arg<string>()));
+        host.When(h => h.WriteError(Arg.Any<string>())).Do(call => said.Add("error: " + call.Arg<string>()));
+        return (host, said);
+    }
+
+    // A stack step's command line through the real verb: its master and its sharpened master are the verb's two files.
+    private async Task TheStackStepIsTheTwoFilesItsVerbWritesAsync(string folder, string name, StepReport step, IConsoleHost host, List<string> said,
+        MasterPreviewRenderer renderer)
+    {
+        var stack = new PlanetaryStackSubCommand(host, renderer, new FakeExternal(output, root: _folders.Create("memory-"))).Build();
+        var sharpenedOfStep = Path.Combine(folder, StepStore.FolderName, StepStore.FileNameOf(StepKey.OfResult(step.Key, PlanetaryStackOperation.Sharpened)));
+        var line = step.CommandLine.ToArray();
+        var (atMaster, atSharpened) = (Array.IndexOf(line, "--master") + 1, Array.IndexOf(line, "--sharpened") + 1);
+        var (master, sharpened) = (Path.Combine(folder, name + "-verb.fits"), Path.Combine(folder, name + "-verb-sharpened.fits"));
+        (line[atMaster], line[atSharpened]) = (master, sharpened);
+        output.WriteLine(StepCommandLine.Display(line));
+        said.Clear();
+
+        var exit = await stack.Parse(line[3..]).InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
+
+        exit.ShouldBe(0, string.Join(Environment.NewLine, said));
+        ShouldBeTheSameFile(step.Output.ShouldNotBeNull(), master, $"the master of '{name}'");
+        ShouldBeTheSameFile(sharpenedOfStep, sharpened, $"the sharpened master of '{name}'");
+    }
+
+    // Heavy by measurement, and two tests by measurement. As one test (four AUTO runs of a colour capture: two stack
+    // steps, each again through the verb) it took 58.7 s on the x64 leg of #2483's first run and 3 min 35 s in the
+    // heavy run on the branch, under the load of the other heavy tests, against a bound of 5 min. A Bayer capture stacks
+    // and sharpens three planes, so each AUTO run is its own cost; this test has two of them and the next the other
+    // two. The strength, which a mono capture has too, is held through its verb in the heavy test
+    // AStrengthIsItsVerbsOptionOnTheStackAndOnTheSharpening (30 s on the Windows PR leg, so Heavy by measurement); the PR
+    // legs hold it as AutoOptionsCarryTheThreeChoicesIntoTheBestStack and the AutoRefuses tests.
+    [Fact(Timeout = 300_000)]
+    [Trait("Category", "Heavy")]
+    public async Task AutosChoicesOnAColourStackAreItsVerbsOptions()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("planetary-choices-").FullName;
+        var capture = ColourCapture(folder);
+        await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("chosen", capture, WorkbenchFixtures.Edit(PlanetaryStackOperation.Id,
+                new JsonObject { ["strength"] = 1.5, ["luminanceOnly"] = true, ["colourSaturation"] = 1.4 }))), ct);
+        var runner = new WorkbenchRunner(new OperationCatalog([new PlanetaryStackOperation()]));
+
+        var report = await runner.RunAsync(folder, new WorkbenchRunOptions { Say = output.WriteLine }, ct);
+
+        report.Succeeded.ShouldBeTrue(Messages(report));
+        var chosen = report.Images.Single(static image => image.Name == "chosen").Steps[0];
+        WorkbenchFixtures.Read(chosen.Output.ShouldNotBeNull()).ChannelCount.ShouldBe(3, "a Bayer capture stacks to a colour master");
+
+        // The step's command line through the real verb: the choices are on it, and both files are the verb's.
+        var (host, said) = Listening();
+        await TheStackStepIsTheTwoFilesItsVerbWritesAsync(folder, "chosen", chosen, host, said, new MasterPreviewRenderer(catalogDb: null, NullLogger.Instance));
+
+        var line = chosen.CommandLine.ToArray();
+        line.ShouldContain("--strength");
+        line.ShouldContain("--sharpen-luminance");
+        line.ShouldContain("--colour-saturation");
+    }
+
+    // Heavy with the test above, whose comment has the measurements: the other two AUTO runs of a colour capture, and
+    // two sharpenings of its master.
+    [Fact(Timeout = 300_000)]
+    [Trait("Category", "Heavy")]
+    public async Task AStackLeftAsCapturedAndItsMasterSharpenedAgainAreTheirVerbsFiles()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("planetary-as-captured-").FullName;
+        var capture = ColourCapture(folder);
+        await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("as-captured", capture, WorkbenchFixtures.Edit(PlanetaryStackOperation.Id, new JsonObject { ["colourBalance"] = false })),
+            // The unbalanced master sharpened again, at a strength and by its luminance: only the sharpening runs.
+            WorkbenchFixtures.Starting("resharpened", "as-captured", WorkbenchFixtures.Edit(PlanetarySharpenOperation.Id,
+                new JsonObject { ["strength"] = 1.5, ["luminanceOnly"] = true }))), ct);
+        var runner = new WorkbenchRunner(new OperationCatalog([new PlanetaryStackOperation(), new PlanetarySharpenOperation()]));
+        var stepsSaid = new List<string>();
+
+        var report = await runner.RunAsync(folder, new WorkbenchRunOptions
+        {
+            Say = text =>
+            {
+                stepsSaid.Add(text);
+                output.WriteLine(text);
+            },
+        }, ct);
+
+        report.Succeeded.ShouldBeTrue(Messages(report));
+        ImageReport Of(string name) => report.Images.Single(image => image.Name == name);
+        var asCaptured = Of("as-captured").Steps[0];
+        // With the balance off the step says so, in the stack's own words.
+        stepsSaid.Any(static text => text.StartsWith("[as-captured ", StringComparison.Ordinal) && text.Contains("colours left as captured", StringComparison.Ordinal))
+            .ShouldBeTrue(string.Join(Environment.NewLine, stepsSaid));
+
+        // The stack step's command line through the real verb: the choice is on it, and both files are the verb's.
+        var (host, said) = Listening();
+        var renderer = new MasterPreviewRenderer(catalogDb: null, NullLogger.Instance);
+        await TheStackStepIsTheTwoFilesItsVerbWritesAsync(folder, "as-captured", asCaptured, host, said, renderer);
+        asCaptured.CommandLine.ToArray().ShouldContain("--no-colour-balance");
+
+        // The sharpen step's two choices through its verb.
+        var sharpen = new PlanetarySharpenSubCommand(host, renderer, new FakeExternal(output, root: _folders.Create("memory-"))).Build();
+        var again = Of("resharpened").Steps[0];
+        var sharpenLine = again.CommandLine.ToArray();
+        sharpenLine.ShouldContain("--strength");
+        sharpenLine.ShouldContain("--colour");
+        var written = Path.Combine(folder, "resharpened-verb.fits");
+        sharpenLine[Array.IndexOf(sharpenLine, "--sharpened") + 1] = written;
+        output.WriteLine(StepCommandLine.Display(sharpenLine));
+        said.Clear();
+
+        var sharpenExit = await sharpen.Parse(sharpenLine[3..]).InvokeAsync(cancellationToken: ct);
+
+        sharpenExit.ShouldBe(0, string.Join(Environment.NewLine, said));
+        ShouldBeTheSameFile(again.Output.ShouldNotBeNull(), written, "the master sharpened again at a strength");
+
+        // A strength is another sharpening: the unbalanced stack's own sharpened master, at 1, is not the one made again
+        // at 1.5. Equal files would make the comparisons above empty.
+        var sharpenedOfStack = Path.Combine(folder, StepStore.FolderName, StepStore.FileNameOf(StepKey.OfResult(asCaptured.Key, PlanetaryStackOperation.Sharpened)));
+        WorkbenchFixtures.Read(sharpenedOfStack).GetChannelSpan(0)
+            .SequenceEqual(WorkbenchFixtures.Read(again.Output.ShouldNotBeNull()).GetChannelSpan(0)).ShouldBeFalse();
+    }
+
     [Fact(Timeout = 120_000)]
     public async Task AMasterWithNoFileTakesNoNameOrFolderForItsOwn()
     {
@@ -559,6 +763,62 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
         given.Planet.ShouldNotBeNull();
         (given.ApertureMm, given.Design).ShouldBe(((int?)254, OpticalDesign.Newtonian));
         stack.Description.ExtraResults.Select(static result => result.Name).ShouldBe([PlanetaryStackOperation.Sharpened]);
+
+        // AUTO's three choices: what they refuse, how the line says them, and what they come to.
+        stack.Refusal(new PlanetaryStackSettings { Strength = 1.5, LuminanceOnly = true, ColourSaturation = 1.4 }).ShouldBeNull();
+        stack.Refusal(new PlanetaryStackSettings { Strength = 0 }).ShouldNotBeNull().ShouldContain("strength is more than 0");
+        stack.Refusal(new PlanetaryStackSettings { ColourSaturation = -1 }).ShouldNotBeNull().ShouldContain("colourSaturation is 0 or more");
+        stack.Refusal(new PlanetaryStackSettings { ColourBalance = false, ColourSaturation = 1.4 }).ShouldNotBeNull().ShouldContain("nothing it saturates");
+        var outputs = PlanetaryStackOperation.Outputs("m.fits", "s.fits");
+        stack.CommandLine(new PlanetaryStackSettings { Strength = 1.5, LuminanceOnly = true, ColourSaturation = 1.4, Planet = "saturn" }, ["capture.ser"], outputs)
+            .ToArray()[11..].ShouldBe(["--strength", "1.5", "--sharpen-luminance", "--colour-saturation", "1.4", "--planet", "saturn"]);
+        stack.CommandLine(new PlanetaryStackSettings { ColourBalance = false }, ["capture.ser"], outputs).ToArray()[11..].ShouldBe(["--no-colour-balance"]);
+        PlanetaryStackOperation.ChoicesOf(new PlanetaryStackSettings()).ShouldBe(PlanetaryAutoChoices.Defaults);
+        PlanetaryStackOperation.ChoicesOf(new PlanetaryStackSettings { ColourBalance = false }).ColourSaturation.ShouldBeNull();
+        PlanetaryStackOperation.ChoicesOf(new PlanetaryStackSettings { Strength = 2, LuminanceOnly = true, ColourSaturation = 1.4 })
+            .ShouldBe(new PlanetaryAutoChoices { Strength = 2, LuminanceOnly = true, ColourSaturation = 1.4 });
+    }
+
+    [Theory(Timeout = 120_000)]
+    [InlineData("--strength", "0", "--strength")]
+    [InlineData("--strength", "NaN", "--strength")]
+    [InlineData("--colour-saturation", "-1", "--colour-saturation is 0 or more")]
+    public async Task AutoRefusesABadStrengthOrSaturationBeforeItStacks(string option, string value, string said)
+        => await AutoRefusesAsync([option, value], said);
+
+    [Fact(Timeout = 120_000)]
+    public async Task AutoRefusesASaturationWithTheColourBalanceOff()
+        => await AutoRefusesAsync(["--no-colour-balance", "--colour-saturation", "1.4"], "with --no-colour-balance");
+
+    private async Task AutoRefusesAsync(string[] choice, string expected)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("planetary-auto-refuses-").FullName;
+        var capture = ViewerBestStackTests.WriteCapture(Path.Combine(folder, "Jupiter_Red_2024-12-15T12_56_44_OTA1.ser"),
+            telescope: "254 mm f/4.7 Newtonian, Test OTA");
+        var told = new List<string>();
+        var host = Substitute.For<IConsoleHost>();
+        host.When(h => h.WriteError(Arg.Any<string>())).Do(call => told.Add(call.Arg<string>()));
+        var renderer = new MasterPreviewRenderer(catalogDb: null, NullLogger.Instance);
+        var stack = new PlanetaryStackSubCommand(host, renderer, new FakeExternal(output, root: _folders.Create("memory-"))).Build();
+
+        var exit = await stack.Parse([capture, "--auto", .. choice]).InvokeAsync(cancellationToken: ct);
+
+        exit.ShouldBe(1, string.Join(Environment.NewLine, told));
+        string.Join(Environment.NewLine, told).ShouldContain(expected);
+        Directory.EnumerateFiles(folder, "*.fits").ShouldBeEmpty("a refusal comes before any stacking");
+    }
+
+    [Fact]
+    public void AutoOptionsCarryTheThreeChoicesIntoTheBestStack()
+    {
+        var identity = new PlanetaryIdentity(null, "", null, null, "", null, OpticalDesign.Unknown, "", null, default);
+        var chosen = PlanetaryAuto.OptionsFor(identity, new PlanetaryAutoChoices { Strength = 1.5, LuminanceOnly = true, ColourSaturation = 1.4 });
+        (chosen.Strength, chosen.LuminanceOnly, chosen.ColourSaturation).ShouldBe((1.5, true, (double?)1.4));
+        PlanetaryAuto.OptionsFor(identity, new PlanetaryAutoChoices { ColourSaturation = null }).ColourSaturation.ShouldBeNull();
+
+        var (plain, defaults) = (PlanetaryAuto.OptionsFor(identity), PlanetaryAuto.OptionsFor(identity, PlanetaryAutoChoices.Defaults));
+        (plain.Strength, plain.LuminanceOnly, plain.ColourSaturation).ShouldBe((defaults.Strength, defaults.LuminanceOnly, defaults.ColourSaturation));
     }
 
     [Fact]
@@ -623,11 +883,18 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
                 ["master.fits"], "sharpened.fits").ToArray()[8..]
             .ShouldBe(["--planet", "saturn", "--wavelength", "650", "--aperture-mm", "254", "--design", "newtonian"]);
 
-        // The two AUTO steps take one set of settings, written one way: an edit's settings read for either.
-        var settings = new JsonObject { ["planet"] = "saturn", ["apertureMm"] = 254, ["design"] = "newtonian" }.ToJsonString();
-        sharpen.TryReadSettings(settings, out var forSharpen, out var refusal).ShouldBeTrue(refusal);
-        new PlanetaryStackOperation().TryReadSettings(settings, out var forStack, out refusal).ShouldBeTrue(refusal);
-        forSharpen.ShouldBe(forStack);
+        // The two AUTO steps say a capture or a master one way, and each takes the choices that are its own.
+        var stated = new JsonObject { ["planet"] = "saturn", ["apertureMm"] = 254, ["design"] = "newtonian", ["strength"] = 1.5, ["luminanceOnly"] = true }
+            .ToJsonString();
+        sharpen.TryReadSettings(stated, out _, out var refusal).ShouldBeTrue(refusal);
+        new PlanetaryStackOperation().TryReadSettings(stated, out _, out refusal).ShouldBeTrue(refusal);
+        // The colour balance is the stack's: a master read from a file is not balanced again.
+        sharpen.TryReadSettings(new JsonObject { ["colourSaturation"] = 1.4 }.ToJsonString(), out _, out _).ShouldBeFalse();
+
+        sharpen.Refusal(new PlanetarySharpenSettings { Strength = -1 }).ShouldNotBeNull().ShouldContain("strength is more than 0");
+        sharpen.CommandLine(new PlanetarySharpenSettings { Strength = 1.5, LuminanceOnly = true }, ["master.fits"], "sharpened.fits").ToArray()[8..]
+            .ShouldBe(["--strength", "1.5", "--colour", "luminance"]);
+        PlanetarySharpenOperation.ChoicesOf(new PlanetarySharpenSettings { Strength = 2 }).ShouldBe(new PlanetaryAutoChoices { Strength = 2 });
     }
 
     [Fact(Timeout = 60_000)]

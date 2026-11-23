@@ -71,14 +71,14 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var pupil = PlanetaryMasterScore.PupilOptions();
         var autoOpt = new Option<bool>("--auto")
         {
-            Description = "AUTO (#817): the planet, the filter and the telescope read off the master itself (OBJECT, FILTER, TELESCOP and APTDIA, which planetary stack --auto writes), then its file and folder names, the telescope else the one last given for its camera; sharpened as the pipeline sharpens, nothing asked. --planet, one --wavelength, --aperture-mm with --design, or --telescope give what it would read; every other setting is refused.",
+            Description = "AUTO (#817): the planet, the filter and the telescope read off the master itself (OBJECT, FILTER, TELESCOP and APTDIA, which planetary stack --auto writes), then its file and folder names, the telescope else the one last given for its camera; sharpened as the pipeline sharpens, nothing asked. --planet, one --wavelength, --aperture-mm with --design, or --telescope give what it would read; every other setting is refused, except that with --sharpened one --strength and --colour perchannel or luminance go with it.",
         };
         var designOpt = PlanetaryMasterScore.DesignOption();
         // What lets a project's planetary sharpen step (PlanetarySharpenOperation) be done from a terminal: its one file
         // named, and nothing taken from this computer's memory.
         var sharpenedOpt = new Option<string?>("--sharpened")
         {
-            Description = "With --auto: the one file the sharpened master is written to, by the routine a project's sharpen step runs (the master identified, then sharpened as planetary stack --auto sharpens the master it has just stacked). Nothing is scored and no preview is drawn: -o, --no-write, --stacked-preview, --truth, --utc and the score options do not go with it.",
+            Description = "With --auto: the one file the sharpened master is written to, by the routine a project's sharpen step runs (the master identified, then sharpened as planetary stack --auto sharpens the master it has just stacked). Nothing is scored and no preview is drawn: -o, --no-write, --stacked-preview, --truth, --utc and the score options do not go with it. Two choices do: one --strength, and --colour perchannel or luminance.",
         };
         var noTelescopeMemoryOpt = new Option<bool>("--no-telescope-memory")
         {
@@ -204,7 +204,11 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                 PlanetaryIdentity? identity = null;
                 if (parseResult.GetValue(autoOpt))
                 {
-                    if (autoRefuses.FirstOrDefault(option => parseResult.GetResult(option) is { Implicit: false }) is { } refused)
+                    // With --sharpened, AUTO's two choices about sharpening go with it (PlanetaryAutoChoices, #2468): one strength,
+                    // and a colour master's luminance alone. The research path further down takes neither under --auto.
+                    var stepFile = parseResult.GetValue(sharpenedOpt);
+                    if (autoRefuses.FirstOrDefault(option => parseResult.GetResult(option) is { Implicit: false }
+                            && !(stepFile is not null && (ReferenceEquals(option, strengthOpt) || ReferenceEquals(option, colourOpt)))) is { } refused)
                     {
                         consoleHost.WriteError($"--auto sharpens as the pipeline does: {refused.Name} is a setting it does not take.");
                         return 1;
@@ -215,7 +219,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                     }
                     // --no-telescope-memory: neither asked nor told, so the run is the master's and the options' alone.
                     var remembered = parseResult.GetValue(noTelescopeMemoryOpt) ? null : external;
-                    if (parseResult.GetValue(sharpenedOpt) is { } sharpenedFile)
+                    if (stepFile is { } sharpenedFile)
                     {
                         // The file a project's sharpen step writes, by its routine (PlanetarySharpenOperation.SharpenToAsync):
                         // identified, sharpened as AUTO sharpens the master it has just stacked, written. The readings
@@ -225,11 +229,24 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                             consoleHost.WriteError($"--sharpened writes the one file a project's step writes: {notWith.Name} does not go with it.");
                             return 1;
                         }
+                        if (!double.TryParse(parseResult.GetValue(strengthOpt), NumberStyles.Float, inv, out var stepStrength)
+                            || PlanetarySharpenOperation.StrengthRefusal(stepStrength) is not null)
+                        {
+                            consoleHost.WriteError("--strength with --sharpened is one number above 0.");
+                            return 1;
+                        }
+                        var stepColour = (parseResult.GetValue(colourOpt) ?? "perchannel").ToLowerInvariant();
+                        if (stepColour is not ("perchannel" or "luminance"))
+                        {
+                            consoleHost.WriteError($"--colour {stepColour} with --sharpened: perchannel or luminance.");
+                            return 1;
+                        }
                         if (Path.GetDirectoryName(Path.GetFullPath(sharpenedFile)) is { Length: > 0 } sharpenedFolder)
                         {
                             Directory.CreateDirectory(sharpenedFolder);
                         }
-                        await PlanetarySharpenOperation.SharpenToAsync(master, path, given, remembered, sharpenedFile,
+                        await PlanetarySharpenOperation.SharpenToAsync(master, path, given,
+                            new PlanetaryAutoChoices { Strength = stepStrength, LuminanceOnly = stepColour == "luminance" }, remembered, sharpenedFile,
                             autoLine => consoleHost.WriteScrollable($"[planetary] {autoLine}"), ct);
                         return 0;
                     }

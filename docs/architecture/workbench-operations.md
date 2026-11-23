@@ -221,8 +221,14 @@ defaults. It runs the three routines `planetary stack --auto` and the viewer's A
 nothing between: `PlanetaryIdentification.IdentifyAsync`, `PlanetaryAuto.RunAsync`, `PlanetaryAuto.Write`. The linear
 master is the step's result, and the sharpened master its extra result (`sharpened`).
 
-- **Its settings say the capture** (`planet`, `filterNm`, `apertureMm`, `design`) in place of what it is read to be.
-  AUTO takes no other setting.
+- **Its settings say the capture** (`planet`, `filterNm`, `apertureMm`, `design`) in place of what it is read to be,
+  and choose three things of the finished masters (`PlanetaryAutoChoices`, the owner's call of 2026-11-23): `strength`,
+  how far past the truth the derived sharpening goes; `luminanceOnly`, a colour master's luminance sharpened once;
+  and `colourBalance` with `colourSaturation`, the balance to the planet's own colour or none. None of them changes
+  how the capture is stacked, which stays the measured defaults.
+- **A changed setting stacks the capture again**, since the step is one run. A strength is tried on
+  `planetary-sharpen` (below), which only sharpens. The stack step has the choices all the same, because its
+  sharpened master is the one sharpened before the colour balance, which is the pipeline's order.
 - **A step never asks what telescope a camera was last said to be on** (`PlanetaryTelescopeMemory`). That is this
   computer's memory, and a step's result follows from its capture and its settings. The verb's
   `--no-telescope-memory` is the same, and a step's command line says it.
@@ -246,7 +252,9 @@ file.
 
 - **Its settings are the stack step's** (`PlanetaryIdentitySettings`: `planet`, `filterNm`, `apertureMm`, `design`):
   what is said of the master, in place of what its header says. Like the stack's, the step never asks what telescope
-  a camera was last said to be on.
+  a camera was last said to be on. It also takes `strength` and `luminanceOnly`, the two of AUTO's choices that are
+  about sharpening, and it is where a strength is tried: a changed one sharpens again and stacks nothing. The colour
+  balance is not among its settings, since a written master is not balanced again.
 - **Where the gains cannot be derived the master is still sharpened**, by the planetary preset, as a stack's is: no
   planet with a rotation model, no instant, no telescope, or a limb that does not fit. The step's words say which,
   and it is no refusal.
@@ -308,6 +316,41 @@ names the others.
 { "name": "jupiter-luminance", "from": "jupiter", "result": "luminance" }
 ```
 
+## A set of frames as an image's original
+
+A project's image can be a folder: a night's lights with its calibration frames (#2467). Its first edit is the step
+that stacks it, which reads the folder by its path; any other operation refuses it as no image, in words.
+
+- **Its key is every frame's place and digest**: each frame's path inside the folder and the digest of its bytes, in
+  the order of the places (`FrameDigestIndex.KeyOf`). A frame is a FITS file as the stacker's scan lists them, or the
+  sidecar that tells the scan a folder's filter (`.tianwen-meta.json`); any other file is no part of the set. A frame
+  renamed is another set, since the scan reads a rejection and a suspicion of cloud off a frame's name.
+- **A frame is not read twice to say the same thing** (the owner's call of 2026-11-23). The digests are remembered
+  beside the store, in `store/frames.json`, under each file's path, size and last write time, and a frame whose size
+  and time have not moved is not read again. The key is still made of content: the same bytes under a new time cost
+  one read and change no key.
+- **A stamp is not a checksum**, as `FitsHeaderIndex` says of itself, which made the same trade for the same disk.
+  Bytes changed in place under an unchanged size and time are served stale. `--verify-frames` on `status` and `run`
+  reads every frame and corrects the index (`WorkbenchRunOptions.VerifyFrames`). This is the one place the rule
+  "nothing is decided by a date" is narrowed, and only for a set of frames.
+- **A status keeps what it read.** It writes no result, and it does write the index: reading a night again to run
+  what a status has just described is the cost the index is there to save.
+- **The project's folder stays outside the frames.** A folder that holds the project's store is refused, since a
+  result would be one of the set it was made from. Nothing is exported among an original's frames either.
+- **A folder with no frame is no set**: it is refused in words ("holds no frame": an unmounted mount point, a tree of
+  junctions, a mistyped folder) and its walk forgets nothing, so the disk coming back is not read again. The index
+  drops a frame that is gone from a folder that was walked, and everything under a folder no image names any more.
+- **A folder is read once per run**, however many images name it, and a `--verify-frames` reading serves a plain ask of
+  the same folder. The walk ends between two frames on cancellation.
+- **`--image` does not limit which sets are read**: every image is planned and reported, so every set of frames is
+  digested (or taken from the index) whatever image is named. Only what counts as needed narrows.
+- **Only an operation with `OperationDescription.TakesFrameSet` takes a folder**; any other is refused one in words by
+  a status as by a run. The stack step's leg sets it.
+- A status and a run say how many frames were read for their digest and how many the index knew.
+
+The step that stacks a set is not here yet (below); `WorkbenchFrameSetTests` holds the set and its key with a
+stand-in.
+
 ## An image that starts from another
 
 A project's image is a file, or it starts from another image of the project (`from`): that image as its own edits
@@ -356,7 +399,8 @@ For a step over a set of images the `input=` lines are sorted too, and that dige
 
 An original file's key is the digest of its bytes (`StepKey.OfFile`), computed on every status and run. Keys are made
 from keys, so a stored result is never hashed. Nothing is decided by a file's date: the same bytes under a new date
-run nothing, and other bytes under the old date run everything after them (`WorkbenchRunnerTests`).
+run nothing, and other bytes under the old date run everything after them (`WorkbenchRunnerTests`). A set of frames is
+keyed from its frames' digests, and those are not read again while a frame's size and time stand (above).
 
 The map sidecars beside a master are not part of its key. The stacker writes them with the master, so one does not
 change without the other.
@@ -365,6 +409,8 @@ change without the other.
 
 `<project>/store/`, one `<digest>.fits` a stored step, and `index.json` naming every result with its key, its
 operation and its size. The finding of a step that writes no pixels is a file there too, named by the finding's key.
+`frames.json` beside them holds the digests of the project's sets of frames (`FrameDigestIndex`); it is no result
+and names none.
 
 - **A result appears whole or not at all.** A step writes into `store/.staging/<guid>/` and the file is renamed into
   place when the step has succeeded; the index gains its entry after that, under the folder's lock
@@ -426,8 +472,9 @@ folder. A member the type does not have is refused.
    by its finding.
 4. A run records each step's key and result in the project file, and writes it only when something changed.
 
-`tianwen workbench status <project>` prints the plan with every step's command line and writes nothing.
-`tianwen workbench run <project> [--image <name>] [--export <file>]` runs it. `tianwen workbench operations` lists the
+`tianwen workbench status <project>` prints the plan with every step's command line and writes no result (it keeps
+the digests of a set of frames it read). `tianwen workbench run <project> [--image <name>] [--export <file>]` runs it.
+Both take `--verify-frames`. `tianwen workbench operations` lists the
 operations with their settings at their defaults. Exit 1 is a project that cannot be read, exit 2 a step or an export
 that gave no result.
 
@@ -451,10 +498,18 @@ that gave no result.
 
 Each is a later leg of W1 (#1641) or a later phase, and none is assumed by the code above.
 
-- **The remaining operations.** The deep-sky frame steps (#2467) and the rest of the planetary steps (#2468): the
-  stack with settings of its own, the grades as a step, and the colour. Every colour step of #2465 is here, and so is
-  the canonical enhance (#2466).
-- **A set of frames as an input** (calibrate, register, integrate; #2467).
+- **The remaining operations.** The deep-sky frame steps (#2467). Every colour step of #2465 is here, so is the
+  canonical enhance (#2466), and so are the planetary steps (#2468): by the owner's call of 2026-11-23 they are the
+  stack, the compose and the sharpening, with AUTO's three choices.
+- **Planetary grading, and a look.** `planetary grade` scores a capture's frames and writes nothing a later step
+  reads, so it is a fact about a capture and W9's (#2236), as statistics are. `planetary colour` is a measurement
+  against OPAL's maps and not what balances a master; the balance is inside the stack and the compose. A look
+  (`planetary look`) is a rendering of the linear master and never a new master, so it goes with how a result is
+  shown and exported.
+- **The step that stacks a set of frames** (#2467). The set as an image's original and its key are here. Still to
+  come, by the owner's call of 2026-11-23: one `stack` operation around `tianwen stack` with the options that choose
+  what is stacked and how it is registered and integrated as its settings, each master a result of the step under
+  its group's name, and the masters' map sidecars beside them in the store. A comet run is a leg of its own.
 - **Statistics** (`image stats`, `image sources`, `image channel-offsets`). A measurement changes nothing a later step
   reads, so as an edit of a list it would only give every step after it another key. It is a fact about a step's
   result, which is W9's (#2236): measured when a gate or a panel asks, and kept by the key of the result it measures.

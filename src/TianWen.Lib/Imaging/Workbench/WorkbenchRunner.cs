@@ -85,6 +85,15 @@ public sealed record WorkbenchReport(ImmutableArray<ImageReport> Images, string?
     /// unreadable project file); the run still succeeded. Null when there is nothing to say.</summary>
     public string? Note { get; init; }
 
+    /// <summary>Frames of the project's sets of frames that were read to know their digest.</summary>
+    public int FramesDigested { get; init; }
+
+    /// <summary>Frames whose digest the index had (<see cref="FrameDigestIndex"/>), their size and time unmoved.</summary>
+    public int FramesFromIndex { get; init; }
+
+    /// <summary>True when the frame digest index could not be written (the run is unaffected; the frames are read again next time).</summary>
+    public bool FramesIndexNotSaved { get; init; }
+
     /// <summary>True when nothing was refused: the project read, every image has its file, and no step is refused or blocked.</summary>
     public bool Succeeded => Refusal is null
         && Images.All(static image => image.Refusal is null
@@ -105,6 +114,11 @@ public sealed record WorkbenchRunOptions
 
     /// <summary>Takes each line a step reports, with the step named in front.</summary>
     public Action<string>? Say { get; init; }
+
+    /// <summary>Read every frame of every set of frames to know its key, whatever the digest index holds
+    /// (<see cref="FrameDigestIndex"/>), and correct the index: what finds a frame changed in place under an unchanged
+    /// size and time.</summary>
+    public bool VerifyFrames { get; init; }
 }
 
 /// <summary>
@@ -127,12 +141,22 @@ public sealed record WorkbenchRunOptions
 /// </remarks>
 public sealed class WorkbenchRunner(OperationCatalog operations)
 {
-    /// <summary>What a run would do, with nothing run and nothing written.</summary>
+    /// <summary>What a run would do, with nothing run and no result written. It writes one file, the digest index of a set
+    /// of frames (store/frames.json, creating store/), so that what it read is not read again.</summary>
     /// <param name="projectFolder">The project's folder.</param>
     /// <param name="image">Only what this image needs counts as needed; null for every image.</param>
     /// <param name="cancellationToken">Ends the work.</param>
     public Task<WorkbenchReport> StatusAsync(string projectFolder, string? image = null, CancellationToken cancellationToken = default)
         => GoAsync(projectFolder, new WorkbenchRunOptions { Image = image }, run: false, cancellationToken);
+
+    /// <summary>As <see cref="StatusAsync(string, string?, CancellationToken)"/>, with the options a status reads: the
+    /// image, and whether every frame is read again (<see cref="WorkbenchRunOptions.VerifyFrames"/>). Nothing is
+    /// exported and no step runs.</summary>
+    public Task<WorkbenchReport> StatusAsync(string projectFolder, WorkbenchRunOptions options, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        return GoAsync(projectFolder, options with { ExportPath = null }, run: false, cancellationToken);
+    }
 
     /// <summary>Makes what is asked for, running only the steps whose results are not in the store, and records each
     /// step's key and result in the project file.</summary>
@@ -174,10 +198,22 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
         }
 
         var store = await StepStore.OpenAsync(Path.Combine(folder, StepStore.FolderName), cancellationToken);
-        var planner = new Planner(folder, byName, operations, store);
-        foreach (var image in images)
+        var frames = await FrameDigestIndex.OpenAsync(store.Folder, cancellationToken);
+        frames.KeepOnly(images.Where(static image => !string.IsNullOrWhiteSpace(image.Path)).Select(image => Path.GetFullPath(image.Path, folder)));
+        var planner = new Planner(folder, byName, operations, store, frames, options.VerifyFrames, cancellationToken);
+        try
         {
-            planner.Plan(image.Name);
+            foreach (var image in images)
+            {
+                planner.Plan(image.Name);
+            }
+        }
+        finally
+        {
+            // What a set of frames was digested as is kept, by a status too: reading a night again to say the same thing
+            // is the cost the index is there to save. A cancelled walk keeps what it learned (an unfinished walk
+            // prunes nothing), so the next run does not start the night from zero.
+            await frames.SaveAsync(CancellationToken.None);
         }
 
         if (options.ExportPath is { } wanted)
@@ -187,6 +223,11 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             if (images.Any(image => planner.Plan(image.Name).Path is { Length: > 0 } original && SamePath(original, target)))
             {
                 return new WorkbenchReport([], $"an export never writes over an original: {target} is an image of the project");
+            }
+
+            if (images.Any(image => planner.Plan(image.Name).Path is { Length: > 0 } original && Directory.Exists(original) && HoldsOrIs(original, target)))
+            {
+                return new WorkbenchReport([], $"an export never writes among an original's frames: {target}");
             }
 
             if (target.StartsWith(store.Folder + Path.DirectorySeparatorChar, PathComparison))
@@ -240,7 +281,12 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
 
         // The report is read off the plan before the project file takes this run's keys, so "changed since the last
         // run" is said against the run before this one.
-        var report = new WorkbenchReport([.. images.Select(image => planner.Plan(image.Name).Report())], refusal, exported);
+        var report = new WorkbenchReport([.. images.Select(image => planner.Plan(image.Name).Report())], refusal, exported)
+        {
+            FramesDigested = frames.Digested,
+            FramesFromIndex = frames.FromIndex,
+            FramesIndexNotSaved = frames.NotSaved,
+        };
         if (run && await RecordAsync(folder, project, planner, cancellationToken) is { } note)
         {
             report = report with { Note = note };
@@ -742,6 +788,15 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
 
     private static bool SamePath(string one, string other) => string.Equals(Path.GetFullPath(one), Path.GetFullPath(other), PathComparison);
 
+    // Whether <paramref name="inner"/> is <paramref name="folder"/> or lies anywhere under it.
+    // The prefix test is FrameDigestIndex.IsUnder's, which keeps a root's own separator (E:\ or /) instead of doubling it.
+    internal static bool HoldsOrIs(string folder, string inner)
+    {
+        var (outer, within) = (Path.GetFullPath(folder), Path.GetFullPath(inner));
+        return string.Equals(Path.TrimEndingDirectorySeparator(outer), Path.TrimEndingDirectorySeparator(within), PathComparison)
+            || FrameDigestIndex.IsUnder(within, outer);
+    }
+
     /// <summary>Something a step can take: an original file, or a step's result.</summary>
     private sealed class Node
     {
@@ -854,7 +909,8 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
     }
 
     /// <summary>Works out every image's steps and keys, each image once.</summary>
-    private sealed class Planner(string folder, Dictionary<string, ProjectImage> byName, OperationCatalog operations, StepStore store)
+    private sealed class Planner(string folder, Dictionary<string, ProjectImage> byName, OperationCatalog operations, StepStore store,
+        FrameDigestIndex frames, bool verifyFrames, CancellationToken cancellationToken)
     {
         private readonly Dictionary<string, ImagePlan> _plans = new(StringComparer.Ordinal);
 
@@ -926,6 +982,20 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                 else if (string.IsNullOrWhiteSpace(image.Path))
                 {
                     plan.Refusal = "it names no file";
+                }
+                else if (Directory.Exists(plan.Path))
+                {
+                    // A set of frames (a night's lights and its calibration frames): its key is every frame's place
+                    // and digest, a digest taken from the index where the frame's size and time have not moved.
+                    if (HoldsOrIs(plan.Path, store.Folder))
+                    {
+                        plan.Refusal = "its folder holds this project's store, so a result would be one of its frames: keep the project's folder outside the frames";
+                    }
+                    else
+                    {
+                        plan.Key = frames.KeyOf(plan.Path, verifyFrames, out var unreadable, cancellationToken);
+                        plan.Refusal = unreadable;
+                    }
                 }
                 else if (!File.Exists(plan.Path))
                 {
@@ -1106,6 +1176,17 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                 }
 
                 inputs.Add(head);
+            }
+
+            if (!operation.Description.TakesFrameSet)
+            {
+                foreach (var input in inputs)
+                {
+                    if (input.File is { Length: > 0 } file && Directory.Exists(file))
+                    {
+                        return Refuse(step, $"{file} is a folder of frames, and '{id}' takes an image");
+                    }
+                }
             }
 
             Node node;
