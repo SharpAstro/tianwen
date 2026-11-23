@@ -9823,8 +9823,9 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
   where a drawn star's light (the draw less the plate) stands over a quarter of the pixel's noise within three PSF
   widths of the star's centre, and within one PSF width of such a pixel, so a hole dug round the star costs as the
   star left does; everything else is 0, and a far halo is left to the draws on a synthetic background. An export
-  takes one rule: the first run records it (`plate-masks.rule`) and the other is refused, since a draw that has its
-  mask is skipped. **Checked on real draws before this registration** (two sessions of R4g's export, the Lagoon and
+  takes one rule while it holds masks: the first run records it (`plate-masks.rule`) and the other is refused, since
+  a draw that has its mask is skipped; with every mask deleted it takes either.
+  **Checked on real draws before this registration** (two sessions of R4g's export, the Lagoon and
   Trifid of 2023-08-09 and eta Carinae of 2025-01-31, 344 draws, from this branch's Release build): 62,180 drawn
   stars, 12.1 % of the pixels inside the rim counted (a draw's median 11.3 %, 6.5 to 19.2 % from its 10th to its 90th
   percentile, 170 stars a draw at the median; D4's rule left out 7.1 % on R4g's own check). Looked at on three draws

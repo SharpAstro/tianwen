@@ -1602,8 +1602,9 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             Description = "plate-sources (default): 0 on the sky within two PSF widths of a source the plate kept, 1 elsewhere, by " +
                 "starless-eval's own rule. drawn-stars: 1 only where a drawn star's light stands over a quarter of the pixel's noise " +
                 "within three PSF widths of the star, and within one PSF width of that light; for draws on a real plate over bright " +
-                "nebula, whose plate holds faint stars no finder lists. An export takes one rule: the first run records it " +
-                $"({StarRemovalMasks.RuleFileName}) and a run with the other is refused.",
+                "nebula, whose plate holds faint stars no finder lists. An export takes one rule while it holds masks: the first " +
+                $"run records it ({StarRemovalMasks.RuleFileName}) and a run with the other is refused; with every " +
+                $"*{StarRemovalMasks.KeepTileExtension} deleted it takes either.",
             DefaultValueFactory = _ => "plate-sources",
         };
         var command = new Command("plate-masks",
