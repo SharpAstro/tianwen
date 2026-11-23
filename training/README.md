@@ -181,9 +181,10 @@ Beside the row, and not run by `score_whole.py`: **the planted-star test** (`pla
 bright nebula" in `docs/plans/star-remover-training.md`, #2484). It adds the same real star's light to a one-plane master once on
 bright nebula and once on dark sky, runs a remover on the master and on the planted copies, and reads how many plants each left:
 a count with an exact truth, which sixteen real stars on one nebula are not. Its last line is `planted <label> bright n N left X %
-| dark n N left Y %` (plants of 20 to 150 sky sigma). Run every remover as it is (`--no-protect-cores --no-fill-digs`): inside a
-protected core the input comes back with the plant in it. `judge_floor_check.py` is the check of whether a judge's smooth plate of
-a crowded field holds structure the data supports (it does: the plan section has the figures).
+| dark n N left Y %` (plants of 20 to 150 sky sigma). Run every remover as it is (`--no-protect-cores --no-fill-digs --keep-overshoot`): inside a
+protected core the input comes back with the plant in it, and the clamp to the input is not invariant to the plant (the plate of
+the master is clamped where the planted one is not). `judge_floor_check.py` is the check of whether a judge's smooth plate of
+a crowded field holds structure consistent with the data (the plan section has the figures).
 
 The guards are round 1's: the nucleus at most 5 % in every channel and purity at most 1.0 %. A row is read against
 the judges' rows (the ceiling), R2i seed 0's (the small-model baseline) and R2t's (the round 1 base). Two things the

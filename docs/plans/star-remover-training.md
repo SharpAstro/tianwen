@@ -9550,8 +9550,9 @@ scorecard's side of it is #2245.
 The owner, 2026-11-23, asked whether an arm can now aim at the faint stars on bright nebula. Three checks came first,
 none of them a training run. They corrected the row of 2026-11-22, gave a better instrument, and measured where the
 weakness is. All of it is on the held-out Sagittarius master (one plane; its bright nebula is the Lagoon's), ours as
-trained, every remover run with `bh-bin12` (the build R4h's and R4i's plates are made with), no core protection and no
-dig fill. Working files are in `C:/temp/e2/explore` and `D:/temp/tianwen-scratch/plant-neb2` on the development machine,
+trained, every remover run with `bh-bin12` (the build R4h's and R4i's plates are made with), no core protection, no
+dig fill and `--keep-overshoot` (the figures below were made on `bh-bin12`, before the clamp of #2433 existed, so they are unclamped; a
+rerun on current main needs the third flag). Working files are in `C:/temp/e2/explore` and `D:/temp/tianwen-scratch/plant-neb2` on the development machine,
 the sheets in `D:/temp/tianwen-scratch/r4-look`.
 
 - **The row of 2026-11-22 counted nebula bumps as stars, and its median is no figure.**
@@ -9711,7 +9712,8 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
   - **Read first:** the 1:1 sheets (below), then the training by the stall rule of R4h's and R4i's registration.
   - **The question, on the models as trained:** of the 205 plants of 20 to 150 sky sigma on the Lagoon's bright
     nebula (`plant_stars.py --stamp layer` on the Sagittarius master with StarXTerminator's plate, seeds 1, 2 and 3;
-    `plant_read.py`), **at most 45.0 % left on BOTH seeds** (StarXTerminator 42.4; our fourteen 46.8 to 74.6, twelve
+    `plant_read.py`), **at most 45.0 % left on both training seeds** (plates of every remover made one way: `bh-bin12`,
+    `--no-protect-cores --no-fill-digs --keep-overshoot`; StarXTerminator 42.4; our fourteen 46.8 to 74.6, twelve
     of them 61.0 or over). R4h's own figure, the parent's, is taken when R4h is scored and written here before any
     score of R4j exists; if R4h alone reads 45.0 or under, the bar cannot show the mask's doing and the read says so.
   - **Guards, on each seed:** R4h's and R4i's, on the same terms (every row of the 40 sigma read's table at its bar,
