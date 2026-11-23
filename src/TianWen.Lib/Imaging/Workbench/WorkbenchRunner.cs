@@ -785,11 +785,12 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
     private static bool SamePath(string one, string other) => string.Equals(Path.GetFullPath(one), Path.GetFullPath(other), PathComparison);
 
     // Whether <paramref name="inner"/> is <paramref name="folder"/> or lies anywhere under it.
-    private static bool HoldsOrIs(string folder, string inner)
+    // The prefix test is FrameDigestIndex.IsUnder's, which keeps a root's own separator (E:\ or /) instead of doubling it.
+    internal static bool HoldsOrIs(string folder, string inner)
     {
-        var (outer, within) = (Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder)), Path.GetFullPath(inner));
-        return string.Equals(outer, Path.TrimEndingDirectorySeparator(within), PathComparison)
-            || within.StartsWith(outer + Path.DirectorySeparatorChar, PathComparison);
+        var (outer, within) = (Path.GetFullPath(folder), Path.GetFullPath(inner));
+        return string.Equals(Path.TrimEndingDirectorySeparator(outer), Path.TrimEndingDirectorySeparator(within), PathComparison)
+            || FrameDigestIndex.IsUnder(within, outer);
     }
 
     /// <summary>Something a step can take: an original file, or a step's result.</summary>
