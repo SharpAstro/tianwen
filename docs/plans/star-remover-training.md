@@ -373,6 +373,62 @@ gradients; that is the owner's call once the report is in.
    the plate's measured lag-1 correlation (a three-tap kernel solved for it), so a filled hole has the
    plate's grain.
 
+**Parallel by tiles, and where that is written down.** Step 3 runs in tiles of 256 px, in four checkerboard
+phases whose tiles are fitted at once. The rule that keeps two tiles of a phase apart, and every reach it has
+to hold, is documented in one place: the class remark on `ClassicalStarRemover`. Since #2378 each tile's work
+reads and writes the working planes on its own ground alone (the tile grown by 128 px on each side, cut to the
+frame), so the rule holds by construction. The residual #2374 counted, two stars of one phase near facing tile
+edges sharing a few columns (more for a giant, worked from a plateau centre that can lie in the next tile), is
+gone: work that reached past its ground now loses those columns or rows instead of sharing them, and the same
+image and seed give the same plate on any number of threads. A master on which no tile's work reached past its
+ground gets the same plate, to the bit, as before; the five synthetic fields of the remover's tests did.
+
+**A dug core is refilled (#2449).** The hole sweep tests a core's mean, so one pixel the subtraction dug never
+trips it. On the store's Tarantula master (the ASI585MC at an FWHM of 3.8 px) a core pixel 5 sigma under the sky
+round it stood at 13.8 % of the 10 to 30 sigma and 33.1 % of the 30 to 100 sigma subtracted stars whose core was not
+inpainted, against 3.5 % at random star-free spots: the fit over-takes an undersampled star's peak pixel. The sweep
+now refills such a core in the same round as the holes. Per star and channel, a pixel within 1.5 px of the fit's
+centre more than 4 sigma under the annulus sky the hole test reads, where the subtraction took more than 4 sigma
+(the input less the plate), has the disc of 2 px about the centre filled and marked inpainted. The sigma is the
+pixel-to-pixel noise of that annulus on the working plate (1.4826 times the median magnitude of its horizontal
+neighbour differences, over root 2), not the sweep's per-pixel rms: that rms counts the master's correlated noise,
+and where a crowd or a bright nebula raises it, it stood 2.3 to 7.3 times the neighbour-difference noise at the
+deepest pits a first version left reading against it (a pit 11 to 31 of the one deep was under 4 of the other). A
+dark pixel the input holds, where no model took light, is left. A plate's record counts the stars refilled this way
+(`StarlessPlateStatistics.DugCores`). Unlike the refill driven by the speckle measure that was withdrawn (below,
+"What R0 leaves"), it reads what the subtraction took at the pixel and fills a fixed disc.
+
+Read on that master against the plate main built (the noise from neighbour differences, so the stored plate reads
+13.1 %, 29.8 % and 3.0 % this way): of the stars whose core main left uninpainted, the pit falls from 13.1 % to
+0.7 % of the 10 to 30 sigma ones and from 29.8 % to 0.3 % of the 30 to 100 sigma ones, under the random spots' 3.0 %.
+15,648 stars are refilled (24 % of the subtracted), the inpaint fraction goes from 8.05 % to 10.88 %, and the 9 to
+41 px band of the crowded cells moves by 0.2 at most.
+
+Those refills are over-subtraction, not noise. At a star-free spot nothing was subtracted, so the whole trigger
+cannot fire there and its rate says nothing. The half that noise could trip is the dip: the lowest pixel within
+1.5 px sits more than 4 sigma under its annulus's median, where the sigma is the one that annulus's neighbour
+differences give. Read alone on main's plate over a fixed 6 to 12 px annulus, in any channel, the dip fires at 2.5 %
+of 6,000 random star-free spots, against 55 % of the 10 to 30 sigma and 99 % of the 30 to 100 sigma stars whose core
+main left uninpainted.
+
+A star refilled for a dug pixel alone is not tested for one again in the sweep's later rounds (it is still tested
+for a hole). The fill's own grain can sit under the gate, and a retest redraws the same disc with a new seed each
+round. The grain is drawn at the pixels' noise and the gate reads neighbour differences, which correlated noise
+makes smaller by the root of one less the correlation: on a test field correlated at 0.7, with two hundred shallow
+dug cores, a retest makes 21 redraws among the 178 stars refilled, and the build as shipped none. On the master,
+with a retest every round, the read was 15,661 stars refilled, an inpaint fraction of 10.91 %, a 30 to 100 sigma
+pit of 0.5 % and 250 holes. As shipped, holes in the 10 to 50 sigma bands rose from 106 to 215 of 16,474 stars,
+against the plate's null of 13.9 %. 82 of the 151 stars newly read as holes there were refilled by the
+trigger, and over the refilled stars of those bands the core's depth spreads wider (its 10th to 90th percentile from
+-1.9 to +1.0 to -2.4 to +1.7). Measured and not adopted, both with a retest every round: the trigger at 4 sigma of
+the sweep's rms (pits 5.4 % and 0.3 %, 5,957 stars refilled, inpaint 9.25 %, holes 158) and at 3 sigma of it (1.2 %
+and 0.3 %, 13,951, 10.64 %, 238).
+
+**Each run records what built it.** `tianwen dataset starless-plates` appends one line to
+`stats/starless-plates.provenance.jsonl`, beside the store, as it starts: the library's version and commit (the one
+the bake's launcher reads off the binary), the start time and the builder's options. A run resumed under another
+commit adds its own line.
+
 **The report** (`tianwen dataset starless-plates`, a JSONL store and a markdown table, the shape of
 `gradient-report`), per master: stars found, subtracted, left as knots, inpainted; and four measures.
 
@@ -583,6 +639,218 @@ Tracked by #902 with the rest of P4.0; none of it is a hole.
   that matters where a star is injected AT a subtracted site: the target keeps the site's dot under the injected
   star, which teaches a net to leave one. Either such sites are kept out of at-site placement or the speckle teacher
   outweighs them.
+
+#### The store rebuilt with the dug-core refill (2026-11-23)
+
+The owner's "3. yes" of 2026-11-22 (below, "What the crowded grain is ..."): the builder's residue fixed together with
+the tile clip, then the plates rebuilt once with the build's commit beside them. Nothing here is an arm: nothing is
+registered, trained or scored on the new plates. Seven sessions were exported from each root to compare the training
+pairs, at the end of this section.
+
+**What was built.** The 138 sessions the export trains on, by a frozen build of main at the merge of PR #2454 (the
+dug-core refill, #2449), into a root of its own beside the store's (`starless-2449`; its
+`stats/starless-plates.provenance.jsonl` holds the commit and the builder's options). 138 of 138 plates, none failed,
+4 h 48 min. The store's own `starless` root stays as it is: it was built on 2026-10-13 and 14, and the current line
+reads it, R4h's and R4i's exports among them. PR #2460, merged after that build, adds a test's switch for the order a
+phase's tiles are visited in and leaves a plate's build as it was (read off its diff; no plate was rebuilt to show
+it).
+
+**The guard of #1867, the refill and everything else since the stored build separate it from `starless`, and the
+refill is the material one.** Read with `plate_store_compare.py` on the stores' own report lines, and on the
+Tarantula session of 2024-10-02 by its pixels:
+
+- **The guard of #1867** (a diverged fit is refused before it is subtracted; the store of 2026-11-01,
+  `starless-1867`, was built with it).
+  Between `starless` and `starless-1867`, over the 201 masters both hold, the speckle rates do not move (2.47 % and
+  5.30 % of the 0 to 20 and 20 to 100 sigma sites against 2.47 % and 5.31 %), the inpaint fraction changes by 0.00 at
+  the median and by more than 0.05 points on two masters, the largest by 1.63 points (eta Carinae, 2025-01-14: 11.69 % to
+  10.07 %; the rebuilt store has it at 10.91 %, so the guard moved it by more than the refill did, and the
+  `starless` against `starless-2449` inpaint figures below carry that move), and the Tarantula session's plate is
+  the same to the byte.
+  Star counts differ on 33 of the 138 masters, by 280 of 68,433 found at most (Centaurus A, 2023-04-02). There a
+  plain finder at the luminance's star width (2.111 px, the last element of the stats' `FwhmPx`) puts 388 sources on
+  the rebuilt plate that the stored one lacks, away from every star the rebuilt build subtracted
+  (`plate_kept_now.py`). They sit at the finder's threshold (median 5.6
+  of its sigma); 292 of them are at a row of the stored list (215 subtracted there, 73 with no fit; median
+  significance 5.0, three in four from the second pass); and they are spread as random places would be (11 % in the
+  inner third of the frame). At 1:1 the three fullest cells show grain and the low-coverage strips at the frame's
+  top, and no star the stored plate lacks. Against `starless-1867` 33 remain, at the finder's threshold on both
+  plates.
+- **The tile clip (#2378) and everything else that changed before the refill**, the runaway-fit refusal of PR #2363
+  (#2352) and its follow-up PR #2379 among it, which change which fits are subtracted. The plate main built just
+  before the refill differs from the stored one in 8.1 % of its pixels and in 0.06 % by more than one sigma; of its
+  67,576 star rows, 35 differ in place or outcome and 145 in any of the twelve columns the star-list count further
+  down takes (place, significance, amplitudes, width, sky, sigma, outcome, model, the saturated and second-pass
+  flags). All of it is read on the Tarantula session of 2024-10-02 alone, and for that whole bucket, not the clip
+  alone. Over the 138 masters `starless-1867` against `starless-2449` differs in the found count on 3, in the
+  subtracted count on 14 and in the knots on 34; the clip alone is not shown to cause that.
+- **The refill (#2449).** 9.1 % of the pixels, 3.95 % by more than one sigma, and none of those star rows (the
+  Tarantula session of 2024-10-02 again, where 24 % of the stars were refilled against 16.6 % store-wide).
+
+**The check on the plan's own master.** The rebuilt store's plate of the Tarantula session of 2024-10-02 is the same
+to the byte as the one the figures of "A dug core is refilled" above were read on (the plate, the star list, the
+stars plate and both masks), and the pit read against the stored plate repeats: 13.1 % and 29.8 % to 0.7 % and 0.3 %
+on the stars whose core the stored plate left uninpainted, under the random spots' 3.0 %.
+
+**The store against `starless`, on the builder's own statistics** (`plate_store_compare.py`; the 138 masters, 7.94
+million subtracted stars on each side):
+
+- **1,317,640 dug cores are refilled, 16.6 % of the subtracted stars.**
+- **Speckles** (a core pixel more than 4 sigma under the sky 6 to 12 px out), summed: 2.21 % to 0.45 % of the 0 to 20
+  sigma sites, 5.56 % to 1.45 % of the 20 to 100, 0.83 % to 0.49 % of the 100 to 1,000. By the texture under the
+  star, the median over masters against the class's own null, as the table of 2026-10-03 above has it:
+
+  | Band | Smooth | Textured | Strongly textured |
+  |---|---|---|---|
+  | 0-20 | 1.2 to 0.2 against 0.2 (116 to 44 of 138 over twice) | 4.7 to 0.7 against 1.8 (52 to 7 of 87) | 14.8 to 5.8 against 14.6 (8 to 1 of 33) |
+  | 20-100 | **4.1 to 0.9 against 0.2 (131 to 105 of 138)** | 20.3 to 4.4 against 2.7 and 2.9 (34 to 17 of 42) | 33.8 to 14.9 against 18.9 and 19.3 (3 to 1 of 6) |
+  | 100-1000 | 0.5 to 0.3 against 0.2 (90 to 56 of 138) | 2.2 to 1.9 against 3.1 (1 of 11 both) | |
+
+  On smooth sky a dark pixel is left at about one star in 110 of significance 20 to 100, where it was one in 24; the
+  null is one in 500. The measure reads 3 px round the star and the trigger 1.5 px; whether what is left sits between
+  the two is not measured.
+- **The price in drawn pixels.** A plate's inpaint fraction grows by 1.0 point at the median (5.14 % to 6.44 %), by
+  2.8 at the 90th percentile and by 8.3 at most (eta Carinae at 135 mm, 2022-12-24: 24.1 % to 32.3 %, 66,258 of its
+  185,536 subtracted stars refilled). Four masters grow by more than 5 points and three are over 25 % inpainted where
+  one was. By band, the stars whose core is drawn: 14 % to 24 % (5 to 10 sigma), 27 % to 49 % (10 to 20), 53 % to
+  79 % (20 to 50), 91 % to 98 % (50 to 100). "Where the hole question lands" above names the case: filled cores so
+  many that they shape what a net calls background.
+- **Holes** (a core whose mean sits low) rise in every band, 25,757 to 37,371 in all (0.19 to 1.62 % of a band's
+  stars before, 0.33 to 1.87 % after), against a null of 6.8 % at the median master, as on the Tarantula session.
+
+**What a refilled core looks like** (`plate_refill_cores.py`: the mean within 2 px less the median 6 to 10 px out,
+in widths of the same reading at 6,000 star-free spots of the plate; "bright" is over that null's 99.5th percentile,
+which noise gives 0.5 %). Four masters, the stars refilled on the rebuilt plate and not inpainted on the stored one:
+
+| master | star width (FWHM of the luminance) | refilled | level, 10 to 20 sigma | bright | level, 20 to 50 sigma | bright | untouched stars: level, bright |
+|---|---|---|---|---|---|---|---|
+| eta Carinae at 135 mm, 2022-12-24 | 1.8 px | 46,644 | +0.39 to +0.42 | 0.0 to 0.0 % | +0.63 to +0.48 | 0.1 to 0.0 % | +0.5, 0.0 % |
+| Centaurus A, 2023-04-02 | 2.1 px | 8,164 | +0.78 to +1.23 | 0.2 to 1.0 % | +0.86 to +1.53 | 0.2 to 2.5 % | +0.8 to +0.9, 0.0 to 0.1 % |
+| Vela SNR P5, 2024-02-10 | 2.1 px | 8,302 | +1.35 to +1.64 | 1.4 to 5.2 % | +1.51 to +1.88 | 2.9 to 8.9 % | +1.4 to +1.8, 2.5 to 7.0 % |
+| Running Chicken (QHY294C), 2026-02-20 | 2.7 px | 11,668 | +0.87 to +1.78 | 0.2 to 1.8 % | +0.71 to +1.86 | 0.2 to 1.8 % | +0.8 to +0.9, 0.1 to 0.3 % |
+
+On the sharpest of the four the refilled core keeps its level. On the three with wider stars it reads 0.3 to 1.2
+widths brighter than before, and on two of them brighter than the cores the sweep did not touch (+1.2 to +1.9
+against +0.8 to +0.9). The fill is drawn from the disc's surroundings, and those carry the positive residue of a wing
+the profile under-fits, which the pit had offset in the mean. At 1:1 (the crops the script writes, looked at for the
+first and the last master) the dark pixels are gone on both; on the wider-star master each refilled core is a soft
+bump like the residues round it, and none is a bright core. A plain finder (the luminance smoothed at its own star
+width, less the same smoothed six times wider, 5 of the filtered plate's own sigma) puts a new source on 0.6 to
+1.9 % of the refilled cores (45 of 8,164 on Centaurus A, 127 of 8,302 on Vela SNR P5, 220 of 11,668 on the Running
+Chicken, 385 of 46,644 on eta Carinae), and on the sharpest master it loses more at them than it gains (1,081
+against 385; the other three lose 13, 39 and 53).
+
+**The leftover count rises, and it is not more sources.** The builder's own count at 5 to 10 sigma goes from 531,074
+to 580,963 (+9.4 %; 185,620 to 212,866 at a subtracted star, 345,454 to 368,097 away from every one), the bands above
+it by 1 to 4 %. The report above calls it the measure that decides whether a plate can be a target, so it was read
+apart (`plate_leftover_scale.py`, every master, the luminance smoothed at its own star width). One plain finder at
+one fixed level on both plates counts 872,649 sources on the stored plates and 862,855 on the rebuilt ones (-1.1 %;
+per master from -2.0 % at the 10th percentile to +0.9 % at the 90th, 14 masters over 1 % more, +6.3 % at most, on
+Centaurus A, the master the guard moves most, above). What moved is the scale the builder counts in: in a crowded
+field its finder's noise is capped by what the plate's pixel differences predict, a dug core is a dark pixel beside
+a bright one, and refilling it narrows those differences. The predicted noise falls by 0.5 % at the median master,
+1.7 % at the 10th percentile and 5.4 % on eta Carinae at 135 mm, where the builder's count rises 18.5 % and the
+fixed-level count falls 4.5 %. Over the masters the builder's change follows that rise in significance with a
+correlation of 0.54. Not explained in full: the same plain finder at each plate's own capped level counts 3.3 %
+more, where the builder counts 9.4 % more. **The two stores'
+leftover fractions are not to be compared**, and a plate's noise as its differences read it is lower on the rebuilt
+store, by 0.5 % at the median master and by 5 % on eta Carinae at 135 mm.
+
+**What the new plates change in R4h's training pairs: almost nothing on six of the seven sessions read, and on
+Centaurus A the drawn stars at 5 times the noise and over, and its input draws** (`plate_pairs_compare.py`). R4h's
+export line
+(synth32's, with its frozen binary and options) was run over seven of its sessions, once from `starless` and once
+from `starless-2449`. The run from `starless` gives synth32's own 2,800 tiles back to the byte, so the two runs
+differ by the plates alone. Both choose the same 40 cells in every session. Differences are in the tile's own noise
+(the rms over a cell, its median cell and its worst):
+
+| session | target tile | input draws | input pixels moved by over half a sigma | stars at the same place | amplitude of those at 5 times the noise and over (10th / 90th percentile of the ratio) |
+|---|---|---|---|---|---|
+| Helix (ASI462MC), 2024-08-18 | 0.000 / 0.001 | 0.000 / 0.001 | 0.00 % | 9,104 of 9,104 | 1.000 / 1.000 |
+| Tarantula, 2024-10-02 | 0.003 / 0.011 | 0.033 / 0.059 | 0.08 % | 149,963 of 149,967 | 0.991 / 1.005 |
+| Rosette (ASI294MC), 2021-12-31 | 0.003 / 0.008 | 0.032 / 0.155 | 0.06 % | 52,864 of 52,877 | 0.999 / 1.001 |
+| Running Chicken (QHY294C), 2026-02-20 | 0.003 / 0.008 | 0.033 / 0.095 | 0.08 % | 106,284 of 106,294 | 1.000 / 1.000 |
+| Vela SNR P5, 2024-02-10 | 0.002 / 0.065 | 0.040 / 0.110 | 0.12 % | 114,969 of 114,983 | 0.999 / 1.001 |
+| eta Carinae at 135 mm, 2022-12-24 | 0.008 / 0.045 | 0.031 / 0.067 | 0.03 % | 324,983 of 325,018 | 0.998 / 1.016 |
+| Centaurus A, 2023-04-02 | 0.003 / 0.176 | 0.098 / 0.327 | 0.34 % | 114,200 of 115,615 | 0.274 / 1.386 |
+
+The noise planes are the same (their ratio is 1.0000 in every cell but one of eta Carinae's, 0.9985): R4h's line
+keeps each session's noise as recorded. The stars under the tile's noise, the drawn population below the catalogue,
+sit at the same places with other amplitudes on six of the seven sessions (the ratio's median 1.000, its 10th to 90th
+percentile 0.4 to 2.2), and the inputs' 0.03 to 0.10 of a sigma is of the size such stars give.
+
+**Why those amplitudes move: on six of the seven sessions the star lists differ in a few rows, and not by the
+refill; Centaurus A's differs in 35 % of its rows, by the guard.** The refill fills pixels
+and sets flags; it fits nothing. But the rebuilt store carries the builder's other changes since October too, and
+with the two `plates` folders the same script counts the rows of a session's star list that are not in the other
+store's, apart from the columns a fill sets or reads: none on the Helix, 145 on the Tarantula, 294 on the Running
+Chicken, 338 on the Rosette, 499 on Vela SNR P5, 3,331 on eta Carinae and 23,783 on Centaurus A (of 1,362 to 187,797
+rows). The guard of #1867 is why Centaurus A's is so many: 23,764 rows of its `starless` list are not in
+`starless-1867`'s, and 46 of `starless-1867`'s are not in `starless-2449`'s; its star count is the same in 8 of its
+160 draws. The
+Helix, whose list is the same row for row, is the one session where every drawn star keeps its amplitude. Read in
+the exporter, and not shown by a run that changes that alone: a star below the catalogue takes its colour, and with
+it its amplitude in each channel, from one of the catalogue's faint stars, picked by its place in that list
+(`InjectionPopulation.Plan`, the faint stars' colours), while its place comes from a draw the list does not enter
+and its significance from a law fitted to the whole list, which a few rows hardly move. A list that gains or loses
+a faint row (the pool is only the catalogued rows with a significance above 0 and below `FitLowSigma`) moves every
+faint pick, not only the picks after it, because the index is `faintRng.Next(_faintColours.Length)`
+(`InjectionPopulation.cs`). The stars a model has to remove are
+drawn from the rows themselves, and on six of the seven sessions nearly all of those are as they were (0 to 0.8 % of
+the rows differ, 1.8 % on eta Carinae); on Centaurus A (23,783 of 68,433 rows, 34.8 %) they are not, which is the
+table's 98.8 % at the same place and its amplitude ratios of 0.274 and 1.386.
+
+**Centaurus A's change in its drawn stars is measured to be the earlier store's, not the clip's or the refill's, and
+so is its input draws' change at the median cell; at the worst cell the clip and the refill move them again.** The
+same export line was run on that one session from `starless-1867`, the store built with the guard and before the
+clip and the refill. Against the run from `starless` it gives the table's row again in the stars and the inputs:
+the inputs differ by 0.098 at the median cell and 0.327 at the worst (0.32 % of their pixels by over half a sigma,
+where the table has 0.34), the star count is the same in 8 of the 160 draws, 98.8 % of the stars are at the same
+place, and the amplitude of those at 5 times the noise and over spreads from 0.275 to 1.386 (the table's 0.274).
+Against the run from `starless-2449` nothing of the stars is left to differ: the same count in all 160 draws, every one of the
+115,615 stars at the same place, and the amplitude ratio within 0.001 of 1.000 from its 10th to its 90th percentile
+(1.000 / 1.000 / 1.001 over the 312 stars at 5 times the noise and over, 1.000 throughout under the noise). The
+target tiles are not the earlier store's alone: they differ by 0.001 at the median cell and 0.110 at the worst
+between `starless` and `starless-1867`, and by 0.003 and 0.180 between `starless-1867` and `starless-2449` (the
+table's row, which spans both steps, has 0.003 and 0.176), so the worst target cell moves with the clip and the
+refill. The inputs of that second step move by as much as their targets, 0.003 at the median cell and 0.181 at the
+worst, with 0.04 % of their pixels moved by over half a sigma: beside the first step's 0.098 and 0.327 the median
+cell's change is the earlier store's, and a worst cell is moved again by the clip and the refill. What `starless-1867`
+has over `starless` is the guard, by that store's own account; no build with the guard alone taken out was run.
+
+So, on six of the seven sessions, the pairs are nearly the same through the line's own design: it draws its
+backgrounds (`--background synthetic`), so a plate gives the background its strength per scale and no pixel, and it
+draws its stars from a list the builder's changes left almost row for row. Centaurus A is the exception, and what
+changes there in the drawn stars, and in the input draws at the median cell, was already in the store of 2026-11-01.
+
+**R4g's plate targets barely change either.** R4g's extra export (its 126 bright cells of ten sessions, the stars
+drawn on the plate itself, `--background plate`) was run the same way from both roots; the run from `starless` gives
+R4g's own 2,268 tiles back to the byte. Per session the target tiles differ by 0.006 to 0.143 of the tile's noise
+(rms, the median cell), and 0.00 to 0.12 % of their values move by more than half a sigma: a cell's noise on bright
+nebula is its shot noise, several times the sky's, and few of the pits the refill takes are deep in it. At 1:1, on
+the four most changed cells (M42's core, the session of 2026-01-18), the stored target's isolated black pixels are
+gone and the cluster of dark dots beside the dark globule stays. The dent the builder leaves at a saturated star
+over nebula, which spoke against R4g's targets, is another defect and the refill does not touch it.
+
+**What it leaves for an arm.** Neither kind of arm run so far would see the new plates: R4h's line draws its
+backgrounds and would train on R4h's data, on six of the seven sessions, to within a few hundredths of the noise
+(Centaurus A's inputs differ by 0.098 at the median cell and 0.327 at the worst, and that much is already there
+between `starless` and `starless-1867`; from there to `starless-2449` they differ by 0.003 and 0.181), and
+R4g's bright cells hold almost none of what the refill takes. An arm of R4h's line on the new plates would
+therefore test the guard and the builder's other changes on the masters they move (33 of the 138 by their star
+counts), and not the refill, which on the Tarantula session changes no star row in the twelve columns the star-list
+count takes (of the list's eighteen columns it leaves out six: the four a hole fill sets or reads, `inpainted`,
+`core_residual`, `core_bias` and `hole_depth`, and the two that describe the background, `sky_above` and `texture`)
+and almost no pair; none is proposed. What the refill changes is the plate's pixels at moderately bright stars on
+smooth sky, so the new plates matter where those pixels are the target or the product: a recipe that puts plate
+pixels of ordinary star fields in its targets (none is in the line; the plates' leftover faint stars are why it
+draws its backgrounds), the grain-rule plates, and the builder as the remover that needs no model. No arm is
+registered: the owner's call.
+
+**The owner's word, 2026-11-23: "Let's carry on for now".** It answered the finding that no arm run so far reads the
+pixels the refill changes, and the offer to draft a recipe with plate pixels of ordinary star fields in its targets.
+So no arm is registered on the rebuilt plates and none is drafted; the plates stay in `starless-2449` beside the
+stored ones, which R4h's and R4i's exports read; and the work carries on with those two arms' registered reads.
 
 ### R1: the injector
 
@@ -8979,6 +9247,155 @@ the first angle is a step after the model and not another arm:
     the lead giving the first text's time in place of "before any export or score of either"), and a sixth, the
     push that carries this sentence, which gives the fifth its time and changes nothing else.
     The question, its bars and the guards' bars are as first pushed at 20:10:54; no round changed them.
+  - **R4h's and R4i's read, 2026-11-23 (seed 0 of each, the last step's weights, the sheets looked at first): R4i is
+    KILLED, and its question is missed on both halves. The black point by sky noise is no candidate, trained in or
+    set at inference.** R4h, the control, reads as R4d does and is the baseline for what comes next.
+    - **The sheets, before any row** (`arm_look.py`: the cores and the fields, each arm beside R4d and
+      StarXTerminator; then the 26 star sheets). **R4h:** as R4d on every panel. **R4i:** as trained it takes the
+      bright core of 30 Doradus and leaves a magenta wash where it stood, which core protection hands back only in
+      part; the Tarantula's knots are dimmer than R4d leaves them; M31's nucleus, the Lagoon's core, the crowded
+      field and the bright star on Andromeda are as R4d's. **Merope, both nights:** R4i leaves the star standing on
+      2022-01-05 and turns her nebula brown on both nights; R4h leaves the star on 2022-01-05 too and keeps the
+      nebula's colour, where R4d greens it on 2022-01-04.
+    - **The training, read as registered, and where the rule does not reach.** R4i halved first at step 84,000; its
+      median window over the 60,000 steps after that is 0.49 of the median from step 30,000 to it (6.44e-6 against
+      1.313e-5), with 18 new bests after the first halving; it stopped itself at 170,500 (best 158,500), no resume:
+      trained as the others. **R4h's first halving came at step 28,500, before the step 30,000 the rule's reference
+      starts at, so the registered ratio has no denominator and cannot be formed.** What its log says: at the first
+      rate the held-out readings were unsteady (lowest window 2.447e-5 at 16,500, one reading of 1.5e-3 at 17,500),
+      so the plateau rule halved 12,000 steps after that best; after it the run set 46 new bests, halved again at
+      84,000, 137,500 and 162,500, and stopped itself at 223,500 (best 211,500), no resume. (That R4h's second
+      halving and R4i's first both stand at 84,000 is no slip: each log shows a best at step 72,000 and the halving
+      24 readings later; R4i's others came at 111,000, 144,000 and 156,500.) A stall as the rule has
+      it needs a run with no new best after its first halving, so R4h did not stall; with the reference taken from
+      step 10,000, which is NOT the registered figure, the ratio reads 0.29. Whether a pair whose first halvings
+      stand at 28,500 and 84,000 "trained alike" the registration does not say beyond its two examples (one evicted
+      past the cap, one stalled), and neither happened. This read takes the pair as trained alike, and that is the
+      owner's to refuse (told 2026-11-23); refused, R4i is "neither" and no nearer: its question is missed either
+      way.
+    - **The question, R4i against R4h, as trained** (`bright_star_nights.py` on each arm's ring file, red, a ring
+      where StarXTerminator takes under 3 sigma left out):
+
+      | | R4d | R4h | R4i | bar | read |
+      |---|---|---|---|---|---|
+      | the widest gap between the two Pleiades nights, eight Pleiads, four rings from 8 to 80 px | 113 points (Merope, 60-80 px) | 47 (Atlas, 22-40 px) | **71** (Merope, 8-22 px) | at most 25 | **missed** |
+      | rows of 26 whose innermost ring is taken under 80 % | 7 | 9 | **10** | at most 4, and 3 fewer than R4h | **missed** |
+
+      R4i is worse than its control on both.
+    - **The guards on R4i** (the 40 sigma read's table, each row as that table reads it):
+
+      | row | R4d | R4h | R4i | bar | read |
+      |---|---|---|---|---|---|
+      | Tarantula crowded flat, chain | 91.3 | 91.9 | 91.7 | at least 90.3 | held |
+      | Sagittarius crowded flat, chain | 97.0 | 97.4 | 97.3 | at least 96.3 | held |
+      | Andromeda dark flat and dug, chain | 98.5, 0.7 | 98.6, 0.5 | 98.4, 0.9 | at least 95, at most 3 | held |
+      | Tarantula dark flat, chain | 96.5 | 95.9 | 96.2 | at least 91 | held |
+      | glow green median on Andromeda, chain | -8.5 | -47.9 | 24.1 | within 450 | held |
+      | glow green median on the Tarantula, chain | 106.5 | -14.7 | 178.8 | within 500 | held |
+      | M31 nucleus, chain | 0.0 % | 0.0 % | 0.0 % | under 10 % | held |
+      | purity, chain | 0.8 | 0.9 | 0.8 | at most 1.0 | held |
+      | light taken from the Tarantula field, chain | 81, 82 % | 81, 84 % | 81, **85 %** | at most 83, 84 % | **failed** by a point |
+      | Gaia BP 17-19 with the level set aside, chain | 90.7 | 91.4 | 92.3 | at least 89.7 | held |
+      | light added on each master's nebula, as trained | 0.0 % | 0.0 % | 0.1, 0.0, 0.0 % | at most 1.0 % | held |
+      | brightest tenth of the Tarantula's peaks standing, as trained | 17 of 77 | 18 of 77 | **0 of 77** | at least 11 | **failed** |
+      | faint stars left on the Lagoon's core, as trained | 29 % | 30 % | 31 % | at most 37 % | held |
+      | faint stars left on 30 Doradus, as trained | 22 % | 17 % | 20 % | at most 27 % | held |
+      | the Lagoon's broad light taken, as trained | 2.67 | 1.91 | 1.37 | at most 2.67 | held |
+
+      R4h misses neither failed row, so neither is the exporter's. The peaks row is the one the 40 sigma read failed
+      at inference (1 of 77), and it is what the sheet shows on 30 Doradus's core: on the Tarantula R4i's broad
+      light taken as trained is 10.05, twice R4h's 5.06.
+    - **R4h's own read: what the exporter's changes did to R4d's rows.** Through the chain the flats, the dug
+      share, the nucleus, purity and Gaia BP 17-19 are within a point of R4d's (the table above), and the three
+      nebula guards are R4d's or better: light added 0.0 %, 18 of 77 peaks standing, the Lagoon's broad light taken
+      1.91 where R4d reads 2.67. The glow's green median moves, far inside its bars: -8.5 to -47.9 on Andromeda
+      (bar 450) and 106.5 to -14.7 on the Tarantula (bar 500). Three more things are not within a point. As trained
+      Andromeda's dark flat is 60.4 with 24.7 % dug where R4d reads 69.4 and 19.5; the light taken from the
+      Tarantula field over the whole frame is 84 % where R4d's is 82; and **the bright Pleiads are left standing
+      more than R4d leaves them** (below). One seed does not say whether that is the exporter's knot fix or the
+      run: R4g, trained on R4d's own cache, left the Pleiads whole too.
+    - **Against the predictions.** R4h, "every row within a point of R4d's, the peaks within 5 of 17": the peaks
+      hold (18); the three rows just named do not. R4i, all three missed: the nights' gap (10 to 25 predicted, 71
+      read), the innermost ring (3 to 5 rows, 10 read), and the peaks (11 to 20 of 77, 0 read), where the prediction
+      reasoned that the drawn knots are stretched the same way.
+    - **Reported, no bar.**
+      - **The best step's weights** (R4h's at 211,500, R4i's at 158,500) say the same. Innermost ring under 80 %:
+        9 and 9 of 26; the nights' gap 46 and 72 points; R4i's brightest Tarantula peaks standing 0 of 77 (R4h 16);
+        the Tarantula's crowded flat through the chain 91.5 and 91.5; R4i's field light 81 and 84 %.
+      - **All 26 ring rows,** the share of StarXTerminator's take at 8 to 22 px, red, R4d / R4h / R4i. Antares:
+        2026-04-21 47 / 50 / 79, 2024-05-28 78 / 78 / 89, 2023-05-15 84 / 87 / 67. sigma Sco: 85 / 88 / 89 and 91 /
+        92 / 94. The Pleiads of 2022-01-05: Taygeta 94 / 90 / 90, Asterope 96 / 96 / 97, 22 Tau 96 / 97 / 97, Maia
+        55 / 44 / 30, Merope 74 / 50 / 16, Alcyone 17 / 0 / 0, Electra 76 / 30 / 13, Atlas 78 / 50 / 41. Those of
+        2022-01-04: Taygeta 98 / 95 / 96, Asterope 98 / 98 / 98, 22 Tau 99 / 98 / 99, Maia 97 / 81 / 71, Merope 98 /
+        91 / 87, Alcyone 82 / 31 / 13, Electra 95 / 72 / 71, Atlas 98 / 91 / 91. Alnitak 97 / 96 / 92, iota Ori 95
+        / 94 / 97, lambda Cen 96 / 96 / 95, the star south of Merope 97 / 101 / 105 and 94 / 99 / 102. So the depth
+        helps Antares on two of three nights and costs most of the five bright Pleiads on both.
+      - **The faint stars on bright nebula** (the row with its magnitude check, "Faint stars on bright nebula"
+        below): on the Lagoon R4h leaves 34.5 % of 84 and R4i 33.3 % (R4d 34.5, StarXTerminator 15.5). Planted stars
+        of 20 to 150 sky sigma, left on bright nebula and on dark sky: R4h 67.8 % and 6.8 %, R4i 73.7 % and 6.8 %
+        (R4d 68.8 and 6.8, StarXTerminator 42.4 and 0.5). The black point does not move either.
+      - **As trained,** R4h / R4i: Andromeda's dark flat 60.4 / 76.3 with 24.7 / 14.7 % dug; the Tarantula's 79.3
+        / 86.0 with 15.1 / 11.2 % left; its crowded flat 88.0 / 87.8; Gaia BP 17-19 96.3 / 96.4; the M31 nucleus
+        taken in its worst channel 5.2 / 3.2 %; broad light taken on Andromeda 2.83 / 2.93 and on the Tarantula
+        5.06 / 10.05. The depth digs less on dark sky and leaves less, and pays for it on the nebula.
+    - **What a frame whose noise is no longer its own does (#2341), for R4i, deciding nothing**
+      (`smoothed_black_point.py`, which mirrors `Image.TryEstimateSkyNoise`; the three scoring masters smoothed by a
+      Gaussian of 1.5 px, their canvas ring kept). Smoothed, the sky noise the product reads falls to 0.21 to 0.28
+      of the master's on Andromeda, 0.16 to 0.23 on the Tarantula and 0.12 on the Sagittarius master, so a black
+      point 40 of those sigma under the median lies 8.5 to 11.3, 6.6 to 9.0 and 4.7 of the MASTER's sigma under it.
+      Covered pixels under that black point, R / G / B:
+
+      | master | smoothed | the master itself |
+      |---|---|---|
+      | Andromeda | **5.2 / 12.5 / 1.9 %**, 92 to 98 % of them in patches of 50 px or more (231 to 327 patches a channel) | 8, 2 and 7 px |
+      | Tarantula | 0 / 0.000 (5 px) / 0.011 % | none |
+      | Sagittarius (one plane) | 0.019 %, a quarter of it in 7 patches | 1 px |
+
+      So the hazard is a frame's, not the rule's everywhere: on Andromeda the median stands on the galaxy's light and
+      the plain sky of the corners lies under a black point that close, on the other two it does not. The smoothed
+      copy is a Gaussian's, not a denoiser's: it cuts the noise 3.5 to 8.5 times, about the 5 to 10 times #2341
+      names for a denoised frame, and it widens every star by 1.5 px, which a denoiser does not. Andromeda, the one
+      master that shows the hazard, is cut only 3.5 to 4.7 times (under #2341's 5) and its black points sit 8.5 to
+      11.3 master sigma under the median where #2341 reasons 4 to 8. Inside that band are Sagittarius (4.7) and the
+      Tarantula's blue channel (6.6; its red and green read 8.6 and 9.0), neither of which shows the hazard: so the
+      smoothed Andromeda is a milder case than #2341's hypothesis, the hazard may be larger on a real denoiser, and
+      a black point that deep is not enough to bring it about where the median does not stand on bright light.
+      **All three smoothed masters went through R4i as trained**, and the three nebula guards were read on each
+      (`nebula_rows.py`, plate against its smoothed input, in the smoothed frame's own noise, so the nebula region is
+      another, 83 / 39 / 25 % of the frame, and no figure is a match for the table's or its bars):
+
+      | smoothed master | light added on the nebula | on the whole frame | broad light taken | peaks standing, all / the brightest tenth |
+      |---|---|---|---|---|
+      | Andromeda | 0.11 % | **10.12 %** | 9.97 | 9.7 / 0.6 % |
+      | Tarantula | 0.00 % | 0.00 % | 7.20 | 23.5 / 2.6 % |
+      | Sagittarius | 0.00 % | 0.00 % | 5.36 | 13.5 / 6.0 % |
+
+      On Andromeda R4i hands the clipped sky back at the black point: its plate stands over its input on a tenth of
+      the frame, in green by more than one master sigma on 9.3 % of the frame and by 3.3 master sigma at the median
+      of those pixels. On the other two it adds nothing. **Five sheets were looked at** (`smooth_sheet.py`, four
+      panels on one stretch: the master, R4i's plate of it, the smoothed copy, R4i's plate of that; files
+      `r4i-smoothed-*.png`): a dark corner of Andromeda (x 300, y 2591) comes back flat, 5.6 crop sigma over the
+      master's level and grey-green where the sky is blue, with the stars left as dim discs; the other four crops
+      (30 Doradus's core, the Tarantula's knots at x 705, y 1585, the Lagoon's core, a Sagittarius star field at
+      x 600, y 600) keep their level, each crop's median within one sigma of the master's (the plates of the
+      master read -1.3 on the core, then -0.7, -0.2 and -0.2, so the core's own plate is not within one). The
+      sheets' sigma is the crop's own difference noise, not the master's sky noise: the two agree within 15 % on the
+      Andromeda and Sagittarius crops, and on the two Tarantula crops the crop's is 0.8 to 2.6 times the master's by
+      channel, a looser test there. The three star fields are left with a mottle of dim stars, and 30 Doradus's
+      core is left bright where the plate of the master has the magenta wash. The stars left and the core kept are the
+      smoothing's doing as far as this can tell (the model was shown no star that wide and no frame that quiet), and
+      say nothing of the black point; the flat corner is the black point's. The guard #2341 asks for is needed
+      before any model with a depth ships; R4i is not that model.
+    - **What it says.** (1) **Training the black point in does not do what #2309 hoped.** The two Pleiades nights
+      still stand 71 points apart, the bright Pleiads are left more than before, and the model takes the Tarantula's
+      knots and 30 Doradus's core, the same failure the depth showed at inference on 2026-11-21. With that read
+      (no depth holds both the knots and the stars' inner rings) the black point by sky noise is tried in both
+      ways and closed. What #2309 found stays true and unsolved: one pixel a channel sets the stretch, and R4h's two
+      nights stand 47 points apart. (2) **R4h is the baseline every later arm is read against**: the fixed
+      exporter, R4d's rows through the chain, and the nebula rows no worse. (3) **The bright Pleiads are left
+      standing by R4g, R4h and R4i, more than by R4d,** and one seed of each cannot say why; an arm that needs
+      those rows needs a second seed of its parent first.
+    - **Nothing is adopted.**
 - **The scorecard's blind side, found by the owner's eye (2026-11-19, #2245).** Asked for renders after weeks of
   rows alone, the owner pointed out within minutes, on the Lagoon, 30 Doradus and M31: flat blotches with floor3
   (#2243; their cause and floor4 are under "The dig floor inside bright nebula" below), bright stars back inside a core with core protection (#2242), faint residue stars as trained, and, once
@@ -9153,6 +9570,362 @@ Files (DE1): R3y's Q1 export is made by `training/star-removal/flank-q1-export.p
 `check3-floor2-twin.txt`, `check3-floor2-arms.txt`, the sheets `r3v-floor-m42.png` and `saturated-stars.png`); the outputs are
 `f2-eval-master/<model>+floor`, `+fill`, `+floor2`, `+floor3` and `f2-whole-master/w-r3v_synth22_s0+floor`, `+fill`, `+floor2`, `+floor3`;
 floor3's reads are `check3-floor3-real.txt`, `check3-floor3-twin.txt`, `check3-floor3-r3s.txt` and the sheets `saturated-smc-m42.png` and `caps.png`.
+
+#### What the crowded grain is, faint stars left on bright nebula, and the owner's word (2026-11-22)
+
+The afternoon's findings and decisions, here so that they are not only in a session's notes. Nothing below is an arm:
+nothing is registered, exported or scored for it.
+
+- **The owner's decisions.**
+  - **R4h beside R4i** (14:15, "you can launch beside"): R4h's Batch job runs beside R4i's, two low-priority T4 pools at
+    once, as "Training alike" in R4h's and R4i's registration above has it. Its cache upload was held to 5 Mb/s from
+    15:45 at the owner's ask, which moves its launch by some hours, and at 16:50: "continue with upload and azure
+    train as planned". The 1070 stays idle until there is new work for it.
+  - **"2. yes"**: write up and pre-register the input-grain arm (input from the stored plates, target from the
+    grain-rule plates outside bright nebula), the check first. The check, below, argues for a different target.
+  - **"3. yes"**: the plate builder's residue on bright subtracted stars (black pits and leftover cores) is fixed
+    together with #2378 (the tile clip), then the plates are rebuilt once with the build's commit recorded beside them.
+    Done on 2026-11-23: "The store rebuilt with the dug-core refill" under R0.
+  - **The glow guard of 2026-10-20, reframed** (about 15:00): "can we re-screen the starlight [of] the milkyway
+    without blowing up the stars". The test, what it found and the hold of the starless at or under its input are
+    #2433 (PR #2435); there, at 16:00, the owner chose to hold by default with a switch that keeps the remover's own
+    plate for the scorers (`--keep-overshoot`).
+- **The input-grain check, part one: a synthetic target cannot tell faint nebula from the mottle.** R4d's line trains
+  on synthetic backgrounds (`--background synthetic`): seeded random shapes scaled per scale to the plate's strength.
+  One seed over the stored plate and over the grain-rule plate draws the same shapes (fine-part correlation 0.74 to
+  0.98 on four Tarantula cells; `dataset synthetic-background --seed 7 --no-noise --no-knots --steer 0.5,2,0.8,1`),
+  so an input from one and a target from the other can be built, and what differs between them is the grain: band 2.6
+  to 3.8 in the crowded cells. But the difference is largest on faint nebula (cell 4,4 of the Tarantula session of
+  2024-10-02, where the judge keeps structure: 3.8), it is 18 % of the texture on 30 Doradus's core, and no mask taken
+  from the image separates faint nebula from the mottle: the large-scale level is 10.2, 11.0 and 12.9 sigma in cells
+  1,1, 5,4 and 4,4, so a 20 sigma mask holds none of them out, and the orientation coherence is 0.19 in both 4,4 and
+  5,4 against 0.25 for random blobs. Such a target would teach the model to wash out faint nebula.
+- **Part two: where the difference is grain, it follows the faint stars Gaia has and the finder misses**
+  (`grain_gaia.py`, `grain_gaia_whole.py`, also on #2203). Gaia DR3 to BP 21 against each grain map (9 px box mean
+  less 41 px, channels' mean). Each Gaia star the finder did not detect (no detection within 2 px) is drawn as a
+  Gaussian of 1.2 px at 10^(-0.4 BP) through the same box means; the null is the same stars shifted by 37 px. On the
+  Tarantula session of 2024-10-02 the plate finder's limit is BP 18.6 to 18.7 (the median BP of its 5 to 7 sigma
+  detections), and each cell holds 18,000 to 21,000 Gaia stars it did not find, 2,300 to 2,500 of them brighter than
+  that limit.
+
+  | cell | ours less StarXTerminator, against the undetected BP 18 to 21 [null] | the stored plate's own grain | the master (control), against the DETECTED stars |
+  |---|---|---|---|
+  | 1,1 | +0.60 [+0.02] | +0.49 | +0.88 |
+  | 5,4 | +0.36 [+0.03] | +0.39 | +0.79 |
+  | 4,4 | -0.11 [+0.03] | +0.29 | +0.93 |
+
+  On the held-out Tarantula master, all 64 full 300 px cells, by crowding (Gaia stars to BP 21 per cell) and level
+  (the cell's median over the sky, in sky sigma):
+
+  | cells | median correlation [null] | cells over 0.3 | grain rms, sky sigma | cells |
+  |---|---|---|---|---|
+  | least crowded third, level under 5 | +0.55 [0.00] | 90 % | 0.16 | 21 |
+  | middle third, level under 5 | +0.41 [0.00] | 79 % | 0.25 | 14 |
+  | middle third, level 5 to 20 | +0.01 [-0.01] | 0 % | 1.84 | 8 |
+  | most crowded third, level under 5 | +0.39 [+0.06] | one cell | 0.29 | 1 |
+  | most crowded third, level 5 to 20 | +0.32 [0.00] | 50 % | 0.52 | 20 |
+
+  Where the difference between ours and the judge is fine grain (rms 0.2 to 0.5 sky sigma), it follows the light of
+  catalogued stars the finder misses, BP 18 to 21. Where it is large (faint nebula, rms 1.8, and the session's cell
+  4,4) it does not: that difference is nebula. The stored plates hold the same faint stars (0.29 to 0.49), so targets
+  built from them teach the model to keep them. A correlation of 0.3 to 0.6 is a share of the grain, not all of it:
+  positions are good to about a pixel, every star is drawn with one width, and BP is noisy at 20 to 21. **What it
+  points to, the owner's call:** a truth plate that also subtracts the Gaia stars the finder misses, at their
+  catalogue positions, instead of a grain rule. First measure such a forced subtraction on these cells (how much of
+  the grain it takes, what it does to the nebula), then register an arm on it. The rebuilt plates need disk: the
+  caches of closed arms on the training machine are being LZX-compressed for it (nothing deleted).
+- **Faint stars on bright nebula: ours leaves a small remnant where StarXTerminator's plate is clean**
+  (`nebula_faint_stars.py`, on the held-out Sagittarius master, whose bright nebula is the Lagoon's core). The owner:
+  "'+' stars in lets say lagoon, that are barely brighter than the nebulosity, somehow SXT seems to be able to deal
+  with them but we struggle. my theory is that the bright background signal manages to get these stars visible that
+  would otherwise be drowned in noise". Catalogued stars (`tianwen solve --export-gaia`) with no brighter one within
+  6 px; bright nebula is a 32 px block 20 sky sigma or more over the sky (79 blocks); a star's light is its 2 px disc
+  over the annulus 5 to 9 px out.
+
+  | Gaia BP | where | share taken, SXT / ours | ours over SXT at the star by more than 3 sky sigma |
+  |---|---|---|---|
+  | 14 to 15 | dark sky (17,863 stars) | 1.18 / 1.03 | (read on the nebula only; on dark sky a bump over 3 sigma is left at 0 % / 1 %) |
+  | 14 to 15 | bright nebula (92) | 0.65 / 0.48 | 14 % (random spots of the nebula: 1.2 %) |
+  | 10 to 14 | bright nebula (152) | | 15 % (and darker by over 3 on 31 %) |
+  | 15 to 17 | bright nebula (140) | 0.02 to 0.05 for both | 2 to 3 % |
+
+  **How "share taken" is defined here, and how it differs from the row's.** `nebula_faint_stars.py` counts the master
+  less the plate over the star's disc with NO correction, so a broad level the plate takes counts as the star: dark sky
+  reads 1.18 / 1.03, over 1, for that reason. The row below (`nebula_stars_row.py`) subtracts the stars layer's own
+  annulus median, on purpose, so a broad level taken does not count. Tables 1 and 3 therefore INCLUDE broad light taken
+  and are not comparable with the row's baseline table (the headline "SXT 0.63, ours 0.19 to 0.30" is on this measure;
+  the row's figures for the Lagoon are 0.50 and 0.11 on stars of 20 to 150 sky sigma, and 0.31 to 0.32 for R4d through
+  the chain at BP 13.5 to 15.5). They are not recomputed with the row's definition: the row's baseline is the figure
+  to quote. "Ours" in tables 1 and 3 and in the headline is R4d (seed 0) through the product's chain (cores
+  protected, floor5), its whole-master plate of the Sagittarius master, beside the judge's plate of the same master.
+
+  At equal light as the model sees it (the export's stretch: the stretched disc light in the stretched sky noise),
+  StarXTerminator takes 0.63 of a star on the bright nebula at 32 to 128 and ours 0.19 to 0.30; on dark sky both take
+  all of it. The remnant is real and it is the nebula under the star that does it. The owner's theory is not what the
+  numbers say: on the bright nebula the pixel noise is 2.9 times the sky's (its shot noise), so a star there stands out
+  less in the data, and the export's stretch is nearly linear across it (the sky at 0.250, the bright nebula at
+  0.262), so the stretch neither hides nor lifts it. A guess, unverified: training rarely shows a star on bright
+  nebula (0.5 % of the training pixels are bright background, #2245) and the synthetic backgrounds are smooth, so a
+  small peak on textured nebula reads as texture. Two ways on: a scorer row and an arm with more stars on bright
+  nebula. The 1:1 sheet of the worst cases was sent to the owner; the Hourglass, which the chain protects as a core on
+  purpose, is left out of it.
+- **The row, the owner's word "score now" (2026-11-22, `nebula_stars_row.py`, run by `score_whole.py` on every score
+  and carried in the row).** Catalogued stars (BP, no brighter one within 6 px) whose light in a 2 px disc over the
+  annulus 5 to 9 px out is 20 to 150 sky sigma: faint in the data's terms, so the same stars on every master, where a
+  band of magnitude is not. On bright nebula (a 32 px block 20 sky sigma or more over the sky) and, as the control,
+  on dark sky (under 5): the median share of each star's light the plate took (the stars layer's disc less its own
+  annulus median, over the master's, so neither a broad level taken nor the nebula's structure counts) and the share
+  of stars it took under half of ("left"). The config names each master's Gaia CSV (`"gaia"`,
+  `scorecard.example.json`). Baseline, the plates already scored:
+
+  | master | stars on bright nebula | StarXTerminator: taken, left | R4d as trained: taken, left | dark sky (control): taken, left, SXT / R4d |
+  |---|---|---|---|---|
+  | Sagittarius (the Lagoon) | 180 | 0.50, 50.6 % | 0.11, 62.8 % | 1.06 / 1.00, 0.3 % / 4.3 % |
+  | Tarantula | 26 | 1.09, 0.0 % | 1.10, 0.0 % | 1.03 / 0.97, 0.0 % / 0.0 % |
+  | Andromeda (the galaxy's disc) | 2,037 | 1.03, 10.8 % | 1.01, 12.1 % | 1.00 / 0.97, 4.6 % / 6.5 % |
+
+  The gap is the Lagoon's, the one master of the three with bright emission nebula; on the Tarantula's few bright
+  nebula stars and on M31's disc ours is level with the judge. R4d through the product's chain (cores protected,
+  floor5) reads like R4d as trained on these stars (by BP 13.5 to 15.5 on the Lagoon: taken 0.32 against 0.31). The
+  row is reported, no bar: R4h's and R4i's registrations predate it and do not judge on it. **Superseded on
+  2026-11-23:** half of the Lagoon's 180 are no stars, and the median is no figure to quote; the row's baseline is
+  the table of the section below.
+
+#### Faint stars on bright nebula: the row corrected, the planted-star test, and R4j (2026-11-23)
+
+**Issue:** #2484 (ours leaves faint stars on bright nebula that StarXTerminator takes: the subject here). The
+scorecard's side of it is #2245.
+
+The owner, 2026-11-23, asked whether an arm can now aim at the faint stars on bright nebula. Three checks came first,
+none of them a training run. They corrected the row of 2026-11-22, gave a better instrument, and measured where the
+weakness is. All of it is on the held-out Sagittarius master (one plane; its bright nebula is the Lagoon's), ours as
+trained, every remover run on `bh-bin12` (the build R4h's and R4i's plates are made with), with no core protection and
+no dig fill. The figures below were made there before the clamp of #2433 existed, so they are unclamped plates; a rerun
+on a build that has `--keep-overshoot` (main since #2435) needs that third flag to reproduce them. Working files are in `C:/temp/e2/explore` and `D:/temp/tianwen-scratch/plant-neb2` on the development machine,
+the sheets in `D:/temp/tianwen-scratch/r4-look`.
+
+- **The row of 2026-11-22 counted nebula bumps as stars, and its median is no figure.**
+  - **The median flips with the seed.** Over the plates already scored (twenty-one of ours, `nebula_stars_row.py` as
+    it was) the median share taken on the Lagoon reads 0.05 to 0.53, and for two seeds of one recipe 0.10 against 0.53
+    (R3s) and 0.12 against 0.39 (R3v). A star is taken whole or not at all: of StarXTerminator's 180, 77 are taken by
+    under a tenth and 59 by over nine tenths (R4d: 89 and 50), so the median jumps where the share left passes one
+    half. "Left" (under half taken) is the figure: 48.3 to 70.0 % for ours over those plates, StarXTerminator 50.6 %.
+  - **Half of the 180 are no stars.** The catalogue lists 131,859 stars on this frame, about one every 8 px, most of
+    them far under the noise, and on bright nebula a bump of the nebula or of its noise at such a place reads as 20
+    sky sigma of "light". The master's own dark-sky stars tie light to magnitude (light = 10^(-0.4 (BP - 18.54)) sky
+    sigma, a scatter of 0.17 mag over 30,459 stars), and 96 of the 180 hold over twice or under half the light their
+    magnitude gives. A remover is right to leave a bump of the nebula.
+    The row now keeps a star only when its measured light is within a factor 2 of what its magnitude gives on
+    that master (`--match 2`, the default; `--match 0` is the row as it read on 2026-11-22 and gives R4d's old line to
+    the digit; `test_nebula_stars_row.py`). Stars left, as trained:
+
+    | master | stars on bright nebula, of the row before | StarXTerminator | R4d | dark sky (control), SXT / R4d |
+    |---|---|---|---|---|
+    | Sagittarius (the Lagoon) | 84 of 180 | 15.5 % | 34.5 % | 0.2 % / 4.0 % of 30,215 |
+    | Tarantula | 15 of 26 | 0.0 % | 0.0 % | 0.0 % / 0.0 % of 7,345 |
+    | Andromeda (the galaxy's disc) | 1,786 of 2,037 | 5.3 % | 5.8 % | 4.1 % / 6.0 % of 6,264 |
+
+    The gap is still the Lagoon's, and it is 16 stars (13 against 29 of 84). The rows "faint stars left on bright
+    background" in R4g's and in R4h's and R4i's registrations are another instrument (`audit.py real`: peaks of the
+    input less StarXTerminator's image, no catalogue in it) and are not touched by this.
+- **The planted-star test** (`plant_stars.py`, `plant_read.py`). Sixteen stars cannot carry a bar, and a real star's
+  light is known only as measured. So the same star is added twice to the master: once on bright nebula (a 32 px
+  block 20 sky sigma or more over the sky, the row's rule) and once on dark sky (under 5), each spot with no
+  catalogued star brighter than BP 17.5 within 8 px and no other plant within 14 px. What a remover took of a plant is
+  the planted light less the change of its plate (its plate of the planted master less its plate of the master), so
+  the field's own stars and the nebula cancel. Three seeds of spots, 280 stars planted twice, 7 to 150 sky sigma,
+  drawn evenly in log light; 205 of them are of 20 to 150, the row's band.
+  - **What is planted.** `--stamp layer`, the one the figures below are of: a real dark-sky star's own light without
+    its noise, cut from StarXTerminator's star layer (master less its plate) where it took the star whole (0.9 to 1.1
+    of its light; 287 such donors), added at whole pixels. Two others at the same spots check it: `psf`, the master's
+    mean star (197 bright dark-sky stars stacked) at a random sub-pixel place, and `donor`, a real star's patch of the
+    master with its noise (the spot then holds the noise twice inside 7.5 px).
+  - **StarXTerminator and R4d, the share of plants left** (under half taken):
+
+    | light planted, sky sigma | bright nebula: SXT / R4d | dark sky: SXT / R4d |
+    |---|---|---|
+    | 7 to 20 (75 stars) | 89.3 % / 94.7 % | 18.7 % / 62.7 % |
+    | 20 to 50 (111) | 66.7 % / 88.3 % | 0.9 % / 12.6 % |
+    | 50 to 150 (94) | 13.8 % / 45.7 % | 0.0 % / 0.0 % |
+
+    The other two stamps read the same on bright nebula: at 20 to 50, `psf` 64.0 / 83.7 and `donor` 63.6 / 83.0; at
+    50 to 150, 10.6 / 48.9 and 12.8 / 45.7.
+  - **It is the nebula, and more than its noise.** The nebula's pixel noise at the spots is 2.8 to 2.9 times the
+    sky's (the median spot of each seed), so a star of one light stands that much lower there. Binned by the light in
+    the spot's OWN noise the two backgrounds should then read alike, and for ours they do not:
+
+    | light in the spot's own noise | bright nebula: SXT / R4d | dark sky: SXT / R4d |
+    |---|---|---|
+    | 7 to 20 | 60.0 % / 92.7 % of 110 | 21.1 % / 69.0 % of 71 |
+    | 20 to 50 | 7.7 % / 38.5 % of 65 | 0.0 % / 10.2 % of 108 |
+    | 50 to 150 | 0.0 % / 0.0 % of 16 | 0.0 % / 0.0 % of 94 |
+
+    And it grows with the nebula's level under the plant (plants of 20 to 150 sky sigma): at 20 to 40 sky sigma
+    StarXTerminator leaves 34.9 % and R4d 49.4 % (of 83), at 40 to 80 48.0 % and 76.0 % (of 75), at 80 and over 46.8 %
+    and 91.5 % (of 47). The owner's theory of 2026-11-22 ("the bright background signal manages to get these stars
+    visible that would otherwise be drowned in noise") has it the other way round: the nebula's noise drowns them,
+    and ours loses more on top.
+  - **A plant reads as a real star does on dark sky.** A real star is picked by its light as measured, a plant by
+    its light as planted, so the plants are binned by the light as it APPEARS on the planted master for this: of the
+    200 dark plants that appear at 20 to 150 sky sigma R4d leaves 5.0 % and StarXTerminator none, and the corrected
+    row's dark-sky control reads 4.0 % and 0.2 % of 30,215 real stars.
+  - **Every model of ours, plants of 20 to 150 sky sigma** (205 on each background; the two columns after them are
+    the bands 20 to 50 and 50 to 150, the last the nebula's level 20 to 40, 40 to 80, 80 and over):
+
+    | model, as trained | left on bright nebula | left on dark sky | bright, by light | dark, by light | bright, by the nebula's level |
+    |---|---|---|---|---|---|
+    | StarXTerminator | 42.4 | 0.5 | 66.7 / 13.8 | 0.9 / 0.0 | 34.9 / 48.0 / 46.8 |
+    | R3s seed 1 | 46.8 | 7.3 | 69.4 / 20.2 | 13.5 / 0.0 | 39.8 / 44.0 / 63.8 |
+    | R3v seed 1 | 47.8 | 8.3 | 75.7 / 14.9 | 15.3 / 0.0 | 50.6 / 44.0 / 48.9 |
+    | R3z | 61.0 | 7.8 | 83.8 / 34.0 | 13.5 / 1.1 | 51.8 / 65.3 / 70.2 |
+    | R4e | 61.0 | 6.3 | 86.5 / 30.9 | 10.8 / 1.1 | 55.4 / 65.3 / 63.8 |
+    | R3v seed 0 | 62.0 | 6.8 | 85.6 / 34.0 | 12.6 / 0.0 | 51.8 / 57.3 / 87.2 |
+    | R4a seed 1 | 64.4 | 10.7 | 89.2 / 35.1 | 18.9 / 1.1 | 54.2 / 66.7 / 78.7 |
+    | R4f seed 1 | 65.4 | 6.3 | 87.4 / 39.4 | 11.7 / 0.0 | 50.6 / 65.3 / 91.5 |
+    | R3s seed 0 | 66.8 | 7.8 | 88.3 / 41.5 | 14.4 / 0.0 | 51.8 / 69.3 / 89.4 |
+    | R4c | 68.8 | 6.3 | 91.9 / 41.5 | 11.7 / 0.0 | 55.4 / 72.0 / 87.2 |
+    | R4d | 68.8 | 6.8 | 88.3 / 45.7 | 12.6 / 0.0 | 49.4 / 76.0 / 91.5 |
+    | R4b | 69.8 | 8.8 | 91.0 / 44.7 | 16.2 / 0.0 | 54.2 / 74.7 / 89.4 |
+    | R4i (last step) | 73.7 | 6.8 | 93.7 / 50.0 | 12.6 / 0.0 | 59.0 / 78.7 / 91.5 |
+    | R4a seed 0 | 74.6 | 7.3 | 91.9 / 54.3 | 13.5 / 0.0 | 54.2 / 85.3 / 93.6 |
+    | R4g | 74.6 | 7.8 | 92.8 / 53.2 | 14.4 / 0.0 | 57.8 / 81.3 / 93.6 |
+
+  - **What the table says.** (1) Every one of the fourteen leaves more than StarXTerminator on bright nebula, and
+    twelve of them 61.0 % or over. (2) **Seeds of one recipe stand 10 to 20 points apart** (R4a 74.6 and 64.4, R3v
+    62.0 and 47.8, R3s 66.8 and 46.8), as far as the recipes do, so one run cannot carry a bar here. (3) No change of
+    the last weeks moved it: the stars under the catalogue (R4c, R4d), the noise's level (R4e), the grain-free targets
+    (R4f), the black point (R4i) read 61.0 to 73.7, and R4g, the one arm with real nebula in its targets, reads
+    highest with R4a's seed 0. (4) On dark sky ours leaves 6.3 to 10.7 % where StarXTerminator leaves 0.5 %, nearly
+    all of it at 20 to 50 sky sigma: a smaller gap of the same kind.
+  - **What it does not say.** One master, one object, one plane; the spots are emptier than a star's usual place;
+    the stamps are real shapes at whole pixels. A plant is a way to count, and the renders are the check on it.
+  - **The renders** (`lagoon-sxt-ours-level.png`, `lagoon-sxt-ours-close.png`, `lagoon-sxt-ours-kept.png`; input,
+    StarXTerminator and R4d on the input's stretch, the catalogued stars marked by what each remover did). In the 140
+    px crop of the close sheet six points of light stand in R4d's plate that StarXTerminator took (4 or more times the
+    local noise of a disc sum); five are stars of 21 to 107 sky sigma in the input, and what R4d keeps of them stands
+    4 to 6 times over that noise. The owner, on that sheet: "yeah these are 3 stars, so are these: and there's
+    probably a handful of others", and "they are super faint though".
+- **StarXTerminator's smooth plate of the Tarantula's crowded field makes nothing up** (`judge_floor_check.py`; the
+  owner: "do you think SXT is making up nebulosity here? it feels awfully smooth"). The 400 px crop of the sheet of
+  2026-11-20 (x 400, y 504, green), in the master's sky noise, beside R4d through the chain:
+  - It never adds light: no pixel of its plate stands over the input by more than one sky noise (ours: 1.3 % of the
+    crop). It lowers every pixel of the crop by more than that (ours: 66 %).
+  - Its structure of 8 to 60 px is the data's: it follows the input's own lower envelope (a running 15th percentile,
+    no network in it) at a correlation of 0.81 (ours 0.76), and outside the bright knots it follows ours at 0.78 and
+    is weaker than ours (0.89 against 1.30 sky noise, the envelope 1.22).
+  - It sits under the darkest tenth of the input (14.2 sky noise over the frame's sky; the input's 10th percentile
+    15.8, its median 22.2; ours 19.3) and holds the pixel noise of empty sky (0.97; ours 1.66; the input 3.02). So it
+    takes the carpet of unresolved stars off every pixel and leaves no grain, which is why it looks smooth.
+  - There is no independent truth under a field this dense: "follows the envelope" says consistent with the data, and
+    whether the fine noise it leaves is the data's or its fill this cannot tell. It is the crowded rows' gap again:
+    the level it takes is a choice (the owner's rule of 2026-10-23 keeps the unresolved glow), the grain ours keeps
+    is the defect.
+- **The owner's word, 2026-11-23:** "everything else being equal, the faint stars is not the top prority, but we
+  should still see if we can improve it, we should give us a few more runs to evaluate if something can be done
+  here". So a few arms may aim at it. Each is registered first, and R4h's and R4i's registered read comes before any
+  of them is scored.
+- **The loss mask an arm on real nebula needs** (`tianwen dataset plate-masks --rule drawn-stars`,
+  `StarRemovalMasks.Rule.DrawnStars`, with this section's PR). R4g drew stars on the stored plate over bright nebula
+  and counted the whole tile but the sky near the sources the plate's finder lists; it learnt to keep stars, because
+  a plate over bright nebula holds faint stars no finder lists. The new rule is the other way round: a pixel counts
+  where a drawn star's light (the draw less the plate) stands over a quarter of the pixel's noise within three PSF
+  widths of the star's centre, and within one PSF width of such a pixel, so a hole dug round the star costs as the
+  star left does; everything else is 0, and a far halo is left to the draws on a synthetic background. An export
+  takes one rule while it holds masks: the first run records it (`plate-masks.rule`) and the other is refused, since
+  a draw that has its mask is skipped; with every mask deleted it takes either.
+  **Checked on real draws before this registration** (two sessions of R4g's export, the Lagoon and
+  Trifid of 2023-08-09 and eta Carinae of 2025-01-31, 344 draws, from this branch's Release build): 62,180 drawn
+  stars, 12.1 % of the pixels inside the rim counted (a draw's median 11.3 %, 6.5 to 19.2 % from its 10th to its 90th
+  percentile, 170 stars a draw at the median; D4's rule left out 7.1 % on R4g's own check). Looked at on three draws
+  (`r4j-preflight-masks.png`: the draw, its target, what was drawn, the mask): the discs sit on the drawn stars, and
+  the many stars the eta Carinae plate cells still hold lie outside them.
+- **R4j, pre-registered 2026-11-23 before any mask, cache or score of it. One change from R4h: bright nebula cells
+  join the draw, drawn on the stored plate, and their loss counts only the drawn stars.**
+  - **The data.** R4h's cache (`r2-synth32`) and, as the extra cache, `bright2`: the draws of R4g's export `bright1`
+    as they stand (its cell list, its export line, `bh-bin11`; a re-export of them on 2026-11-23 gave the stored
+    bytes) LESS the Lagoon's three session ids (the Lagoon and Trifid of 2023-08-09, 18 cells, and the Lagoon of
+    2025-05-25 under its two ids, 3 cells each), so that the object the question is read on is in no plate cell.
+    That leaves 102 cells of 8 draws: 96 training cells (85 of eta Carinae, 11 of Orion) and the 6 held out.
+    `--faint-stars` is not in it, as for R4g: the exporter takes it on a synthetic background only, so the stars
+    drawn on a plate are the catalogue's own, and over a nebula three times as noisy as the sky many of those are
+    faint enough. The masks are written by `plate-masks --rule drawn-stars` from a build of main once this section's
+    PR is on it, and the cache `r2-bright2` is prepared with the trainer's lists and `--prepare-keep`.
+  - **The training.** R4h's recipe, cache, frozen trainer copy and command line exactly, with `--extra-cache
+    r2-bright2 --extra-loss-mask --schedule-on main` added, seeds 0 and 1, each a Batch job that removes itself, the
+    two beside each other as R4h ran beside R4i (the trainer copy is put right under "Before the launch" below:
+    R4h's copy has no such switch). Models `r4j_synth32b2_s0` and `r4j_synth32b2_s1`. The bright cells
+    are 768 of 18,848 input tiles, 4.1 % of the draw. The masked loss is a mean over a batch's counted pixels, so a
+    bright row weighs by the ninth of its pixels its mask counts, all of them on drawn stars: by counted pixels the
+    bright rows are about half a percent of what the batches average over. How that weighs against the main rows'
+    own stars (most of a main row's pixels are sky the model returns unchanged) was not measured; if the arm shows
+    part of a gain, the dose is the first thing to raise. The plateau halves and stops on synth32's held-out part
+    alone, as R4h's does.
+  - **Read first:** the 1:1 sheets (below), then the training by the stall rule of R4h's and R4i's registration.
+  - **The question, on the models as trained:** of the 205 plants of 20 to 150 sky sigma on the Lagoon's bright
+    nebula (`plant_stars.py --stamp layer` on the Sagittarius master with StarXTerminator's plate, seeds 1, 2 and 3;
+    `plant_read.py`), **at most 45.0 % left on both training seeds** (the 45.0 %, StarXTerminator's 42.4 and our fourteen, 46.8 to 74.6, twelve
+    of them 61.0 or over, are unclamped plates made on `bh-bin12`; the R4j read is made on a build with `--keep-overshoot`,
+    main since #2435, with `--no-protect-cores --no-fill-digs --keep-overshoot`, which holds the plates over their input
+    as `bh-bin12` left them; the two builds' R4h plates were compared and are identical, see "Before the launch" below). R4h's own figure, the parent's, is taken when R4h is scored and written here before any
+    score of R4j exists; if R4h alone reads 45.0 or under, the bar cannot show the mask's doing and the read says so.
+  - **Guards, on each seed:** R4h's and R4i's, on the same terms (every row of the 40 sigma read's table at its bar,
+    as trained or through the chain as that table reads it; a row R4h misses too is the exporter's, and R4j is then
+    held to R4h's value and the bar's allowance): the Tarantula's crowded flat at least 90.3 and Sagittarius's 96.3;
+    Andromeda's dark flat at least 95 with at most 3 % dug; the Tarantula's dark flat at least 91; the glow's green
+    median within 450 on Andromeda and 500 on the Tarantula; M31's nucleus taken under 10 %; purity at most 1.0; the
+    light taken from the Tarantula field at most 83 and 84 %; Gaia BP 17-19 with the level set aside at least 89.7;
+    light added on each master's nebula at most 1.0 %; the brightest tenth of the Tarantula's peaks standing on at
+    least 11 of 77; faint stars left on the Lagoon's core at most 37 % and on 30 Doradus at most 27 %; the Lagoon's
+    broad light taken at most 2.67. And one for this arm: of the 205 plants on dark sky at most 12.0 % left (ours
+    6.3 to 10.7). The peaks row is the one to watch: a model taught to take compact light on bright nebula may take
+    a knot.
+  - **Kill:** a guard fails on a seed that trained as the others, or both seeds leave 60.0 % or over of the bright
+    plants (no better than twelve of the fourteen). **Cleared:** the question with every guard held on both seeds.
+    Anything else is neither, and the rows go to the owner. A stalled seed is neither killed nor cleared.
+  - **Reported, no bar:** R4h's planted row beside each seed's; the plant read's tables by light, by the spot's own
+    noise and by the nebula's level, and the `psf` and `donor` stamps; the corrected row on the three masters; the
+    extra cache's held-out objective beside its training objective at the best step (96 targets can be learnt by
+    heart); the best step's weights; the 26 bright-star rows; the Lagoon's standing peaks (18).
+  - **Looked at before the rows are quoted:** the three Lagoon crops above with both seeds, R4h and StarXTerminator;
+    a sheet of planted spots at 1:1 (planted master, each plate); 30 Doradus's core and the Tarantula's knots; M31's
+    nucleus; a bright star on dark sky.
+  - **Prediction:** both seeds leave between 50 and 58 % of the bright plants, a gain of 10 to 20 points on R4h and
+    short of the bar, so the likely outcome is "neither"; the dark plants do not move; the guards hold, the
+    Tarantula's standing peaks falling by a few. What speaks against more: a twenty-fifth of the draw, 85 of the 96
+    cells one object through one 3 nm filter, no star under the finder's limit in these rows, and seeds that stand
+    10 to 20 points apart.
+  - **Before the launch, 2026-11-23, with no upload, training run or score of R4j in existence: one thing the text
+    above has wrong, two it owed, and the data as made.**
+    - **The trainer copy (wrong above).** "R4h's frozen trainer copy exactly, with `--extra-loss-mask` added" cannot
+      be run: that copy does not know the switch. The switch is R4g's (#2290) and sits on R4g's copy, a sibling of
+      R4h's: both are R4d's copy, the one with `--save-best` and the black point parts of #2328 added, the other
+      with the mask switch. R4j trains from the two merged three ways over that common parent (`r4j-run` on the
+      development machine): every line of R4g's switch as it stands, one of them carrying R4h's black-point
+      argument as main's trainer has it. Checked before the launch on the two-session preflight exports
+      (`r4j-check.sh` there): the main cache this copy prepares is R4h's copy's, byte for byte; sixty steps with
+      R4h's switches end on the weights R4h's copy ends on; sixty steps with R4g's switches (an extra cache, its
+      masks, the plateau on the main cache) end on the weights R4g's copy ends on. So nothing but the switch
+      differs from the trainer R4h ran. The line the switch prints still words the mask as D4's ("the sky near
+      their plate's own sources"); what it reads here are the drawn-stars masks.
+    - **R4h's planted figure, the parent's (owed above):** of the 205 bright plants R4h leaves **67.8 %**, of the
+      205 on dark sky 6.8 % (its best step's weights 68.3 and 7.3; R4d 68.8 and 6.8; StarXTerminator 42.4 and 0.5).
+      That is not 45.0 or under, so the bar can show the mask's doing, and the predicted 50 to 58 % is a gain of 10
+      to 18 points on it.
+    - **The two builds give one plate (owed before the first score row).** The fourteen figures and R4h's were
+      made on `bh-bin12`, which has no clamp; R4j's plates are made on a build of main with `--keep-overshoot`.
+      R4h's plate of the Sagittarius master from `bh-bin12` and from main's build (`bh-bin14`, main at "Stacking
+      workbench W1: eight colour steps as operations, their verbs calling them", `--no-protect-cores
+      --no-fill-digs --keep-overshoot`, the one plane in three channels) is the same in every one of its 3,073 x
+      3,085 pixels, absent pixels in the same places, and so is its plate of planted master 1. Without the flag the
+      newer build lowers 17.3 % of the pixels, by up to 7.1e-05 where the sky noise is 9.1e-05: the flag is needed.
+    - **The data as made.** `bright2` is 816 draws of 102 cells, each tile and noise plane copied from `bright1` at
+      its SHA-256, the Lagoon's 24 cells (three session ids) left out. The masks, from `bh-bin14`: 816 written,
+      159,763 drawn stars, 13.0 % of the pixels inside the rim counted (the two preflight sessions read 12.1).
+      The cache `r2-bright2`, prepared and packed by R4j's trainer copy: 102 cells, 96 training and 6 held out, 8
+      draws, 816 masks, stretched from each channel's minimum as `r2-synth32` is. Twenty steps of the launch's own
+      command line on the two real caches print what is registered: 96 training cells of 8 draws, 4.1 % of the
+      training draw, 6 held-out cells, the schedule reading the main cache's objective.
+  - **Nothing is adopted;** adoption is the owner's.
 
 #### The dig floor inside bright nebula: floor4, and what it leaves (2026-11-20)
 
@@ -9432,7 +10205,8 @@ a dark globule** toward it. The instruments named below (`holes_look.py`, `floor
     is lowered. And the lowering is still cut per channel, so what it does take can change a colour.
   - **The product is the script, bit for bit.** `dig_fill_parity.py` on R4c seed 0: `tianwen image fill-digs` against
     `whole_floor.py floor5`, no value different on the three masters (seven planes); since #2433 the verb holds its
-    plate at or under the input by default, which floor5 does not, so the parity runs `fill-digs --keep-overshoot`. Two tests hold the two gates:
+    plate at or under the input by default, which floor5 does not, so the parity runs `fill-digs --keep-overshoot`
+    (and reads 0 pixels not bit-equal again). Two tests hold the two gates:
     a knot under stars 5 px apart is left bit for bit where a faint one is lowered, and one plate with a dip of 14
     sigmas is left alone where the input holds the dip and filled where the input is level.
   - **Cost** (`digfill-bench5.ps1`, each case run alone three times; peak working set the largest of the three,
@@ -9469,8 +10243,8 @@ cores that clip against stretching the whole master. Stretching the stars layer 
 Tarantula: its stars layer holds the LMC's glow, which a stars stretch turns into a haze six times ours (a 2x crop of
 both was sent to the owner). That is the practical reason behind the glow guard, for anyone who stretches the stars.
 
-**The flaw the test found, fixed here.** StarXTerminator's plate never stands over its input, so its display-space
-unscreen layer screens back exactly. TianWen's stood over its input on 4 to 16 % of the pixels, mostly by a few
+**The flaw the test found, fixed here.** StarXTerminator's plate stood over its input on only 0 to 0.6 % of the pixels, so its display-space
+unscreen layer screens back to within the noise. TianWen's stood over its input on 4 to 16 % of the pixels, mostly by a few
 hundredths to a few tenths of the noise, and that screen-back missed by more than the display-space sky noise on 0.32 % (Tarantula), 0.12 % (Sagittarius)
 and 0.90 % (Andromeda) of them, 35 to 40 % of those 3 to 6 px from a catalogued star: a faint ring outside the core once
 the stars are screened back. `NarrowbandCombination.SplitStarsAsync` now holds every plate at or under its plane last,

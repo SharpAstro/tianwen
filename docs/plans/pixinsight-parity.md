@@ -90,15 +90,16 @@ PixInsight*) processing workspace, begun June 2026, at 1.0 beta 10 on 2026-11-18
 unpacked Linux beta (`DSPX-1.0.0-beta.10-linux-x64.tar.xz`, 395 MB, never run): the bundled manual's process folders,
 the licence files and the shipped models. Our `stacking-workbench` and `pixinsight-parity` are the nearest things this
 repo has to a "full editing application"; **there was no milestone for one** when this was read, and the stacking
-workbench's W0 (where it lives and what it is called, #1640) is still the owner's open decision. The same day the
-workbench plan was re-cut into that application (processes, a non-destructive edit list, workflows with gates, a guided
+workbench's W0 (where it lives and what it is called, #1640) was then the owner's open decision. It was decided on
+2026-11-22: a product of its own, named Astro Photo Stacker. The same day as this reading the workbench plan was re-cut into
+that application (operations, called processes until 2026-11-22, a non-destructive edit list, workflows with gates, a guided
 and a windowed view): [stacking-workbench.md](stacking-workbench.md), "The re-cut of 2026-11-19".
 
 What DSPX is, and what each point means for us:
 
 | Trend | DSPX | TianWen today |
 |---|---|---|
-| **One application from raw subs to the finished picture** | Calibration, Registration, Integration, Drizzle, Mosaic, SubframeStudio (frame judging), CometAlignment, Superbias, DefectMap, LocalNormalization beside all of post | Every engine exists and is measured, nearly all only on the CLI; [stacking-workbench.md](stacking-workbench.md) is NOT STARTED and stops at a stacked, enhanced master |
+| **One application from raw subs to the finished picture** | Calibration, Registration, Integration, Drizzle, Mosaic, SubframeStudio (frame judging), CometAlignment, Superbias, DefectMap, LocalNormalization beside all of post | Every engine exists and is measured, nearly all only on the CLI; [stacking-workbench.md](stacking-workbench.md) was NOT STARTED and stopped at a stacked, enhanced master before the re-cut of 2026-11-19; see that plan for its status and scope |
 | **Native, GPU, offline** | Qt + Vulkan (volk, VMA), Highway SIMD, OpenCV, ONNX Runtime with a WebGPU provider; plate solving offline after a 2.3 GB catalogue download; "no images sent anywhere" | Same shape: Vulkan (SdlVulkan.Renderer), AOT .NET, ORT, offline catalogues; nothing to change |
 | **Bundled offline AI, own models** | DeepStarRemoval, DeepStarMask, DeepSharp: three own ONNX models, about 33 MB each, in the box | Own denoiser, deconvolver, star remover and gradient remover, each at its stage in [model-training-roadmap.md](model-training-roadmap.md); no star remover of ours ships yet |
 | **Hosting other people's tools as processes** | GraXpertBackgroundExtraction, GraXpertDenoise, GraXpertDeconvolution, StarNetStarRemoval are menu processes | GraXpert BGE in process (`GraXpertBackgroundExtractor`), RC-Astro through its CLI ([rc-astro-enhancers.md](rc-astro-enhancers.md)); no StarNet |
@@ -112,10 +113,11 @@ What DSPX is, and what each point means for us:
 Its process list (about 110 folders under `doc/dscp/`) is the PixInsight menu almost one for one, plus the editor tools
 above. The claims of speed ("3x up to 10x" stacking, "up to 20x" deconvolution) are the vendor's and unmeasured here.
 
-**What to take from it, for the owner to weigh** (nothing here is decided):
+**What to take from it, for the owner to weigh** (nothing here was decided when this was written; item 1 says what
+happened since):
 
 1. If TianWen grows a processing application, DSPX shows the bar for 2026 is the WHOLE chain in one window with
-   history, not a stacker plus an enhancer. The stacking workbench's W0 (#1640) is where that scope is chosen.
+   history, not a stacker plus an enhancer. The stacking workbench's W0 (#1640) was where that scope was to be chosen; it was decided 2026-11-22 ([stacking-workbench.md](stacking-workbench.md), "Where it lives").
    **The owner, 2026-11-19:** likely a stand-alone app; `tianwen-gui` gets at most a live stacking view. The scope
    was then chosen as the whole chain, and the workbench plan re-cut to it.
 2. An XISF reader is the cheapest, most visible gap; it is a file format, not a product decision.

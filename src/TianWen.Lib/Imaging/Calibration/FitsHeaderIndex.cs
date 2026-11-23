@@ -122,7 +122,10 @@ public sealed class FitsHeaderIndex
         _seen.Add(stamp.Path);
         if (_entries.TryGetValue(stamp.Path, out var entry)
             && entry.Length == stamp.Length
-            && entry.LastWriteTicks == stamp.LastWriteTimeUtc.Ticks)
+            && entry.LastWriteTicks == stamp.LastWriteTimeUtc.Ticks
+            // An entry that ends before its END card is not a header (an index written before #1529 could hold one).
+            // It is a miss, so the scan reads the file and Remember stores the header again, whole (#2410).
+            && FitsHeaderBlocks.HoldsEnd(entry.Header))
         {
             Hits++;
             header = entry.Header;
@@ -132,6 +135,13 @@ public sealed class FitsHeaderIndex
         Misses++;
         header = null;
         return false;
+    }
+
+    /// <summary>Puts an entry in as it is given, unchecked: a test's way to an index as an older build left it (#2410).</summary>
+    internal void Plant(FileStamp stamp, byte[] header)
+    {
+        _entries[stamp.Path] = new Entry(stamp.Length, stamp.LastWriteTimeUtc.Ticks, header);
+        _dirty = true;
     }
 
     /// <summary>

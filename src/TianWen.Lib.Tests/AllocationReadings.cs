@@ -6,11 +6,18 @@ namespace TianWen.Lib.Tests;
 /// What a call allocates on the thread that makes it, read so that a one-off from elsewhere does not count (#1331).
 /// </summary>
 /// <remarks>
-/// <para><b>The least of several readings, never one.</b> An allocation that belongs to the call shows in every pass,
-/// so the least reading is never below the call's own cost and a call that allocates can never read zero. A one-off
+/// <para><b>The least of several readings, never one.</b> An allocation the call makes on every pass shows in every
+/// reading, so the least is never below that cost and a call that allocates each time can never read zero. A one-off
 /// that lands on the measuring thread from elsewhere shows in one pass. A single reading cannot tell the two apart:
 /// <c>RaDecCellEnumerationTests.ANineCellWalkAllocatesNothing</c> read 5,336 B once in 87 full-suite runs for a walk
 /// with no allocating path, and 0 B in the other 86 and in every run alone.</para>
+/// <para><b>The body does the same work on every pass, or the rule does not hold</b> (#2440). A call that allocates on
+/// some calls only can read zero in all the passes: the least forgives it exactly as it forgives a one-off. The
+/// nine-cell walk makes the same nine probes each pass, so its test is sound. What to do about such a call depends on
+/// its kind (#2452). A PERIODIC allocation (a pool refilled every Nth call) is put into every reading by making N or
+/// more calls inside ONE pass. A ONE-TIME allocation (a scratch buffer that grows to its size and then stays) is spent
+/// in the caller's warm-up and is in no reading, as any first-call cost is: more calls in a pass do not bring it back,
+/// and bounding it is not what this helper is for.</para>
 /// <para><b>What the one-off is, is not known.</b> It is not tiered compilation's promotion, which was the first guess:
 /// an allocation-free walk called 60,000 times in a fresh process crossed every tier and never read anything but 0 B.
 /// So every reading is handed back, and a test writes them to its output: the next one leaves its size and its

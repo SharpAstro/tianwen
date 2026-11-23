@@ -141,7 +141,9 @@ What this directory has to know about it:
 - **One GUID, two places.** The handler's `Clsid` and the class's `Id` must be the same GUID, and
   `-ValidateOnly` checks they are (a mismatch is a package whose thumbnails silently never appear). The
   GUID is also `ThumbnailRenderer.ShellExtensionClsid` in TianWen.Lib and must never change once
-  shipped.
+  shipped. The property handler (Explorer detail columns) is the same pair: its
+  `desktop2:DesktopPropertyHandler` `Clsid` must be the `Id` of a second `com:Class` in the same
+  `SurrogateServer`, checked the same way. Its GUID is `ThumbnailRenderer.PropertyHandlerClsid`.
 - **`SurrogateServer` is not a choice.** A packaged shell extension may only run in the shell's own
   `dllhost.exe`; that is why the DLL initialises from a stream and why nothing of ours ever loads into
   explorer.exe. `ThreadingModel` must be `Both`, which the validation also checks.

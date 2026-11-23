@@ -141,6 +141,17 @@ function Test-ManifestHandlers {
         Write-Host ("  ok  ThumbnailHandler {0} -> {1}" -f $clsid, $class.GetAttribute('Path'))
     }
 
+    # The property handler (Explorer detail columns) is the same pairing: desktop2:DesktopPropertyHandler/@Clsid
+    # must be the Id of a com:Class, or the package installs and the columns stay empty.
+    $propertyHandlers = @($xml.SelectNodes('//desktop2:DesktopPropertyHandler', $ns))
+    if ($propertyHandlers.Count -eq 0) { throw 'The manifest declares no desktop2:DesktopPropertyHandler; Explorer detail columns are a shipped feature.' }
+    foreach ($handler in $propertyHandlers) {
+        $clsid = $handler.GetAttribute('Clsid')
+        $class = $classes | Where-Object { $_.GetAttribute('Id') -ieq $clsid } | Select-Object -First 1
+        if (-not $class) { throw "desktop2:DesktopPropertyHandler Clsid $clsid has no com:SurrogateServer/com:Class with that Id." }
+        Write-Host ("  ok  DesktopPropertyHandler {0} -> {1}" -f $clsid, $class.GetAttribute('Path'))
+    }
+
     foreach ($class in $classes) {
         $rel = $class.GetAttribute('Path')
         if ($class.GetAttribute('ThreadingModel') -ne 'Both') {

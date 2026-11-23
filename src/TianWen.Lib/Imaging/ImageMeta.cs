@@ -241,7 +241,8 @@ public record struct ImageMeta(
     float SiteElevation = float.NaN,
     ColourCalibration? ColourCalibration = null,
     GuidingStats? Guiding = null,
-    float Airmass = float.NaN
+    float Airmass = float.NaN,
+    string Observer = ""
 )
 {
     /// <summary>

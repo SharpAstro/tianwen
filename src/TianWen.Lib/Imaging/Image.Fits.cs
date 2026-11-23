@@ -365,8 +365,9 @@ public partial class Image
         string fileName, byte[] header, [NotNullWhen(true)] out Calibration.FrameInfo? frameInfo)
     {
         // Bytes with no END card are not a header and are never handed to the parser: a cached header is whole
-        // by construction (FitsHeaderBlocks.ReadThroughEnd), so such bytes are a damaged index, and before its
-        // 6.4 patch FITS.Lib read a header that ended before its END for ever (#1529).
+        // by construction (FitsHeaderBlocks.ReadThroughEnd), so such bytes are a damaged index, and until
+        // FITS.Lib#11 (a 6.4 patch) FITS.Lib read a header that ended before its END for ever (#1529). The index
+        // refuses such an entry itself (FitsHeaderIndex.TryGet); this is the same answer for any other caller.
         if (!Calibration.FitsHeaderBlocks.HoldsEnd(header))
         {
             frameInfo = null;
@@ -512,7 +513,7 @@ public partial class Image
     // path uses the same logic. Min/max value computation stays in the pixel
     // read path because the header DATAMIN/DATAMAX fields are often missing or
     // wrong; the pixel-walk recomputes them.
-    private static ImageMeta ParseImageMetaFromHeader(BasicHDU hdu, int channelCount)
+    internal static ImageMeta ParseImageMetaFromHeader(BasicHDU hdu, int channelCount)
     {
         var exposureStartTime = new DateTime(hdu.ObservationDate.Ticks, DateTimeKind.Utc);
         // EXPTIME and EXPOSURE are both in the wild for the same quantity (N.I.N.A. writes both,
@@ -541,7 +542,8 @@ public partial class Image
         // Some software emits the keyword as "FOCLEN" instead; accept either.
         var focalLength = (int)Math.Round(hdu.Header.GetDoubleValue("FOCALLEN",
             hdu.Header.GetDoubleValue("FOCLEN", -1.0)));
-        var aperture = hdu.Header.GetIntValue("APTDIA", -1);
+        // APTDIA is often a float too ("80.0"), which GetIntValue does not coerce either.
+        var aperture = (int)Math.Round(hdu.Header.GetDoubleValue("APTDIA", -1.0));
         // DATASEC / BIASSEC are IRAF section strings, 1-based and inclusive; FitsSection is the one
         // place that convention is converted. TRIMSEC is accepted as DATASEC's synonym only when
         // DATASEC is absent: where both exist they can differ (TRIMSEC is what a pipeline chose to
@@ -629,6 +631,10 @@ public partial class Image
                 hdu.Header.GetIntValue("GUIDEN", 0))
             : (GuidingStats?)null;
         var objectName = hdu.Header.GetStringValue("OBJECT") ?? "";
+        // OBSERVER names the person; ISOSPEED is a DSLR frame's ISO and is never the GAIN card (a camera
+        // register of a different scale), so an absent card stays -1. Read here only, so both read paths agree.
+        var observer = hdu.Header.GetStringValue("OBSERVER")?.Trim() ?? "";
+        var isoSpeed = ReadIntegerLikeCard(hdu.Header, "ISOSPEED") ?? -1;
         var swModifier = hdu.Header.GetStringValue("SWMODIFY") ?? "";
         // GAIN/OFFSET are int cards in N.I.N.A. files but float cards in e.g. Astro Pixel Processor
         // masters -- ReadIntegerLikeCard coerces both forms (and rejects NaN/Infinity as unknown).
@@ -702,7 +708,9 @@ public partial class Image
             SiteElevation: siteElevation,
             ColourCalibration: colourCalibration,
             Guiding: guiding,
-            Airmass: airmass
+            Airmass: airmass,
+            Observer: observer,
+            Iso: isoSpeed
         )
         {
             IsMaster = isMaster,

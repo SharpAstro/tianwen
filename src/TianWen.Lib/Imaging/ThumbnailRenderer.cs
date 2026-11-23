@@ -72,6 +72,15 @@ namespace TianWen.Lib.Imaging
         /// </summary>
         public static readonly Guid ShellExtensionClsid = new Guid("bde44417-0b48-4d32-931e-8b3192e81be2");
 
+        /// <summary>
+        /// The COM class identity of the read-only property handler (<c>IPropertyStore</c>) that fills
+        /// Explorer's detail columns (#2429), served by the same <c>tianwen-thumb.dll</c> as
+        /// <see cref="ShellExtensionClsid"/>. Defined here for the same reason: the shell DLL implements it and
+        /// the viewer's registrar needs it. The MSIX manifest (<c>desktop2:DesktopPropertyHandler</c> and its
+        /// <c>com:Class</c>, next leg) carries the same GUID as text. Stable for the life of the product.
+        /// </summary>
+        public static readonly Guid PropertyHandlerClsid = new Guid("22b95ef5-11fd-40eb-a4c9-5979daf5ffa5");
+
         /// <summary>The shell's well-known handler id for <c>IThumbnailProvider</c>, the <c>ShellEx</c>
         /// subkey a file type's thumbnail provider CLSID is written under.</summary>
         public static readonly Guid ThumbnailProviderHandlerId = new Guid("e357fccd-a995-4576-b01f-234630154e96");

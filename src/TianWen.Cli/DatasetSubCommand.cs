@@ -1587,7 +1587,8 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
 
     /// <summary>
     /// <c>tianwen dataset plate-masks</c>: R2d's D4 (docs/plans/star-remover-training.md). Beside every draw of a Stars-mode
-    /// export, the loss mask that leaves out the sky near the sources the plate itself kept (<see cref="StarRemovalMasks"/>).
+    /// export, the loss mask that leaves out the sky near the sources the plate itself kept, or with <c>--rule drawn-stars</c>
+    /// the one that counts only the stars the draw was given (<see cref="StarRemovalMasks"/>).
     /// </summary>
     private Command BuildPlateMasksCommand()
     {
@@ -1596,18 +1597,46 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             Description = "A Stars-mode export (its injections.jsonl, tiles and noise planes); a draw that has its mask is skipped.",
             Required = true,
         };
-        var command = new Command("plate-masks",
-            "Write <tile>.keep.f16 beside every draw of a Stars-mode export: 0 on the sky within two PSF widths of a source the " +
-            "plate kept, 1 elsewhere, by starless-eval's own rule, for a trainer's --loss-mask.")
+        var ruleOpt = new Option<string>("--rule")
         {
-            Options = { exportOpt },
+            Description = "plate-sources (default): 0 on the sky within two PSF widths of a source the plate kept, 1 elsewhere, by " +
+                "starless-eval's own rule. drawn-stars: 1 only where a drawn star's light stands over a quarter of the pixel's noise " +
+                "within three PSF widths of the star, and within one PSF width of that light; for draws on a real plate over bright " +
+                "nebula, whose plate holds faint stars no finder lists. An export takes one rule while it holds masks: the first " +
+                $"run records it ({StarRemovalMasks.RuleFileName}) and a run with the other is refused; with every " +
+                $"*{StarRemovalMasks.KeepTileExtension} deleted it takes either.",
+            DefaultValueFactory = _ => "plate-sources",
+        };
+        var command = new Command("plate-masks",
+            "Write <tile>.keep.f16 beside every draw of a Stars-mode export, 1 where a pixel counts in the loss, for a trainer's " +
+            "--loss-mask or --extra-loss-mask (see --rule).")
+        {
+            Options = { exportOpt, ruleOpt },
         };
         command.SetAction(async (parseResult, ct) =>
         {
             var export = parseResult.Required(exportOpt);
-            var result = await StarRemovalMasks.RunAsync(export, new Progress<string>(line => consoleHost.WriteScrollable(line)), ct);
+            var ruleText = parseResult.GetValue(ruleOpt) ?? "plate-sources";
+            StarRemovalMasks.Rule? rule = ruleText switch
+            {
+                "plate-sources" => StarRemovalMasks.Rule.PlateSources,
+                "drawn-stars" => StarRemovalMasks.Rule.DrawnStars,
+                _ => null,
+            };
+            if (rule is not { } chosen)
+            {
+                consoleHost.WriteError($"--rule {ruleText}: give plate-sources or drawn-stars");
+                return 1;
+            }
+            if (await StarRemovalMasks.RefusalAsync(export, chosen, ct) is { } refusal)
+            {
+                consoleHost.WriteError(refusal);
+                return 1;
+            }
+            var result = await StarRemovalMasks.RunAsync(export, chosen, new Progress<string>(line => consoleHost.WriteScrollable(line)), ct);
             consoleHost.WriteScrollable(
-                $"[plate-masks] {result.Draws} masks written, {result.Skipped} present; {result.Sources} plate sources; " +
+                $"[plate-masks] {result.Draws} masks written, {result.Skipped} present; {result.Sources} " +
+                $"{(chosen is StarRemovalMasks.Rule.DrawnStars ? "drawn stars" : "plate sources")}; " +
                 $"{result.MaskedFraction:P2} of the pixels inside the rim left out");
             return 0;
         });

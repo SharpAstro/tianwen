@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Shouldly;
+using TianWen.Lib.Geometry;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.StarRemoval;
 using Xunit;
@@ -38,19 +41,21 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
     internal static Image MonoField() => MakeField(1).Image;
 
     // Textured: a patch of nebula texture (a 4 sigma ripple 40 px in period, faded out over 100 px) about (750, 700), which a
-    // smooth glow is not.
-    private static Field MakeField(int channels, int seed = 7, (double X, double Y, double Peak)? giant = null, bool textured = false, Injected[]? extra = null, double[]? skies = null, double[]? gains = null)
+    // smooth glow is not. Dents: single pixels of the finished image moved by so many sigma after the stars are rendered (a
+    // peak pixel lower than the star's profile, or a dark pixel of the input's own), in dentChannel alone or in every channel.
+    // Correlation: the noise's between neighbours, a stack's 0.35 unless a test asks for more (0.7 is the kernel's most).
+    private static Field MakeField(int channels, int seed = 7, (double X, double Y, double Peak)? giant = null, bool textured = false, Injected[]? extra = null, double[]? skies = null, double[]? gains = null, (int X, int Y, double Sigmas)[]? dents = null, int? dentChannel = null, double correlation = 0.35)
     {
         var rng = new Random(seed);
         var alpha = Fwhm / (2.0 * Math.Sqrt(Math.Pow(2.0, 1.0 / Beta) - 1.0));
-        var noise = CorrelatedNoise(rng, Size, Size, 0.35);
+        var noise = CorrelatedNoise(rng, Size, Size, correlation);
         var knot = (X: 700.0, Y: 300.0, Peak: 40 * Sigma, Fwhm: 3 * Fwhm);
 
         var truth = new float[channels][];
         for (var c = 0; c < channels; c++)
         {
             truth[c] = new float[Size * Size];
-            var cNoise = c == 0 ? noise : CorrelatedNoise(rng, Size, Size, 0.35);
+            var cNoise = c == 0 ? noise : CorrelatedNoise(rng, Size, Size, correlation);
             for (var y = 0; y < Size; y++)
             {
                 for (var x = 0; x < Size; x++)
@@ -117,6 +122,13 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
                     {
                         truth[c][y * Size + x] = 0f;
                     }
+                }
+            }
+            if (dents is not null && (dentChannel is null || dentChannel == c))
+            {
+                foreach (var (x, y, sigmas) in dents)
+                {
+                    planes[c][y, x] += (float)(sigmas * Sigma);
                 }
             }
         }
@@ -652,6 +664,182 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
         Median(dark.Select(static s => s.Texture)).ShouldBeLessThan(1.2f);
     }
 
+    // The deepest plate pixel within `within` px of (x, y), in sigma under the plate's median over an annulus 6 to 10 px out:
+    // how #2449 read a dug core on the store's plates.
+    private static double DeepestCorePixel(StarlessPlate plate, double x, double y, double within, int c = 0)
+    {
+        var plane = plate.Plate.GetChannelSpan(c);
+        var ring = new List<float>();
+        var deepest = double.PositiveInfinity;
+        for (var yy = (int)Math.Floor(y) - 11; yy <= (int)Math.Ceiling(y) + 11; yy++)
+        {
+            for (var xx = (int)Math.Floor(x) - 11; xx <= (int)Math.Ceiling(x) + 11; xx++)
+            {
+                var d2 = (xx - x) * (xx - x) + (yy - y) * (yy - y);
+                if (d2 >= 6 * 6 && d2 <= 10 * 10)
+                {
+                    ring.Add(plane[yy * Size + xx]);
+                }
+                else if (d2 <= within * within)
+                {
+                    deepest = Math.Min(deepest, plane[yy * Size + xx]);
+                }
+            }
+        }
+        ring.Sort();
+        return (deepest - ring[ring.Count / 2]) / Sigma;
+    }
+
+    // #2449: a star whose peak pixel is lower than its profile, as an undersampled star's is after a stack's interpolation,
+    // is over-taken there by its fit, which leaves that one pixel 5 to 11 sigma under the sky: the black pit a 1:1 crop
+    // shows. The hole test reads the core's MEAN and passes it. Built without the dug-core trigger the pit is there (the
+    // premise); built with it the core is refilled and the row marked inpainted. Faint stars (about 20 sigma, the band
+    // where the store's pits are) on the textured patch, where the first fill's per-pixel flag reads the sky map's spread
+    // (the ripple's, about twice the pixels' noise) and leaves the pit to the sweep, as a crowd's faint stars do on a real
+    // master; and on the ripple's nodes (columns 740 and 760), where it is level round a star and its annulus reads the sky
+    // under it. The peak pixel of each is moved by 12 or 15 sigma.
+    [Fact(Timeout = 300_000)]
+    public async Task AStarWhoseSubtractionDigsItsPeakPixelHasItsCoreRefilled()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        (double X, double Y, double Dent)[] at =
+            [(740, 640, -12), (740, 670, -15), (740, 700, -12), (740, 730, -15), (760, 650, -15), (760, 680, -12), (760, 710, -15), (760, 740, -15)];
+        var image = MakeField(1, textured: true,
+            extra: [.. at.Select(static p => new Injected(p.X, p.Y, 40 * Sigma, false))],
+            dents: [.. at.Select(static p => ((int)p.X, (int)p.Y, p.Dent))]).Image;
+        var without = await ClassicalStarRemover.BuildAsync(image, null, null, tileThreads: -1, recorder: null, fillDugCores: false, ct);
+        var with = await ClassicalStarRemover.BuildAsync(image, null, null, tileThreads: -1, recorder: null, fillDugCores: true, ct);
+
+        output.WriteLine($"{with.Statistics.DugCores} stars refilled for a dug core alone, {without.Statistics.DugCores} without the trigger");
+        foreach (var (x, y, dent) in at)
+        {
+            var before = Nearest(without, x, y).ShouldNotBeNull($"the star at ({x}, {y})");
+            var after = Nearest(with, x, y).ShouldNotBeNull($"the star at ({x}, {y})");
+            var dug = DeepestCorePixel(without, before.X, before.Y, ClassicalStarRemover.DugCoreSearch);
+            var deepest = DeepestCorePixel(with, after.X, after.Y, ClassicalStarRemover.DugCoreSearch);
+            output.WriteLine($"({x}, {y}) moved {dent}: {after.Outcome} at ({after.X:F2}, {after.Y:F2}) {after.Significance:F1} sigma; "
+                + $"without the trigger inpainted {before.Inpainted}, deepest core pixel {dug:F2} sigma; with it inpainted {after.Inpainted}, {deepest:F2} sigma");
+            before.Outcome.ShouldBe(StarFitOutcome.Subtracted);
+            before.Inpainted.ShouldBeFalse("the first fill leaves the pit to the sweep");
+            dug.ShouldBeLessThan(-ClassicalStarRemover.DugPixelSigma, "the subtraction dug the peak pixel");
+            after.Outcome.ShouldBe(StarFitOutcome.Subtracted);
+            after.Inpainted.ShouldBeTrue("the dug core is refilled, and the row says so");
+            deepest.ShouldBeGreaterThan(-ClassicalStarRemover.DugPixelSigma, "no core pixel is left 4 sigma under the sky");
+        }
+        without.Statistics.DugCores.ShouldBe(0);
+        with.Statistics.DugCores.ShouldBeGreaterThanOrEqualTo(at.Length, "each was refilled by the dug-core trigger, which the hole test passed");
+    }
+
+    // How many stars each round of the hole sweep refilled for a dug pixel alone, read off the sweep's own debug line.
+    private static int[] DugCoresByRound(RecordingLogger log)
+        => [.. log.Messages
+            .Select(static m => Regex.Match(m, @"hole sweep (\d+): \d+ cores below their sky, (\d+) dug cores"))
+            .Where(static m => m.Success)
+            .OrderBy(static m => int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture))
+            .Select(static m => int.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture))];
+
+    // #2449, the sweep's guard: a star refilled for a dug pixel alone is not tested for one again in the later rounds. The
+    // fill's grain is drawn at the pixels' noise, and the gate reads a pixel against its annulus's neighbour differences,
+    // which noise correlated between neighbours makes smaller than that: by the root of one less the correlation, so 4
+    // sigma of them is 2.2 of the pixels' noise at 0.7 and 3.2 at the stack's own 0.35. At 0.7 a pixel of the grain sits
+    // under the gate often enough that a retest finds a refilled core dug again and redraws the same disc with the next
+    // round's seed; at 0.35 it almost never does, so this field's noise is correlated as far as the kernel goes. A grid
+    // of faint stars, each with its peak pixel 4.5 sigma low (over the gate, and under the 5 sigma at which the first
+    // fill takes a pixel itself), gives the sweep some two hundred cores to refill, so that a retest redraws a dozen and
+    // more. Built with a retest every round, the rounds' refills add up to more than the stars refilled (the premise:
+    // some were redrawn); built as every plate is, each star is refilled for a dug pixel in one round only.
+    [Fact(Timeout = 300_000)]
+    public async Task AStarRefilledForADugPixelAloneIsNotRefilledForOneAgain()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        // Clear of the knot at (700, 300) and of the five saturated stars.
+        (int X, int Y)[] at =
+            [.. from y in Enumerable.Range(0, 13)
+                from x in Enumerable.Range(0, 16)
+                let p = (X: 62 + 60 * x, Y: 62 + 70 * y)
+                where new[] { (700, 300), (150, 150), (850, 150), (150, 850), (850, 850), (512, 900) }
+                    .All(q => Math.Abs(p.X - q.Item1) > 40 || Math.Abs(p.Y - q.Item2) > 40)
+                select p];
+        var image = MakeField(1, correlation: 0.7,
+            extra: [.. at.Select(static p => new Injected(p.X, p.Y, 40 * Sigma, false))],
+            dents: [.. at.Select(static p => (p.X, p.Y, -4.5))]).Image;
+        var (onceLog, everyLog) = (new RecordingLogger(), new RecordingLogger());
+        var once = await ClassicalStarRemover.BuildAsync(image, null, onceLog, tileThreads: -1, recorder: null, fillDugCores: true, ct);
+        var every = await ClassicalStarRemover.BuildAsync(image, null, everyLog, tileThreads: -1, recorder: null, fillDugCores: true, retestDugCores: true, ct);
+        var (onceRounds, everyRounds) = (DugCoresByRound(onceLog), DugCoresByRound(everyLog));
+
+        output.WriteLine($"{at.Length} stars planted with a low peak pixel");
+        output.WriteLine($"as built: {once.Statistics.DugCores} stars refilled for a dug core alone, by round {string.Join(", ", onceRounds)}");
+        output.WriteLine($"with a retest every round: {every.Statistics.DugCores} stars, by round {string.Join(", ", everyRounds)}");
+        everyRounds.Length.ShouldBeGreaterThan(1, "the sweep ran a later round");
+        everyRounds.Sum().ShouldBeGreaterThan(every.Statistics.DugCores + 2, "retested every round, some refilled cores read as dug again and are redrawn");
+        once.Statistics.DugCores.ShouldBeGreaterThan(0);
+        onceRounds.Sum().ShouldBe(once.Statistics.DugCores, "each star is refilled for a dug pixel in one round only");
+    }
+
+    // #2449: a dark pixel the INPUT holds in a star's core (7 sigma under the sky, beside its peak pixel), in the channel where
+    // the star has almost no light (a colour field whose third channel takes 0.003 of each star), is the input's own and not
+    // one the subtraction dug: the star's model took next to nothing there. The trigger leaves it: nothing in the disc it
+    // would refill is inpainted, and every pixel round the star that no fill owns is the same to the bit with the trigger
+    // and without it. The pixel still sits more than 4 sigma under the sky, so a trigger that did not ask what the
+    // subtraction took would have filled it. (In a channel where the star is bright, its model takes more than 4 sigma at
+    // every pixel within 1.5 px of its centre down to the finder's limit, so this is where the question decides.) On smooth
+    // sky, where the luminance the first fill flags on holds a third of the pixel's depth, under its flag. Heavy: two
+    // colour builds, where one takes 40 s on the x64 leg.
+    [Fact(Timeout = 600_000)]
+    [Trait("Category", "Heavy")]
+    public async Task ADarkPixelTheInputHoldsInAStarsCoreIsLeftAlone()
+    {
+        const int Faint = 2;
+        var ct = TestContext.Current.CancellationToken;
+        (double X, double Y)[] at = [(300, 250), (600, 220), (450, 780)];
+        var image = MakeField(3, gains: [0.8, 1.0, 0.003],
+            extra: [.. at.Select(static p => new Injected(p.X, p.Y, 40 * Sigma, false))],
+            dents: [.. at.Select(static p => ((int)p.X + 1, (int)p.Y, -7.0))], dentChannel: Faint).Image;
+        var without = await ClassicalStarRemover.BuildAsync(image, null, null, tileThreads: -1, recorder: null, fillDugCores: false, ct);
+        var with = await ClassicalStarRemover.BuildAsync(image, null, null, tileThreads: -1, recorder: null, fillDugCores: true, ct);
+        var input = image.GetChannelSpan(Faint);
+        var plate = with.Plate.GetChannelSpan(Faint);
+
+        foreach (var (x, y) in at)
+        {
+            var star = Nearest(with, x, y).ShouldNotBeNull($"the star at ({x}, {y})");
+            var (px, py) = ((int)x + 1, (int)y);
+            var dark = DeepestCorePixel(with, px, py, 0.1, Faint);
+            var took = (input[py * Size + px] - plate[py * Size + px]) / Sigma;
+            output.WriteLine($"({x}, {y}): {star.Outcome} at ({star.X:F2}, {star.Y:F2}) {star.Significance:F1} sigma, inpainted {star.Inpainted}; "
+                + $"the dark pixel {dark:F2} sigma under the sky, the subtraction took {took:F3} sigma there");
+            star.Outcome.ShouldBe(StarFitOutcome.Subtracted);
+            star.Inpainted.ShouldBeFalse();
+            ((double)(px - star.X) * (px - star.X) + (double)(py - star.Y) * (py - star.Y)).ShouldBeLessThanOrEqualTo(
+                ClassicalStarRemover.DugCoreSearch * ClassicalStarRemover.DugCoreSearch, "the trigger looks at the pixel");
+            dark.ShouldBeLessThan(-ClassicalStarRemover.DugPixelSigma, "the input's dark pixel is still there");
+            took.ShouldBeLessThan(1.0, "the star's model took next to nothing there");
+            var (cx, cy) = ((int)Math.Round(star.X), (int)Math.Round(star.Y));
+            for (var yy = cy - 3; yy <= cy + 3; yy++)
+            {
+                for (var xx = cx - 3; xx <= cx + 3; xx++)
+                {
+                    if ((xx - cx) * (xx - cx) + (yy - cy) * (yy - cy) <= ClassicalStarRemover.DugCoreRadius * ClassicalStarRemover.DugCoreRadius)
+                    {
+                        with.Inpainted[yy, xx].ShouldBeFalse($"({xx}, {yy}), in the disc the trigger would refill about ({cx}, {cy})");
+                    }
+                    // A pixel another fill owns moves with any fill of its round, whose grain follows the frame-wide noise
+                    // map; what the subtraction left is compared.
+                    if (with.Inpainted[yy, xx] || without.Inpainted[yy, xx])
+                    {
+                        continue;
+                    }
+                    for (var c = 0; c < 3; c++)
+                    {
+                        with.Plate.GetChannelSpan(c)[yy * Size + xx].ShouldBe(without.Plate.GetChannelSpan(c)[yy * Size + xx],
+                            $"({xx}, {yy}), channel {c}, beside the star at ({x}, {y})");
+                    }
+                }
+            }
+        }
+    }
+
     [Fact(Timeout = 600_000)]
     [Trait("Category", "Heavy")]
     public async Task TheSameImageGivesTheSamePlate()
@@ -717,6 +905,187 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
             var errors = plain.Select(s => ErrorRms(plate, field, s.X, s.Y, Fwhm, c)).OrderBy(static e => e).ToArray();
             output.WriteLine($"channel {c}: {errors.Length} stars, subtraction error median {errors[errors.Length / 2]:F3} sigma");
             errors[errors.Length / 2].ShouldBeLessThan(0.5);
+        }
+    }
+
+    // #2378: the field of the tests below, the plain mono one (which holds three blends fitted as two stars, FitPair) with
+    // stars where a tile's work reaches furthest from its tile. Two giants whose plateaus straddle a tile boundary, so the
+    // finder's peak (wherever its ties fall on a plateau) and the plateau's centre, where the profile is read and written,
+    // can lie in different tiles; a giant half a pixel short of a tile's right edge, whose centre rounds onto the next
+    // tile; two bright saturated stars at the FACING edges of two tiles of one phase (columns 0 and 2 of row 1); and a
+    // saturated star the frame's edge cuts, beside a tile boundary along that edge. Measured on this seed: four requests
+    // ask for more than their ground, all SymmetricProfile reads of the giants (the one at (600, 262) is found in the
+    // tile above its plateau's centre, and its ring reads 7 rows past that tile's ground), and 7 pairs of requests of
+    // two tiles of one phase overlap as reads; the test's met (4) counts requests that reach into a phase-mate's ground. No
+    // write reaches a phase-mate: a write reaches 104 px and a read 128, tiles of a phase are 256 px apart.
+    private static Field TileEdgeField(int channels = 1) => MakeField(channels, extra: TileEdgeStars());
+
+    private static Injected[] TileEdgeStars() =>
+    [
+        new Injected(600.0, 262.0, 1.0e7, true),
+        new Injected(262.0, 600.0, 1.0e7, true),
+        new Injected(650.0, 513.0, 1.0e7, true),
+        new Injected(255.7, 830.0, 1.0e5, true),
+        new Injected(253.0, 420.0, 200.0, true),
+        new Injected(515.0, 420.0, 200.0, true),
+        new Injected(Ring - 1.0, 250.0, 20.0, true),
+    ];
+
+    // #2378: the grounds of the tiles of one phase share no pixel, so work held to its ground cannot meet another tile's;
+    // and each holds its own tile, with MaxSubtractRadius round it wherever the frame allows.
+    [Theory]
+    [InlineData(1024, 1024)]
+    [InlineData(1000, 700)]
+    [InlineData(300, 2000)]
+    [InlineData(200, 90)]
+    public void TheGroundsOfTheTilesOfOnePhaseShareNoPixelAndEachHoldsItsTile(int width, int height)
+    {
+        const int Tile = ClassicalStarRemover.TileSize;
+        const int Grow = ClassicalStarRemover.MaxSubtractRadius;
+        var tilesX = (width + Tile - 1) / Tile;
+        var tilesY = (height + Tile - 1) / Tile;
+        var frame = new PixelRect(0, 0, width, height);
+        for (var phase = 0; phase < 4; phase++)
+        {
+            var grounds = new List<PixelRect>();
+            for (var ty = phase >> 1; ty < tilesY; ty += 2)
+            {
+                for (var tx = phase & 1; tx < tilesX; tx += 2)
+                {
+                    var ground = ClassicalStarRemover.TileGround(tx, ty, width, height);
+                    var tile = PixelRect.Intersect(frame, new PixelRect(tx * Tile, ty * Tile, Tile, Tile));
+                    ground.Contains(tile).ShouldBeTrue($"tile ({tx}, {ty})");
+                    frame.Contains(ground).ShouldBeTrue();
+                    ground.ShouldBe(PixelRect.Intersect(frame, PixelRect.FromLTRB(tile.Left - Grow, tile.Top - Grow, tx * Tile + Tile + Grow, ty * Tile + Tile + Grow)));
+                    grounds.Add(ground);
+                }
+            }
+            for (var a = 0; a < grounds.Count; a++)
+            {
+                for (var b = a + 1; b < grounds.Count; b++)
+                {
+                    grounds[a].IntersectsWith(grounds[b]).ShouldBeFalse($"phase {phase}: {grounds[a]} and {grounds[b]}");
+                }
+            }
+        }
+    }
+
+    // #2378, the check the issue asked for: every rectangle a routine asks for through Square or Bound, recorded with the
+    // ground it was held to, on the field of stars where a tile's work reaches furthest. No requested rectangle, once cut,
+    // leaves its ground. That every read and write of the working planes goes through those two is the code review's claim,
+    // not this test's. The field is one where work ASKED for more than its ground and where a request reached into the
+    // ground of a tile of its own phase (met > 0), so the assertion is not over a field the clip never had to cut. Only a
+    // DEBUG build records (Category=DebugOnly runs it on the Debug leg); Release skips.
+    [Fact(Timeout = 600_000)]
+    [Trait("Category", "DebugOnly")]
+    public async Task NoTileReadsOrWritesPastItsGround()
+    {
+        Assert.SkipUnless(TileAccessRecorder.IsActive, "The recorder is compiled out of Release.");
+        var ct = TestContext.Current.CancellationToken;
+        var recorder = new TileAccessRecorder();
+        var plate = await ClassicalStarRemover.BuildAsync(TileEdgeField().Image, null, null, tileThreads: -1, recorder, fillDugCores: true, ct);
+        var accesses = recorder.Accesses.ToArray();
+        var tileWork = accesses.Where(static a => a.Pass >= 0).ToArray();
+        var pastGround = tileWork.Where(static a => !a.Asked.IsEmpty && !a.Ground.Contains(a.Asked)).ToArray();
+        foreach (var a in pastGround)
+        {
+            output.WriteLine($"  past its ground: {a.Site}, pass {a.Pass} phase {a.Phase}, ground {a.Ground}, asked {a.Asked}, touched {a.Touched}");
+        }
+        output.WriteLine($"{accesses.Length} rectangles recorded, {tileWork.Length} in the tile passes ({tileWork.Count(static a => a.Write)} writes); "
+            + $"{pastGround.Length} asked past their ground: {string.Join(", ", pastGround.GroupBy(static a => a.Site).Select(static g => $"{g.Key} {g.Count()}"))}");
+
+        // What would have met without the ground: a request of one tile that reaches into the ground of another tile of its
+        // phase, the rectangle that tile may write. A read against a read races with nothing, so overlapping requests are not
+        // counted; a request into a phase-mate's ground is what the clip exists to stop. The touched rectangles of two tiles
+        // of a phase never share a pixel, which is the claim itself.
+        var met = 0;
+        foreach (var phase in tileWork.GroupBy(static a => (a.Pass, a.Phase)))
+        {
+            var tiles = phase.GroupBy(static a => a.Ground).Select(static g => g.ToArray()).ToArray();
+            for (var i = 0; i < tiles.Length; i++)
+            {
+                for (var j = 0; j < tiles.Length; j++)
+                {
+                    if (i == j)
+                    {
+                        continue;
+                    }
+                    met += tiles[i].Count(a => a.Asked.IntersectsWith(tiles[j][0].Ground));
+                    if (j < i)
+                    {
+                        continue;
+                    }
+                    var touchedI = tiles[i].Where(static a => !a.Touched.IsEmpty).ToArray();
+                    var touchedJ = tiles[j].Where(static a => !a.Touched.IsEmpty).ToArray();
+                    touchedI.Sum(a => touchedJ.Count(b => a.Touched.IntersectsWith(b.Touched)))
+                        .ShouldBe(0, $"pass {phase.Key.Pass} phase {phase.Key.Phase}: tiles on {tiles[i][0].Ground} and {tiles[j][0].Ground} touched one pixel");
+                }
+            }
+        }
+        output.WriteLine($"{met} requests reached into a phase-mate's ground");
+
+        // The premises: a field with each kind of star the issue names, and with work that reached past its ground.
+        plate.Stars.ShouldContain(static s => s.Model == StarFitModel.Pair, "a blend fitted as two stars");
+        plate.Stars.ShouldContain(static s => s.Model == StarFitModel.Profile, "a giant subtracted by its own profile");
+        Nearest(plate, Ring - 1.0, 250.0, 6.0).ShouldNotBeNull().Outcome.ShouldBe(StarFitOutcome.Subtracted, "the star the edge cuts");
+        tileWork.Length.ShouldBeGreaterThan(1000);
+        pastGround.ShouldNotBeEmpty("the field has work that reached past its tile's ground");
+        // Measured on this field: 4, all SymmetricProfile reads of the giants.
+        met.ShouldBeGreaterThan(0, "premise: a request would have reached into a phase-mate's ground on this field without the clip (measured 4)");
+
+        accesses.Where(static a => !a.Touched.IsEmpty && !a.Ground.Contains(a.Touched))
+            .ShouldBeEmpty("every rectangle a routine asks for through Square or Bound is cut to its tile's ground");
+    }
+
+    // #2378: with every tile's work held to its ground, the plate is the same whether a phase's tiles run one at a time
+    // or all at once, to the bit; on the field where their work reaches furthest. This varies only how many tile passes
+    // run at once (a race could still hide in a schedule this run happens not to take); the deterministic proof of the
+    // tiles' independence is ThePlateDoesNotDependOnTheOrderOfAPhasesTiles.
+    [Fact(Timeout = 600_000)]
+    [Trait("Category", "Heavy")]
+    public async Task ThePlateDoesNotDependOnHowManyTilesRunAtOnce()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var image = TileEdgeField().Image;
+        var one = await ClassicalStarRemover.BuildAsync(image, null, null, tileThreads: 1, recorder: null, fillDugCores: true, ct);
+        var many = await ClassicalStarRemover.BuildAsync(image, null, null, tileThreads: -1, recorder: null, fillDugCores: true, ct);
+
+        one.Plate.GetChannelSpan(0).SequenceEqual(many.Plate.GetChannelSpan(0)).ShouldBeTrue();
+        many.Stars.Length.ShouldBe(one.Stars.Length);
+        for (var k = 0; k < one.Stars.Length; k++)
+        {
+            // A row's amplitudes are an array, which a record compares by reference.
+            (many.Stars[k] with { ChannelAmplitudes = default }).ShouldBe(one.Stars[k] with { ChannelAmplitudes = default }, $"row {k}");
+            many.Stars[k].ChannelAmplitudes.SequenceEqual(one.Stars[k].ChannelAmplitudes).ShouldBeTrue($"row {k}");
+        }
+    }
+
+    // N1.3 of #2451: the tiles of a phase are visited forward and reversed on one thread each; if any tile read or wrote
+    // what another of its phase does, the order would show in the plate. Mono, and colour (the _lum writes and the colour
+    // branch of AddModel and AddProfileAt), on the same stars. Hand check (N1.3 of #2451): with Bound clipping to the frame
+    // instead of the tile's ground, this test still passed on mono and colour, because the requests that overrun their ground
+    // are reads and no write meets another tile's request (a write reaches 104 px, a phase's tiles are 256 px apart). So it
+    // proves independence on these fields, not that the clip is needed; NoTileReadsOrWritesPastItsGround guards the clip.
+    [Theory(Timeout = 600_000)]
+    [Trait("Category", "Heavy")]
+    [InlineData(1)]
+    [InlineData(3)]
+    public async Task ThePlateDoesNotDependOnTheOrderOfAPhasesTiles(int channels)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var image = TileEdgeField(channels).Image;
+        var forward = await ClassicalStarRemover.BuildAsync(image, null, null, 1, null, true, false, ClassicalStarRemover.TileOrder.Forward, ct);
+        var reversed = await ClassicalStarRemover.BuildAsync(image, null, null, 1, null, true, false, ClassicalStarRemover.TileOrder.Reversed, ct);
+
+        for (var c = 0; c < channels; c++)
+        {
+            forward.Plate.GetChannelSpan(c).SequenceEqual(reversed.Plate.GetChannelSpan(c)).ShouldBeTrue($"channel {c}");
+        }
+        reversed.Stars.Length.ShouldBe(forward.Stars.Length);
+        for (var k = 0; k < forward.Stars.Length; k++)
+        {
+            (reversed.Stars[k] with { ChannelAmplitudes = default }).ShouldBe(forward.Stars[k] with { ChannelAmplitudes = default }, $"row {k}");
+            reversed.Stars[k].ChannelAmplitudes.SequenceEqual(forward.Stars[k].ChannelAmplitudes).ShouldBeTrue($"row {k}");
         }
     }
 

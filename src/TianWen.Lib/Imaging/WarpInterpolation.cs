@@ -30,7 +30,7 @@ public enum WarpInterpolation
     Lanczos3,
 
     /// <summary>The default since 7.1. <see cref="Lanczos3"/> with PixInsight's clamping rule (PCL
-    /// <c>LanczosInterpolation</c>, what StarAlignment's "Lanczos-3" is): per sample the negative-lobe
+    /// <c>LanczosInterpolation</c>, what StarAlignment's "Lanczos-3" is; credited in NOTICE): per sample the negative-lobe
     /// contribution is compared with the positive one, attenuated smoothly once it exceeds the
     /// threshold and dropped once it reaches it. The threshold is 0.7, not PixInsight's 0.3, and it
     /// was measured rather than inherited (<c>Image.LanczosClampingThreshold</c> carries the sweep):

@@ -17,7 +17,9 @@ using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.BackgroundExtraction;
 using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Imaging.Sources;
+using TianWen.Lib.Imaging.StarRemoval;
 using TianWen.Lib.Imaging.Stacking;
+using TianWen.Lib.Imaging.Workbench;
 using TianWen.UI.Abstractions;
 
 namespace TianWen.Cli;
@@ -214,7 +216,8 @@ internal sealed partial class ImageSubCommand(
         };
         var outputOpt = new Option<string?>("--output", "-o")
         {
-            Description = "Directory for the aligned masters, each <name>_aligned.fits. Default: beside each master.",
+            Description = "Directory for the aligned masters, each <name>_aligned.fits. Default: beside each master. "
+                + "With one master, a name ending in .fits is the output file itself.",
         };
         var cmd = new Command("align", "Put masters of one target on one master's grid, matched by their stars and resampled once (Lanczos-3, clamped); "
             + "where a master does not reach is absent (NaN).")
@@ -230,7 +233,11 @@ internal sealed partial class ImageSubCommand(
                 consoleHost.WriteError($"Failed to read FITS file: {referencePath}");
                 return 1;
             }
-            var outputDir = parseResult.GetValue(outputOpt);
+            var others = parseResult.GetValue(othersArg) ?? [];
+            var output = parseResult.GetValue(outputOpt);
+            // With one master, -o may name the file itself; otherwise it is the directory the aligned masters go into.
+            var outputFile = output is not null && others.Length == 1 && HasFitsExtension(output) ? output : null;
+            var outputDir = outputFile is null ? output : null;
             if (outputDir is not null)
             {
                 Directory.CreateDirectory(outputDir);
@@ -240,30 +247,18 @@ internal sealed partial class ImageSubCommand(
                 $"[align] reference {Path.GetFileName(referencePath)}: {reference.Width}x{reference.Height}, {referenceStars.Count} stars, "
                 + $"median FWHM {MasterAlignment.MedianFwhm(referenceStars):F2} px"));
             var failed = 0;
-            foreach (var path in parseResult.GetValue(othersArg) ?? [])
+            foreach (var path in others)
             {
-                if (!Image.TryReadFitsFile(path, out var master, out _))
-                {
-                    consoleHost.WriteError($"Failed to read FITS file: {path}");
-                    failed++;
-                    continue;
-                }
-                var (aligned, reason) = await MasterAlignment.AlignAsync(reference, master, referenceStars, ct);
-                master.Release();
-                if (aligned is null)
-                {
-                    consoleHost.WriteError($"[align] {Path.GetFileName(path)}: not aligned, {reason}");
-                    failed++;
-                    continue;
-                }
-                var dst = Path.Combine(outputDir ?? Path.GetDirectoryName(Path.GetFullPath(path)) ?? ".",
+                var dst = outputFile ?? Path.Combine(outputDir ?? Path.GetDirectoryName(Path.GetFullPath(path)) ?? ".",
                     Path.GetFileNameWithoutExtension(path) + "_aligned.fits");
-                aligned.Image.WriteToFitsFile(dst, referenceWcs, SharpenPipeline.SwModifyHeader());
-                consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                    $"[align] {Path.GetFileName(path)}: {aligned.Stars} stars, matched on {aligned.QuadStars} at tolerance {aligned.QuadTolerance:F2}, "
-                    + $"rms {aligned.RmsPx:F3} px; scale {aligned.Scale:F5}, rotation {aligned.RotationDeg:F3} deg, "
-                    + $"shift ({aligned.ToReference.M31:F1}, {aligned.ToReference.M32:F1}) px; median FWHM {aligned.MedianFwhm:F2} px -> {dst}"));
-                aligned.Image.Release();
+                // Each master by the operation an edit list runs (AlignOperation), against the reference read once here.
+                var outcome = await AlignOperation.AlignAsync(reference, referenceWcs, referenceStars, OperationInput.FromFile(path), dst,
+                    line => consoleHost.WriteScrollable($"[align] {line}"), ct);
+                if (!outcome.Succeeded)
+                {
+                    consoleHost.WriteError($"[align] {outcome.Message}");
+                    failed++;
+                }
             }
             reference.Release();
             return failed == 0 ? 0 : 1;
@@ -306,76 +301,40 @@ internal sealed partial class ImageSubCommand(
         {
             Options = { lineOpt, continuumOpt, outputOpt, scaleOpt, methodOpt, significanceOpt, dryRunOpt },
         };
+        var continuumOperation = new ContinuumOperation();
         cmd.SetAction(async (parseResult, ct) =>
         {
             var linePath = parseResult.Required(lineOpt);
-            var continuumPath = parseResult.Required(continuumOpt);
             var method = parseResult.GetValue(methodOpt) ?? "flattest";
             if (method is not ("flattest" or "photometric"))
             {
                 consoleHost.WriteError($"--method must be flattest or photometric, got '{method}'");
                 return 1;
             }
-            if (!Image.TryReadFitsFile(linePath, out var line, out var lineWcs))
+            // The settings of the operation an edit list runs (ContinuumOperation), which measures, reports and subtracts.
+            var settings = new ContinuumSettings
             {
-                consoleHost.WriteError($"Failed to read FITS file: {linePath}");
+                Scale = parseResult.GetValue(scaleOpt),
+                Method = method == "photometric" ? ContinuumMethod.Photometric : ContinuumMethod.Flattest,
+                Significance = parseResult.GetValue(significanceOpt),
+            };
+            if (continuumOperation.Refusal(settings) is { } refusal)
+            {
+                consoleHost.WriteError($"[continuum] {refusal}");
                 return 1;
             }
-            if (!Image.TryReadFitsFile(continuumPath, out var continuum, out _))
-            {
-                consoleHost.WriteError($"Failed to read FITS file: {continuumPath}");
-                line.Release();
-                return 1;
-            }
-            if (line.Width != continuum.Width || line.Height != continuum.Height)
-            {
-                consoleHost.WriteError($"--line is {line.Width}x{line.Height} and --continuum {continuum.Width}x{continuum.Height}: put them on one grid first (tianwen image align).");
-                line.Release();
-                continuum.Release();
-                return 1;
-            }
-
-            var maskedLine = MasterAlignment.MaskAbsent(line);
-            var maskedContinuum = MasterAlignment.MaskAbsent(continuum);
-            var flattest = ContinuumSubtractor.FlattestResidualScale(maskedLine, maskedContinuum,
-                MasterAlignment.StarChannel(maskedLine), MasterAlignment.StarChannel(maskedContinuum), parseResult.GetValue(significanceOpt));
-            var lineStars = await MasterAlignment.FindStarsAsync(maskedLine, ct);
-            var continuumStars = await MasterAlignment.FindStarsAsync(maskedContinuum, ct);
-            var (photometric, matched, spread) = ContinuumSubtractor.PhotometricScale(lineStars, continuumStars);
-            var lineFwhm = MasterAlignment.MedianFwhm(lineStars);
-            var continuumFwhm = MasterAlignment.MedianFwhm(continuumStars);
-            consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                $"[continuum] flattest residual k {flattest.K:R} over {flattest.Pixels} pixels (residual deviation {flattest.ResidualAad:G4} "
-                + $"against the line's {flattest.LineAad:G4}); photometric k {photometric:G5} over {matched} stars (spread {spread:P1}); "
-                + $"FWHM line {lineFwhm:F2} px, continuum {continuumFwhm:F2} px"));
-            if (double.IsFinite(flattest.K) && double.IsFinite(photometric) && Math.Abs(flattest.K - photometric) > 0.1 * Math.Abs(photometric))
-            {
-                consoleHost.WriteScrollable("[continuum] the two scales differ by more than 10 percent: check the pairing, the grid and the two PSFs before trusting either.");
-            }
-            if (double.IsFinite(lineFwhm) && double.IsFinite(continuumFwhm) && Math.Abs(lineFwhm - continuumFwhm) > 0.15 * Math.Max(lineFwhm, continuumFwhm))
-            {
-                consoleHost.WriteScrollable("[continuum] the two masters' stars differ in width by more than 15 percent: subtracted stars will leave rings, and a fixed-aperture flux ratio reads the wider side low.");
-            }
-
-            var k = parseResult.GetValue(scaleOpt) ?? (method == "photometric" ? photometric : flattest.K);
-            if (!double.IsFinite(k))
-            {
-                consoleHost.WriteError($"[continuum] no {method} scale could be measured; pass --scale.");
-                line.Release();
-                continuum.Release();
-                return 1;
-            }
-            if (!parseResult.GetValue(dryRunOpt))
-            {
-                var dst = parseResult.GetValue(outputOpt)
+            // --dry-run reports the scales and writes nothing: the operation is given no file to write.
+            var dst = parseResult.GetValue(dryRunOpt)
+                ? null
+                : parseResult.GetValue(outputOpt)
                     ?? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(linePath)) ?? ".", Path.GetFileNameWithoutExtension(linePath) + "_pure.fits");
-                var pure = ContinuumSubtractor.Subtract(maskedLine, maskedContinuum, k);
-                pure.WriteToFitsFile(dst, lineWcs, SharpenPipeline.SwModifyHeader());
-                pure.Release();
-                consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture, $"[continuum] subtracted with k {k:R} -> {dst}"));
+            var outcome = await continuumOperation.SubtractAsync(settings, OperationInput.FromFile(linePath),
+                OperationInput.FromFile(parseResult.Required(continuumOpt)), dst, line => consoleHost.WriteScrollable($"[continuum] {line}"), ct);
+            if (!outcome.Succeeded)
+            {
+                consoleHost.WriteError($"[continuum] {outcome.Message}");
+                return 1;
             }
-            line.Release();
-            continuum.Release();
             return 0;
         });
         return cmd;
@@ -474,6 +433,7 @@ internal sealed partial class ImageSubCommand(
         {
             Options = { redOpt, greenOpt, blueOpt, haOpt, haScaleOpt, haWeightOpt, starlessOpt, coreCatalogueOpt, linearFitOpt, deblurOpt, matchPsfOpt, luminanceOpt, lrgbOpt, colourSigmaOpt, denoiseOpt, denoiseStrengthOpt, colourDenoiseStrengthOpt, outputOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt },
         };
+        var combine = new CombineOperation(starRemover, deblurrer, denoiser, objectDb);
         cmd.SetAction(async (parseResult, ct) =>
         {
             var paths = new List<string> { parseResult.Required(redOpt), parseResult.Required(greenOpt), parseResult.Required(blueOpt) };
@@ -481,76 +441,54 @@ internal sealed partial class ImageSubCommand(
             {
                 paths.Add(haPath);
             }
-            var masters = new List<Image>(paths.Count);
-            WCS? wcs = null;
-            foreach (var path in paths)
-            {
-                if (!Image.TryReadFitsFile(path, out var image, out var imageWcs))
-                {
-                    consoleHost.WriteError($"Failed to read FITS file: {path}");
-                    return 1;
-                }
-                wcs ??= imageWcs;
-                masters.Add(MasterAlignment.MaskAbsent(image));
-                image.Release();
-            }
-            // The recipe (ColourComposition) runs each step's own routine in order; this verb only reads, parses and writes.
+            // The settings of the operation an edit list runs (CombineOperation). The recipe (ColourComposition) is that
+            // operation's routine and runs each step's own routine in order; this verb only parses and writes.
             var fitTo = parseResult.GetValue(linearFitOpt) ?? "green";
-            var options = new ColourCompositionOptions
+            var settings = new CombineSettings
             {
-                LinearFitTo = fitTo switch
+                LinearFit = fitTo switch
                 {
-                    "red" => ColourChannel.Red,
-                    "blue" => ColourChannel.Blue,
-                    "none" => null,
-                    _ => ColourChannel.Green,
+                    "red" => CombineLinearFit.Red,
+                    "blue" => CombineLinearFit.Blue,
+                    "none" => CombineLinearFit.None,
+                    _ => CombineLinearFit.Green,
                 },
                 Deblur = parseResult.GetValue(deblurOpt),
                 MatchPsf = parseResult.GetValue(matchPsfOpt),
                 Starless = parseResult.GetValue(starlessOpt),
                 // As image remove-stars: on a plate-solved set the catalogued stars inside a protected core stay removed.
-                CatalogStars = parseResult.GetValue(starlessOpt)
-                    ? await CoreCatalogueAsync("combine", parseResult.GetValue(coreCatalogueOpt), wcs, masters[0].Width, masters[0].Height, ct)
-                    : null,
+                Catalogue = CoreCatalogue.Parse(parseResult.GetValue(coreCatalogueOpt)),
                 LineScale = parseResult.GetValue(haScaleOpt),
                 LineWeight = parseResult.GetValue(haWeightOpt),
-                Luminance = parseResult.GetValue(luminanceOpt) is not null,
                 Lrgb = parseResult.GetValue(lrgbOpt),
                 ColourSigma = parseResult.GetValue(colourSigmaOpt),
                 Denoise = parseResult.GetValue(denoiseOpt),
-                DetailDenoise = parseResult.GetValue(denoiseStrengthOpt) is { } strength
-                    ? new EnhanceOptions(Tuning: new EnhanceTuning(DenoiseStrength: Math.Clamp(strength, 0f, 1f)))
-                    : EnhanceOptions.Default,
-                ColourDenoise = new EnhanceOptions(Tuning: new EnhanceTuning(
-                    DenoiseStrength: Math.Clamp(parseResult.GetValue(colourDenoiseStrengthOpt), 0f, 1f))),
+                DenoiseStrength = parseResult.GetValue(denoiseStrengthOpt) is { } strength ? Math.Clamp(strength, 0f, 1f) : null,
+                ColourDenoiseStrength = Math.Clamp(parseResult.GetValue(colourDenoiseStrengthOpt), 0f, 1f),
             };
-            var roles = new ColourCompositionRoles(starRemover, deblurrer, denoiser);
-            if (ColourComposition.Validate(masters, options, roles) is { } problem)
+            if (combine.Refusal(settings) is { } refusal)
             {
-                consoleHost.WriteError($"[combine] {problem}.");
+                consoleHost.WriteError($"[combine] {refusal}.");
                 return 1;
             }
-            ColourComposition.Result result;
-            try
+            var luminancePath = parseResult.GetValue(luminanceOpt);
+            var (result, outcome) = await combine.ComposeAsync(settings, [.. paths.Select(OperationInput.FromFile)], withLuminance: luminancePath is not null,
+                line => consoleHost.WriteScrollable($"[combine] {line}"), ct);
+            if (result is null)
             {
-                result = await ColourComposition.RunAsync(masters, options, roles, line => consoleHost.WriteScrollable($"[combine] {line}"), ct);
-            }
-            catch (InvalidOperationException ex)
-            {
-                consoleHost.WriteError($"[combine] {ex.Message}.");
+                consoleHost.WriteError($"[combine] {outcome.Message}");
                 return 1;
             }
 
-            if (parseResult.GetValue(luminanceOpt) is { } luminancePath && result.Luminance is { } luminance)
+            if (luminancePath is not null && result.Luminance is { } luminance)
             {
-                luminance.ScaleFloatValuesToUnit().WriteToFitsFile(luminancePath, wcs, SharpenPipeline.SwModifyHeader());
+                luminance.ScaleFloatValuesToUnit().WriteToFitsFile(luminancePath, result.Wcs, SharpenPipeline.SwModifyHeader());
                 consoleHost.WriteScrollable($"[combine] wrote {luminancePath}");
             }
-            var rgb = NarrowbandCombination.Rgb(result.Red, result.Green, result.Blue).ScaleFloatValuesToUnit();
             var dst = parseResult.Required(outputOpt);
-            rgb.WriteToFitsFile(dst, wcs, SharpenPipeline.SwModifyHeader());
+            OperationOutput.Write(result.Rgb, dst, result.Wcs);
             consoleHost.WriteScrollable($"[combine] wrote {dst}");
-            await WriteCompanionAsync(rgb, dst, parseResult.GetValue(formatOpt), rgb.ImageMeta, wcs, "combine",
+            await WriteCompanionAsync(result.Rgb, dst, parseResult.GetValue(formatOpt), result.Rgb.ImageMeta, result.Wcs, "combine",
                 useStretchedPng: false,
                 peakNits: Math.Clamp(parseResult.GetValue(pngPqPeakNitsOpt), 1f, 10000f),
                 gamutToBt2020: parseResult.GetValue(pngPqGamutOpt) == PngPqGamut.Bt2020, ct: ct);
@@ -648,14 +586,22 @@ internal sealed partial class ImageSubCommand(
                 return Task.FromResult(1);
             }
 
-            // What a refused edge loses is CoverageTrimPolicy's, not this verb's: the Lib routine
-            // applies the producing policy (the one the stacker uses), so this verb and a master
-            // written by `tianwen stack` crop identically, which they did not while this logic lived
-            // here: the CLI removed V1045 Ori's strip exactly and the bake kept it.
-            var rule = MasterAutoCropRule.ForModel(
-                parseResult.GetValue(trimDeclinedOpt), parseResult.GetValue(marginOpt));
-            var scan = MasterAutoCrop.Scan(src, input, rule, logger);
-            var rect = scan.Rect;
+            // The rectangle is CropOperation's: the verb builds its settings from the options, and the operation
+            // resolves them (what a refused edge loses is CoverageTrimPolicy's, so this verb, the workbench and a
+            // master written by `tianwen stack` crop identically). The verb words what the scan did from its result.
+            var settings = new CropSettings
+            {
+                Auto = true,
+                TrimDeclined = parseResult.GetValue(trimDeclinedOpt),
+                Margin = parseResult.GetValue(marginOpt),
+            };
+            var operation = new CropOperation(logger);
+            var resolved = operation.TryResolve(settings, src, input, say: null, out var resolution, out var refusal);
+            // Auto is set, so the resolution always carries the rule the scan ran under; a fallback rule would only
+            // restate the build in CropOperation, which is what carrying it avoids.
+            var rule = resolution.Rule ?? throw new InvalidOperationException("an auto crop resolves with the rule its scan ran under");
+            var scan = resolution.Scan.GetValueOrDefault();
+            var rect = resolution.Rectangle;
 
             if (scan.DeclinedTrim is { } declined)
             {
@@ -684,9 +630,9 @@ internal sealed partial class ImageSubCommand(
                 $"[autocrop] {src.Width}x{src.Height} -> {rect.Width}x{rect.Height} at ({rect.X},{rect.Y}) "
                 + $"via the {tier}{(scan.Declined ? ", one or more edges DECLINED (band never settled)" : "")}");
 
-            if (rect.Width <= 0 || rect.Height <= 0)
+            if (!resolved)
             {
-                consoleHost.WriteError("The scan left nothing; refusing to write an empty crop.");
+                consoleHost.WriteError(refusal);
                 return Task.FromResult(2);
             }
             if (parseResult.GetValue(dryRunOpt))
@@ -697,7 +643,7 @@ internal sealed partial class ImageSubCommand(
             // Written through the same routine as `image crop`, so the output carries the alignment
             // provenance (canvas origin, reference frame) moved by the crop offset as well as the WCS.
             var dst = EnsureFitsExtension(parseResult.GetValue(outputOpt) ?? DefaultOut(input, "_autocrop"));
-            var written = MasterCrop.CropLoaded(input, src, wcs, rect, dst);
+            var written = CropOperation.Write(input, src, wcs, rect, dst);
             if (!written.Succeeded)
             {
                 consoleHost.WriteError(written.Message);
@@ -718,7 +664,7 @@ internal sealed partial class ImageSubCommand(
     /// numbers are exactly the crop or nothing: a rectangle not wholly inside the image is refused in
     /// words and no file is written. The WCS and the alignment provenance move with the crop.
     ///
-    /// <para>This calls <see cref="MasterCrop"/> and nothing of its own.</para>
+    /// <para>This builds <see cref="CropSettings"/> and calls <see cref="CropOperation"/> and nothing of its own.</para>
     /// </summary>
     private Command BuildCropCommand()
     {
@@ -750,12 +696,30 @@ internal sealed partial class ImageSubCommand(
                 return Task.FromResult(1);
             }
 
-            var rect = new PixelRect(
-                parseResult.GetValue(xOpt), parseResult.GetValue(yOpt),
-                parseResult.GetValue(widthOpt), parseResult.GetValue(heightOpt));
+            var settings = new CropSettings
+            {
+                X = parseResult.GetValue(xOpt),
+                Y = parseResult.GetValue(yOpt),
+                Width = parseResult.GetValue(widthOpt),
+                Height = parseResult.GetValue(heightOpt),
+            };
             var dst = EnsureFitsExtension(parseResult.GetValue(outputOpt) ?? DefaultOut(input, "_crop"));
 
-            var result = MasterCrop.CropFile(input, rect, dst);
+            if (!Image.TryReadFitsFile(input, out var image, out var wcs))
+            {
+                consoleHost.WriteError($"{input} could not be read as a FITS image");
+                return Task.FromResult(2);
+            }
+
+            // The rectangle is validated and written by CropOperation, as the workbench does.
+            if (!new CropOperation(logger).TryResolve(settings, image, input, say: null, out var resolution, out var refusal))
+            {
+                consoleHost.WriteError(refusal);
+                return Task.FromResult(2);
+            }
+
+            var rect = resolution.Rectangle;
+            var result = CropOperation.Write(input, image, wcs, rect, dst);
             if (!result.Succeeded)
             {
                 consoleHost.WriteError(result.Message);
@@ -1031,6 +995,7 @@ internal sealed partial class ImageSubCommand(
         };
         var deconvKernelOpts = new DeconvolutionKernelOptions();
         deconvKernelOpts.AddTo(cmd);
+        var enhance = new EnhanceOperation(sharpenPipeline);
         cmd.SetAction(async (parseResult, ct) =>
         {
             var input = parseResult.Required(inputArg);
@@ -1211,18 +1176,66 @@ internal sealed partial class ImageSubCommand(
                 return 1;
             }
 
-            // AI enhancers require [0, 1]. ScaleFloatValuesToUnit is a no-op
-            // when MaxValue <= 1 (= already normalised) and otherwise produces
-            // a fresh copy at unit range. Original `src` is unchanged.
-            var normalised = src.ScaleFloatValuesToUnit();
-
+            // The settings of the operation an edit list runs (EnhanceOperation, docs/plans/stacking-workbench.md W1).
+            // The program below is that operation's, and this verb adds only its own per-plate stretches to it, so
+            // `tianwen image sharpen` and a project's enhance step are one routine.
+            ImmutableArray<float> statedWhiteBalance = [];
+            if (parseResult.GetValue(sharpenWhiteBalanceOpt) is { Length: > 0 } wbText)
+            {
+                if (!TryParseWhiteBalance(wbText, out var given))
+                {
+                    consoleHost.WriteError($"--white-balance must be three positive finite numbers 'R,G,B'; got '{wbText}'.");
+                    return 1;
+                }
+                statedWhiteBalance = [given.R, given.G, given.B];
+            }
+            var scnrExplicit = parseResult.GetResult(scnrOpt)?.Tokens.Count > 0;
+            var settings = new EnhanceSettings
+            {
+                Backend = backend,
+                Gradient = !noGradient,
+                GradientBackend = gradient,
+                Mode = mode,
+                StellarSharpen = stellarOptIn,
+                StellarBlend = stellarBlend,
+                Deconvolve = !noDeconv,
+                // Stated only where the caller ASKED for the starless deconvolution: with BlurX live the canonical
+                // program drops it, and a stated blend is what keeps it.
+                DeconvolveBlend = deconvExplicit ? deconvBlend : null,
+                Denoise = !noDenoise,
+                DenoiseBlend = denoiseBlend,
+                DenoiseVariant = denoiseVariant,
+                // Stated only where --scnr was given: left out, the program decides.
+                Scnr = scnrExplicit ? scnrMode : null,
+                ScnrAmount = scnrAmount,
+                DeblurSharpen = deblurSharpen >= 0 ? (float)deblurSharpen : null,
+                DenoiseStrength = denoiseStrength >= 0 ? (float)denoiseStrength : null,
+                DenoiseIterations = denoiseIterations >= 1 ? denoiseIterations : null,
+                DeconvKernel = parseResult.GetValue(deconvKernelOpts.Kernel),
+                DeconvBeta = parseResult.GetValue(deconvKernelOpts.Beta),
+                DeconvResample = parseResult.GetValue(deconvKernelOpts.Resample),
+                WhiteBalance = statedWhiteBalance,
+            };
+            // The options the run uses are the ones the operation makes of these settings: one reading of them.
+            if (!EnhanceOperation.TryOptions(settings, out enhanceOptions, out var optionsRefusal))
+            {
+                consoleHost.WriteError($"[sharpen] {InSharpenOptions(optionsRefusal)}");
+                return 1;
+            }
+            if (enhance.Refusal(settings) is { } refusal)
+            {
+                consoleHost.WriteError($"[sharpen] {InSharpenOptions(refusal)}");
+                return 1;
+            }
 
             // What can serve THIS image under THESE options sets the program's shape (the RC-Astro
             // licence probe runs here, at the first enhance, never at DI build): the split program with
             // a star remover, BlurX-first where a deblurrer serves, and the whole-frame program
-            // (gradient, then denoise the frame) where no star remover does.
-            var capabilities = sharpenPipeline.CapabilitiesFor(normalised, enhanceOptions);
-            var deblurLive = capabilities.Deblur;
+            // (gradient, then denoise the frame) where no star remover does. The input goes onto the unit
+            // scale there too; the original `src` is unchanged.
+            var start = enhance.Start(src, enhanceOptions);
+            var normalised = start.Normalised;
+            var capabilities = start.Capabilities;
             if (!capabilities.StarRemoval && (dualStretch || noRecombine))
             {
                 consoleHost.WriteError(
@@ -1231,104 +1244,12 @@ internal sealed partial class ImageSubCommand(
                 return 1;
             }
 
-            // Stellar-sharpen is opt-in (default OFF), and only where a stellar sharpener serves: none
-            // ships today (the SETI Astro one went with the SAS tier on 2026-09-26, and it hardened
-            // bright cores into square white blocks, ~89k clipped px measured on a dense field). Hard
-            // override: when a BlurX deblurrer is live it is skipped even if opted in -- the BlurX-first
-            // (PixInsight OSC) flow deblurs whole-frame before star extraction, so re-sharpening the
-            // split stars double-dips.
-            var doStellar = stellarOptIn && !deblurLive && capabilities.StellarSharpen && capabilities.StarRemoval;
-            if (stellarOptIn && deblurLive)
-            {
-                consoleHost.WriteScrollable(
-                    "[sharpen] --stellar-sharpen ignored: BlurX deblurrer live (deblur is whole-frame upstream; re-sharpening extracted stars over-sharpens).");
-            }
-            else if (stellarOptIn && !doStellar)
-            {
-                consoleHost.WriteScrollable(
-                    "[sharpen] --stellar-sharpen ignored: no stellar sharpener is available (none ships today; RC-Astro BlurXTerminator's deblur tightens stars).");
-            }
-
-            // SCNR on the stars plate follows whichever canonical program applies, and only an
-            // explicit --scnr overrides it. SharpenRequest.DeblurFirst carries ScnrStarsStep
-            // (Average) and SharpenRequest.Canonical does not, which is the split honoured here:
-            // BlurX tightens every star to near the sampling limit, and the faint ones then carry a
-            // green fringe where the G channel outpaces R and B, so the BlurX-first flow neutralises
-            // it and the split program without a deblurrer has nothing to neutralise. --dual-stretch keeps its own
-            // reason on top: green stars are a stretched-space artefact, so a program that stretches
-            // in-pipeline wants SCNR whichever deblurrer is live.
-            var scnrExplicit = parseResult.GetResult(scnrOpt)?.Tokens.Count > 0;
-            var effectiveScnrMode = scnrExplicit ? scnrMode
-                : deblurLive || dualStretch ? ScnrMode.Average
-                : ScnrMode.None;
-            if (scnrExplicit && !capabilities.StarRemoval && scnrMode != ScnrMode.None)
-            {
-                consoleHost.WriteScrollable(
-                    "[sharpen] --scnr ignored: SCNR works on the stars plate, and with no star remover the program is whole-frame.");
-            }
-
-            // THE STEP ORDER IS NOT WRITTEN HERE. LinearEnhanceProgram.For is the one place it
-            // lives, and the viewer's Enhance button, the hosted endpoint and MasterPostProcessor
-            // all read it from there too; this verb only says which steps its flags keep and at
-            // what blend. It used to carry a hand-assembled list that began at RemoveStarsStep, so
-            // `tianwen image sharpen` ran neither the whole-frame deblur nor the gradient
-            // correction the other callers have always run: the same master enhanced in the viewer
-            // and on the command line came out visibly different, an uncorrected background with
-            // its colour cast intact, and nothing said so.
-            //
-            // Deviations from the canonical defaults, each with its own reason (and none of them can
-            // switch on a step no role serves: every step flag is ANDed with its capability):
-            //  - StellarSharpen is opt-in here, where a sharpener serves at all (see above).
-            //  - DeconvolveStarless survives a live deblurrer only if asked for outright.
-            //  - Scnr follows whichever canonical program applies unless --scnr overrides it, and
-            //    --dual-stretch wants it either way (green stars are a stretched-space artefact).
-            //  - Recombine is cleared by --no-recombine, which writes each plate separately.
-            //  - WhiteBalance multiplies a broadband SPCC balance the input states (a stacked master's WB
-            //    cards), or the one --white-balance gives for an input that states none, into the linear data
-            //    first, as `stack --enhance` and the viewer apply theirs.
-            (float R, float G, float B)? explicitWb = null;
-            if (parseResult.GetValue(sharpenWhiteBalanceOpt) is { Length: > 0 } wbText)
-            {
-                if (!TryParseWhiteBalance(wbText, out var given))
-                {
-                    consoleHost.WriteError($"--white-balance must be three positive finite numbers 'R,G,B'; got '{wbText}'.");
-                    return 1;
-                }
-                explicitWb = given;
-            }
-            var (stated, wbNote) = ResolveSharpenWhiteBalance(normalised.ImageMeta.ColourCalibration, explicitWb);
-            if (wbNote is not null)
-            {
-                consoleHost.WriteScrollable(wbNote);
-            }
-            var whiteBalance = await MasterPreviewRenderer.StatedToApplyAsync(stated, normalised.ImageMeta, ct);
-            if (whiteBalance is { } applying)
-            {
-                consoleHost.WriteScrollable(
-                    $"[sharpen] {ColourCalibration.CardOf(applying.Source)} white balance ({applying.R:F3}, {applying.G:F3}, {applying.B:F3}) applied to the linear input before the enhance");
-            }
-            var program = LinearEnhanceProgram.For(capabilities) with
-            {
-                WhiteBalance = whiteBalance,
-                // Blend left at the step default, as the canonical program has it; --deblur-sharpen
-                // tunes RC-Astro's own sharpening through EnhanceOptions and is a different dial.
-                GradientCorrection = !noGradient && capabilities.GradientCorrection,
-                SplitMode = mode,
-                StellarSharpen = doStellar,
-                StellarBlend = stellarBlend,
-                DeconvolveStarless = !noDeconv && capabilities.StarRemoval && capabilities.Deconvolve && (!deblurLive || deconvExplicit),
-                DeconvolveBlend = deconvBlend,
-                Denoise = !noDenoise && capabilities.Denoise,
-                DenoiseBlend = denoiseBlend,
-                DenoiseVariant = denoiseVariant,
-                Scnr = effectiveScnrMode,
-                ScnrAmount = scnrAmount,
-                Recombine = !noRecombine,
-                // Dual-stretch produces plates already in [0, 1] stretched space. Additive sum
-                // saturates at 1.0; screen is the natural bounded composite:
-                // Final = 1 - (1-bg)(1-fg). Split stays in linear (mode controls that).
-                RecombineMode = dualStretch ? RecombineMode.Screen : mode,
-            };
+            // THE STEP ORDER IS NOT WRITTEN HERE, nor which steps the flags keep: both are EnhanceOperation's
+            // (LinearEnhanceProgram.For, and its deviations from it, each with its reason there).
+            var program = await enhance.ProgramAsync(start, settings, stretchedInPipeline: dualStretch, recombine: !noRecombine,
+                line => consoleHost.WriteScrollable($"[sharpen] {InSharpenOptions(line)}"), ct);
+            var doStellar = program.StellarSharpen;
+            var effectiveScnrMode = program.Scnr;
 
             // The plate steps, then this verb's own per-plate stretch, then the composite. The
             // stretch's PLACEMENT is the CLI's call (SCNR after it, PixInsight convention); the
@@ -1685,6 +1606,7 @@ internal sealed partial class ImageSubCommand(
                 backendOpt, degreeOpt, surfaceOpt, downsampleOpt, divideOpt, excludeOpt,
             },
         };
+        var gradient = new GradientOperation(backgroundExtractor, gradientCorrector);
         cmd.SetAction(async (parseResult, ct) =>
         {
             var input = parseResult.Required(inputArg);
@@ -1699,7 +1621,6 @@ internal sealed partial class ImageSubCommand(
                 consoleHost.WriteError($"Failed to read FITS file: {input}");
                 return 1;
             }
-            var normalised = src.ScaleFloatValuesToUnit();
             var format = parseResult.GetValue(formatOpt);
             var peakNits = Math.Clamp(parseResult.GetValue(pngPqPeakNitsOpt), 1f, 10000f);
             var gamutToBt2020 = parseResult.GetValue(pngPqGamutOpt) == PngPqGamut.Bt2020;
@@ -1743,92 +1664,49 @@ internal sealed partial class ImageSubCommand(
                 exclusions = built.MoveToImmutable();
             }
 
-            if (backend == GradientBackend.Graxpert && !gradientCorrector.Name.Contains("GraXpert", StringComparison.OrdinalIgnoreCase))
+            // The settings of the operation an edit list runs (GradientOperation, docs/plans/stacking-workbench.md W1):
+            // what follows is that operation's own routine, so this verb and a project's step are one. It refuses
+            // what the classical options refuse, in their words.
+            var settings = new GradientSettings
             {
-                // Naming a backend has to mean it. 'auto' is the mode that silently substitutes; asking
-                // for GraXpert on a machine without its weights and quietly getting the classical fit
-                // would make a script's output depend on which box it ran on.
-                consoleHost.WriteError(
-                    "--backend graxpert: the GraXpert BGE weights are not installed, so the active corrector is "
-                    + $"'{gradientCorrector.Name}'. Install GraXpert and run it once (its model cache is read in place), "
-                    + "or use --backend classical / --backend auto.");
+                Backend = backend,
+                Degree = degree ?? BackgroundExtractionOptions.Default.PolynomialDegree,
+                Downsample = downsample ?? BackgroundExtractionOptions.Default.Downsample,
+                Surface = surface,
+                Divide = divide,
+                Exclusions = [.. exclusions.Select(GradientOperation.Flatten)],
+            };
+            if (gradient.Refusal(settings) is { } refusal)
+            {
+                consoleHost.WriteError($"flatten: {refusal}");
+                src.Release();
                 return 1;
-            }
-
-            BackgroundExtractionOptions? classicalOptions = null;
-            if (backend == GradientBackend.Classical)
-            {
-                classicalOptions = BackgroundExtractionOptions.Default with
-                {
-                    PolynomialDegree = degree ?? BackgroundExtractionOptions.Default.PolynomialDegree,
-                    Downsample = downsample ?? BackgroundExtractionOptions.Default.Downsample,
-                    SurfaceRefinement = surface,
-                    Correction = divide ? BackgroundCorrection.Divide : BackgroundCorrection.Subtract,
-                    Exclusions = exclusions,
-                };
-                try
-                {
-                    classicalOptions.Validate();
-                }
-                catch (ArgumentException ex)
-                {
-                    consoleHost.WriteError($"flatten: {ex.Message}");
-                    src.Release();
-                    return 1;
-                }
             }
 
             consoleHost.WriteScrollable(
                 $"[flatten] {input} {src.Width}x{src.Height}x{src.ChannelCount} backend={backend.ToString().ToLowerInvariant()}"
-                + (classicalOptions is { } o
-                    ? $" degree={o.PolynomialDegree} downsample={o.Downsample} surface={o.SurfaceRefinement}"
-                      + $" {o.Correction.ToString().ToLowerInvariant()}"
+                + (backend == GradientBackend.Classical
+                    ? $" degree={settings.Degree} downsample={settings.Downsample} surface={settings.Surface}"
+                      + $" {(divide ? BackgroundCorrection.Divide : BackgroundCorrection.Subtract).ToString().ToLowerInvariant()}"
                       + (exclusions.Length > 0 ? $" exclusions={exclusions.Length}" : "")
                     : "")
                 + (saveGradient ? " save-gradient=true" : ""));
 
             Image flattened;
-            Image? background = null;
+            Image? background;
             try
             {
-                if (classicalOptions is { } options)
+                // The classical extractor hands back the model whether or not it was asked, so
+                // --save-gradient costs nothing there and the "no separate surface" note below is
+                // unreachable on that path.
+                var (result, outcome) = await gradient.ExtractAsync(src, settings, saveGradient, line => consoleHost.WriteScrollable($"[flatten] {line}"), ct);
+                if (result is null)
                 {
-                    // The classical extractor hands back the model whether or not it was asked, so
-                    // --save-gradient costs nothing here and the "no separate surface" note below is
-                    // unreachable on this path.
-                    var result = await backgroundExtractor.ExtractAsync(normalised, options, ct);
-                    flattened = result.Cleaned;
-                    background = saveGradient ? result.Background : null;
-                    if (!saveGradient)
-                    {
-                        result.Background.Release();
-                    }
-
-                    // The kept fraction is the one number that says whether the fit sampled the sky or
-                    // the object: it is the share of working pixels the final iteration was made on, and
-                    // a frame-filling nebula drives it down. G1 measured 0.795 with the surface off
-                    // against 0.581 with it on over 118 real masters, so a run well under that is the
-                    // signal to look at --exclude or to turn --surface back off.
-                    foreach (var plane in result.Planes)
-                    {
-                        consoleHost.WriteScrollable(
-                            $"[flatten]   plane {plane.Plane}: kept {plane.KeptFraction:P1}"
-                            // P2, and only above a hundredth of a percent: a TianWen master's canvas
-                            // ring makes this nonzero on almost every real frame, and "excluded 0.0%"
-                            // reads as a bug rather than as the edge blocks it is.
-                            + (plane.ExcludedFraction >= 1e-4f ? $" excluded {plane.ExcludedFraction:P2}" : "")
-                            + $" residual {plane.ResidualSigma:0.###e+0} sigma, level {plane.Level:0.####}"
-                            + $", {plane.Iterations} iterations{(plane.Converged ? "" : " (NOT converged)")}");
-                    }
+                    // Naming a backend has to mean it: GraXpert asked for where its weights are not installed.
+                    consoleHost.WriteError($"--backend graxpert: {outcome.Message}");
+                    return 1;
                 }
-                else if (saveGradient)
-                {
-                    (flattened, background) = await gradientCorrector.EnhanceAndEstimateBackgroundAsync(normalised, ct);
-                }
-                else
-                {
-                    flattened = await gradientCorrector.EnhanceAsync(normalised, ct);
-                }
+                (flattened, background) = (result.Flattened, result.Background);
             }
             catch (Exception ex)
             {
@@ -1838,7 +1716,7 @@ internal sealed partial class ImageSubCommand(
             }
 
             var dst = EnsureFitsExtension(parseResult.GetValue(outputOpt) ?? DefaultOut(input, "_flattened"));
-            flattened.WriteToFitsFile(dst, wcs, SharpenPipeline.SwModifyHeader());
+            OperationOutput.Write(flattened, dst, wcs);
             consoleHost.WriteScrollable($"[flatten] wrote {dst}");
             await WriteCompanionAsync(flattened, dst, format, src.ImageMeta, wcs, "flatten",
                 useStretchedPng: false, peakNits: peakNits, gamutToBt2020: gamutToBt2020, ct: ct);
@@ -2578,26 +2456,6 @@ internal sealed partial class ImageSubCommand(
     }
 
     /// <summary>
-    /// Which balance <c>image sharpen</c> works from: an explicit <c>--white-balance</c> WINS over the input's own WB
-    /// cards (an option on the command line is the user's intent, and the cards used to win silently, so an override
-    /// was lost without a word), and the note names both triples when it replaced the file's. Null note when nothing
-    /// was replaced.
-    /// </summary>
-    internal static (ColourCalibration? Chosen, string? Note) ResolveSharpenWhiteBalance(
-        ColourCalibration? fromFile, (float R, float G, float B)? explicitWb)
-    {
-        if (explicitWb is not { } given)
-        {
-            return (fromFile, null);
-        }
-        var chosen = new ColourCalibration(given.R, given.G, given.B, ColourCalibrationSource.Spcc);
-        var note = fromFile is { } file
-            ? $"[sharpen] --white-balance ({given.R:F3}, {given.G:F3}, {given.B:F3}) replaces the input's own {ColourCalibration.CardOf(file.Source)} white balance ({file.R:F3}, {file.G:F3}, {file.B:F3})"
-            : null;
-        return (chosen, note);
-    }
-
-    /// <summary>
     /// Parse a <c>--white-balance</c> triple. Accepts exactly what the render line prints,
     /// <c>R,G,B</c>, and refuses anything that is not three positive finite numbers -- a zero or
     /// negative gain would black out or invert a channel, and a silently-dropped override would
@@ -3122,6 +2980,32 @@ internal sealed partial class ImageSubCommand(
     private static string DefaultOut(string input, string suffix)
         => StripExtension(input) + suffix + ".fits";
 
+    /// <summary>
+    /// A line the enhance operation worded, said as this verb says it: the operation names a setting and
+    /// <c>image sharpen</c> names its option, as it did before the operation had the words (#2475). Each pair is a
+    /// setting's name as the operation's lines start with it; a line that names none is said as it is.
+    /// </summary>
+    internal static string InSharpenOptions(string line)
+    {
+        foreach (var (setting, option) in SharpenOptionOfSetting)
+        {
+            line = line.Replace(setting, option, StringComparison.Ordinal);
+        }
+        return line;
+    }
+
+    private static readonly (string Setting, string Option)[] SharpenOptionOfSetting =
+    [
+        ("deblurSharpen is", "--deblur-sharpen is"),
+        ("denoiseStrength is", "--denoise-strength is"),
+        ("denoiseIterations is", "--denoise-iterations is"),
+        ("whiteBalance is", "--white-balance is"),
+        ("gradientBackend chooses the extractor of a gradient step that gradient leaves out", "--gradient chooses the extractor of a gradient step that --no-gradient leaves out"),
+        ("stellar sharpening ignored", "--stellar-sharpen ignored"),
+        ("scnr ignored", "--scnr ignored"),
+        ("the white balance given", "--white-balance"),
+    ];
+
     /// <summary>Says which of the master's map sidecars were cropped with it, and any that were not, with the reason.</summary>
     private void SayCroppedSidecars(string verb, MasterCropResult result)
     {
@@ -3144,12 +3028,12 @@ internal sealed partial class ImageSubCommand(
     /// would end up at <c>&lt;path&gt;.png/.jxr</c> while the FITS sits
     /// extensionless, an obviously broken pair).
     /// </summary>
-    private static string EnsureFitsExtension(string path)
+    private static string EnsureFitsExtension(string path) => HasFitsExtension(path) ? path : path + ".fits";
+
+    private static bool HasFitsExtension(string path)
         => path.EndsWith(".fits", StringComparison.OrdinalIgnoreCase)
             || path.EndsWith(".fit", StringComparison.OrdinalIgnoreCase)
-            || path.EndsWith(".fts", StringComparison.OrdinalIgnoreCase)
-            ? path
-            : path + ".fits";
+            || path.EndsWith(".fts", StringComparison.OrdinalIgnoreCase);
 
     private static string StripExtension(string path)
     {

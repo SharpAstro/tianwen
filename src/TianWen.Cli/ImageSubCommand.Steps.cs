@@ -11,6 +11,7 @@ using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Imaging.StarRemoval;
+using TianWen.Lib.Imaging.Workbench;
 
 namespace TianWen.Cli;
 
@@ -48,26 +49,23 @@ internal sealed partial class ImageSubCommand
             Arguments = { referenceArg, targetsArg },
             Options = { outputOpt, rejectHighOpt },
         };
-        cmd.SetAction((parseResult, ct) =>
+        // The fit itself is the operation an edit list runs (docs/plans/stacking-workbench.md, W1), so this verb and a
+        // project's step are one routine. It fits one master onto the reference, so several are several runs of it.
+        var linearFit = new LinearFitOperation();
+        cmd.SetAction(async (parseResult, ct) =>
         {
+            var reference = parseResult.Required(referenceArg);
             var targets = parseResult.Required(targetsArg);
-            if (!TryReadMasters([parseResult.Required(referenceArg), .. targets], out var masters, out var wcs) || !OneGrid(masters))
+            var settings = new LinearFitSettings { RejectHigh = parseResult.GetValue(rejectHighOpt) };
+            foreach (var target in targets)
             {
-                return Task.FromResult(1);
-            }
-            for (var i = 1; i < masters.Count; i++)
-            {
-                var fit = LinearFit.Measure(masters[i], masters[0], LinearFit.DefaultRejectLow, parseResult.GetValue(rejectHighOpt));
-                if (!double.IsFinite(fit.Slope) || fit.Slope <= 0)
+                if (await RunStepAsync("linear-fit", linearFit, settings, [target, reference],
+                        StepOutput(target, "_linearfit", parseResult.GetValue(outputOpt), targets.Length), ct) != 0)
                 {
-                    consoleHost.WriteError($"[linear-fit] {targets[i - 1]}: no line fits ({fit.Pixels} pixels).");
-                    return Task.FromResult(1);
+                    return 1;
                 }
-                consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                    $"[linear-fit] {Path.GetFileName(targets[i - 1])}: {fit.Offset:G5} + {fit.Slope:G5} x ({fit.Pixels} pixels, mean absolute deviation {fit.MeanAbsoluteDeviation:G4})"));
-                WriteStep(LinearFit.Apply(masters[i], fit), StepOutput(targets[i - 1], "_linearfit", parseResult.GetValue(outputOpt), targets.Length), wcs, "linear-fit");
             }
-            return Task.FromResult(0);
+            return 0;
         });
         return cmd;
     }
@@ -77,26 +75,20 @@ internal sealed partial class ImageSubCommand
     private Command BuildMatchPsfCommand()
     {
         var mastersArg = new Argument<string[]>("masters") { Description = "Masters on one grid.", Arity = ArgumentArity.OneOrMore };
+        var outputOpt = StepOutputsOption("<master>_psf.fits");
         var cmd = new Command("match-psf", "Blur every sharper master to the widest one's star width (PsfMatch), the fallback where no "
             + "deblurrer serves; writes <master>_psf.fits. Use the result for the colour and the measurements, never for a luminance.")
         {
             Arguments = { mastersArg },
+            Options = { outputOpt },
         };
+        var matchPsf = new MatchPsfOperation();
         cmd.SetAction(async (parseResult, ct) =>
         {
             var paths = parseResult.Required(mastersArg);
-            if (!TryReadMasters(paths, out var masters, out var wcs) || !OneGrid(masters))
-            {
-                return 1;
-            }
-            var (matched, report, target) = await PsfMatch.ToWidestAsync(masters, ct);
-            for (var i = 0; i < matched.Length; i++)
-            {
-                consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                    $"[match-psf] {Path.GetFileName(paths[i])}: FWHM {report[i].FwhmBefore:F2} px, blurred by sigma {report[i].Sigma:F2} to {report[i].FwhmAfter:F2} (target {target:F2})"));
-                WriteStep(matched[i], StepOutput(paths[i], "_psf", null, paths.Length), wcs, "match-psf");
-            }
-            return 0;
+            return TryStepOutputs("match-psf", paths, "_psf", parseResult.GetValue(outputOpt), out var outputs)
+                ? await RunJointStepAsync("match-psf", matchPsf, new NoSettings(), paths, [.. outputs.Select(static output => new StepOutputs(output))], ct)
+                : 1;
         });
         return cmd;
     }
@@ -106,7 +98,7 @@ internal sealed partial class ImageSubCommand
     private Command BuildDeblurCommand()
     {
         var mastersArg = new Argument<string[]>("masters") { Description = "FITS images to deblur; several go through on one scale.", Arity = ArgumentArity.OneOrMore };
-        var outputOpt = new Option<string?>("--output", "-o") { Description = "Output FITS, with one input only. Default: <input>_deblur.fits." };
+        var outputOpt = StepOutputsOption("<input>_deblur.fits");
         var headroomOpt = new Option<float>("--headroom")
         {
             Description = "The brightest input pixel goes to the deblurrer at 1/headroom of its ceiling, so no sharpened star clips.",
@@ -119,32 +111,14 @@ internal sealed partial class ImageSubCommand
             Arguments = { mastersArg },
             Options = { outputOpt, headroomOpt },
         };
+        var deblur = new DeblurOperation(deblurrer);
         cmd.SetAction(async (parseResult, ct) =>
         {
-            if (!IEnhancerAvailability.Serves(deblurrer, 1, EnhanceOptions.Default))
-            {
-                consoleHost.WriteError("[deblur] no deblurrer serves here. It comes from RC-Astro: install the rc-astro CLI and license BlurXTerminator, or set RC_ASTRO_CLI.");
-                return 3;
-            }
             var paths = parseResult.Required(mastersArg);
-            if (!TryReadMasters(paths, out var masters, out var wcs) || !OneGrid(masters))
-            {
-                return 1;
-            }
-            var (deblurred, atCeiling) = await NarrowbandCombination.DeblurAsync(masters, deblurrer, Math.Max(1f, parseResult.GetValue(headroomOpt)), ct);
-            for (var i = 0; i < deblurred.Length; i++)
-            {
-                var before = MasterAlignment.MedianFwhm(await MasterAlignment.FindStarsAsync(masters[i], ct));
-                var after = MasterAlignment.MedianFwhm(await MasterAlignment.FindStarsAsync(deblurred[i], ct));
-                consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                    $"[deblur] {Path.GetFileName(paths[i])}: FWHM {before:F2} px -> {after:F2} ({deblurrer.Name})"));
-                WriteStep(deblurred[i], StepOutput(paths[i], "_deblur", parseResult.GetValue(outputOpt), paths.Length), wcs, "deblur");
-            }
-            if (atCeiling > 0)
-            {
-                consoleHost.WriteScrollable($"[deblur] {atCeiling} pixels reached the deblurrer's ceiling and are clipped: raise --headroom.");
-            }
-            return 0;
+            return TryStepOutputs("deblur", paths, "_deblur", parseResult.GetValue(outputOpt), out var outputs)
+                ? await RunJointStepAsync("deblur", deblur, new DeblurSettings { Headroom = Math.Max(1f, parseResult.GetValue(headroomOpt)) }, paths,
+                    [.. outputs.Select(static output => new StepOutputs(output))], ct)
+                : 1;
         });
         return cmd;
     }
@@ -154,7 +128,12 @@ internal sealed partial class ImageSubCommand
     private Command BuildRemoveStarsCommand()
     {
         var mastersArg = new Argument<string[]>("masters") { Description = "FITS images to split; several go through on one scale.", Arity = ArgumentArity.OneOrMore };
-        var outputOpt = new Option<string?>("--output", "-o") { Description = "The starless FITS, with one input only. Default: <input>_starless.fits." };
+        var outputOpt = StepOutputsOption("<input>_starless.fits");
+        var starsOutputOpt = new Option<string[]>("--stars-output")
+        {
+            Description = "The stars FITS, once for each input in their order. Default: beside each starless output (see --no-stars).",
+            Arity = ArgumentArity.ZeroOrMore,
+        };
         var noStarsOpt = new Option<bool>("--no-stars") { Description = "Write the starless plate only, not the stars (the input less its starless plate, written beside the starless output: <input>_stars.fits by default, <name>_stars.fits beside an -o of <name>_starless.fits or <name>.fits)." };
         var modelOpt = new Option<string[]>("--model")
         {
@@ -204,13 +183,14 @@ internal sealed partial class ImageSubCommand
             + "go through on one scale, so a scale measured between two of them still holds between their plates.")
         {
             Arguments = { mastersArg },
-            Options = { outputOpt, noStarsOpt, modelOpt, viewsOpt, monoAsRgbOpt, noProtectCoresOpt, protectCoresOpt, coreCatalogueOpt, noFillDigsOpt, keepOvershootOpt, blackPointSigmaOpt },
+            Options = { outputOpt, starsOutputOpt, noStarsOpt, modelOpt, viewsOpt, monoAsRgbOpt, noProtectCoresOpt, protectCoresOpt, coreCatalogueOpt, noFillDigsOpt, keepOvershootOpt, blackPointSigmaOpt },
         };
+        var removeStars = new RemoveStarsOperation(starRemover, objectDb);
         cmd.SetAction(async (parseResult, ct) =>
         {
             var paths = parseResult.Required(mastersArg);
             var noProtect = parseResult.GetValue(noProtectCoresOpt);
-            if (!TryResolveCoreProtection(noProtect, parseResult.GetValue(protectCoresOpt), out var coreOptions))
+            if (!TryResolveCoreProtection(noProtect, parseResult.GetValue(protectCoresOpt), out _))
             {
                 consoleHost.WriteScrollable("[remove-stars] --protect-cores and --no-protect-cores contradict each other; give one");
                 return 1;
@@ -222,39 +202,56 @@ internal sealed partial class ImageSubCommand
                 consoleHost.WriteScrollable($"[remove-stars] {blackPointRefusal}");
                 return 1;
             }
-            if (!TryReadMasters(paths, out var masters, out var wcs) || !OneGrid(masters))
+            if (!TryStepOutputs("remove-stars", paths, "_starless", parseResult.GetValue(outputOpt), out var starless))
             {
                 return 1;
             }
+            // The stars go beside each STARLESS output unless they are named, and nowhere with --no-stars.
+            var noStars = parseResult.GetValue(noStarsOpt);
+            var starsGiven = parseResult.GetValue(starsOutputOpt) ?? [];
+            if (starsGiven.Length > 0 && (noStars || starsGiven.Length != paths.Length))
+            {
+                consoleHost.WriteError($"[remove-stars] --stars-output is given once for each master ({paths.Length}) and not with --no-stars; got {starsGiven.Length}.");
+                return 1;
+            }
+            var outputs = new List<StepOutputs>(paths.Length);
+            var written = new List<string>(starless);
+            for (var i = 0; i < paths.Length; i++)
+            {
+                var stars = starsGiven.Length > 0 ? EnsureFitsExtension(starsGiven[i]) : StarsOutput(starless[i]);
+                if (!noStars)
+                {
+                    written.Add(stars);
+                }
+                outputs.Add(noStars
+                    ? new StepOutputs(starless[i])
+                    : new StepOutputs(starless[i]) { Extra = System.Collections.Immutable.ImmutableDictionary<string, string>.Empty.Add(RemoveStarsOperation.Stars, stars) });
+            }
+            // A stars file that is a starless plate's file, or another master's stars file, is one result lost.
+            if (NamedTwice(written) is { } twice)
+            {
+                consoleHost.WriteError($"[remove-stars] {twice} is named twice among the starless and the stars outputs: each needs a file of its own.");
+                return 1;
+            }
+            // The settings of the operation an edit list runs (RemoveStarsOperation): the split, its core protection and
+            // its dig fill are that operation's routine, here with the registered remover or one of this run's own.
+            var settings = new RemoveStarsSettings
+            {
+                ProtectCores = !noProtect,
+                Catalogue = CoreCatalogue.Parse(parseResult.GetValue(coreCatalogueOpt)),
+                FillDigs = !parseResult.GetValue(noFillDigsOpt),
+                KeepOvershoot = parseResult.GetValue(keepOvershootOpt),
+            };
             // Weights named on the command line are a remover of this run's own, and closed with it; otherwise the registered one.
             using var own = parseResult.GetValue(modelOpt) is { Length: > 0 } models
                 ? OnnxTianWenStarRemover.Open(models, parseResult.GetValue(viewsOpt), parseResult.GetValue(monoAsRgbOpt), logger, blackPointSigma)
                 : null;
-            IStarRemover remover = own ?? starRemover;
-            consoleHost.WriteScrollable($"[remove-stars] {paths.Length} master(s) through {remover.Name}");
-            var catalogStars = coreOptions is null
-                ? null
-                : await CoreCatalogueAsync("remove-stars", parseResult.GetValue(coreCatalogueOpt), wcs, masters[0].Width, masters[0].Height, ct);
-            var (starless, stars, cores, filled) = await NarrowbandCombination.SplitStarsAsync(
-                masters, remover, coreOptions, fillDigs: !parseResult.GetValue(noFillDigsOpt), catalogStars,
-                holdAtOrUnderPlane: !parseResult.GetValue(keepOvershootOpt), ct);
-            for (var i = 0; i < starless.Length; i++)
+            var outcome = await removeStars.SplitAsync(own ?? starRemover, settings, [.. paths.Select(OperationInput.FromFile)], outputs,
+                line => consoleHost.WriteScrollable($"[remove-stars] {line}"), ct);
+            if (!outcome.Succeeded)
             {
-                if (filled is not null)
-                {
-                    consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                        $"[remove-stars] {Path.GetFileName(paths[i])}: dig-fill step covered {filled[i]:P1} of the pixels"));
-                }
-                if (cores?[i] is { } mask)
-                {
-                    SayCores("remove-stars", paths[i], mask);
-                }
-                var dst = StepOutput(paths[i], "_starless", parseResult.GetValue(outputOpt), paths.Length);
-                WriteStep(starless[i], dst, wcs, "remove-stars");
-                if (!parseResult.GetValue(noStarsOpt))
-                {
-                    WriteStep(stars[i], StarsOutput(dst), wcs, "remove-stars");
-                }
+                consoleHost.WriteError($"[remove-stars] {outcome.Message}");
+                return 1;
             }
             return 0;
         });
@@ -275,21 +272,15 @@ internal sealed partial class ImageSubCommand
         {
             Options = { inputOpt, starlessOpt, outputOpt, catalogueOpt },
         };
+        var protectCores = new ProtectCoresOperation(objectDb);
         cmd.SetAction(async (parseResult, ct) =>
         {
             var starlessPath = parseResult.Required(starlessOpt);
-            // The plate is read as written (its absent pixels are NaN, and an exact zero in it is the remover's value).
-            if (!TryReadMasters([parseResult.Required(inputOpt)], out var input, out var wcs)
-                || !TryReadMasters([starlessPath], out var starless, out _, maskAbsent: false)
-                || !OneGrid([input[0], starless[0]]))
-            {
-                return 1;
-            }
-            var catalogStars = await CoreCatalogueAsync("protect-cores", parseResult.GetValue(catalogueOpt), wcs, input[0].Width, input[0].Height, ct);
-            var mask = ExtendedCoreMask.Find(input[0], ExtendedCoreMask.Options.Default, catalogStars);
-            SayCores("protect-cores", starlessPath, mask);
-            WriteStep(mask.Apply(input[0], starless[0]), StepOutput(starlessPath, "_cores", parseResult.GetValue(outputOpt), 1), wcs, "protect-cores");
-            return 0;
+            // The plate is read as written there (its absent pixels are NaN, and an exact zero in it is the remover's value).
+            return await RunStepAsync("protect-cores", protectCores,
+                new ProtectCoresSettings { Catalogue = CoreCatalogue.Parse(parseResult.GetValue(catalogueOpt)) },
+                [starlessPath, parseResult.Required(inputOpt)],
+                StepOutput(starlessPath, "_cores", parseResult.GetValue(outputOpt), 1), ct);
         });
         return cmd;
     }
@@ -307,58 +298,6 @@ internal sealed partial class ImageSubCommand
         };
         option.AcceptOnlyFromAmong("auto", "embedded", "none");
         return option;
-    }
-
-    // The catalogued stars of a solved frame, for core protection; null with one line saying why where there are none.
-    private async Task<IReadOnlyList<FrameStar>?> CoreCatalogueAsync(string verb, string? choice, WCS? wcs, int width, int height, CancellationToken ct)
-    {
-        if (choice == "none")
-        {
-            return null;
-        }
-        // A header's pointing, or the matrix made up from its pixel scale and angle, is read as a WCS too and is no solution.
-        if (wcs is not { } solution || !CatalogFrameStars.IsSolved(solution))
-        {
-            consoleHost.WriteScrollable($"[{verb}] the master carries no plate solution, so stars inside a protected core stay with it "
-                + "(tianwen solve writes one)");
-            return null;
-        }
-        if (choice == "embedded" && objectDb is null)
-        {
-            // Only where this command was built without the catalogue; the program always hands it one.
-            consoleHost.WriteScrollable($"[{verb}] the embedded catalogue is not at hand here, so stars inside a protected core stay with it");
-            return null;
-        }
-        var installed = choice == "embedded" ? null : TianWen.Lib.Astrometry.Catalogs.AstapStarDatabase.FindInstalled();
-        var (stars, why) = await CatalogFrameStars.ReadAsync(solution, width, height, installed, objectDb, ct);
-        if (stars is null)
-        {
-            consoleHost.WriteScrollable($"[{verb}] no catalogued stars ({why}), so stars inside a protected core stay with it");
-            return null;
-        }
-        consoleHost.WriteScrollable($"[{verb}] catalogued stars from {stars.Source}");
-        return stars.Stars;
-    }
-
-    private void SayCores(string verb, string path, ExtendedCoreMask mask)
-    {
-        var name = Path.GetFileName(path);
-        if (mask.Cores.Length == 0)
-        {
-            consoleHost.WriteScrollable($"[{verb}] {name}: no extended source bright enough to protect");
-            return;
-        }
-        consoleHost.WriteScrollable($"[{verb}] {name}: protected " + string.Join("; ", mask.Cores.Select(c =>
-            string.Create(CultureInfo.InvariantCulture, $"({c.X}, {c.Y}), peak {c.PeakSigma:F0} sigma, {c.CoreAreaPx} px of {c.SourceAreaPx}"))));
-        if (mask.StarsLeftOut is { } found)
-        {
-            consoleHost.WriteScrollable(found.CalibrationStars == 0
-                ? $"[{verb}] {name}: too few catalogued stars show on the frame to read a zero point, so the stars inside the cores stay with them"
-                : string.Create(CultureInfo.InvariantCulture,
-                    $"[{verb}] {name}: {found.Stars} of {found.Peaks} compact peaks inside the cores are catalogued stars and stay removed "
-                    + $"(zero point {found.ZeroPoint:F2} over {found.CalibrationStars} stars, scatter {found.ZeroPointScatter:F2} mag; "
-                    + $"a star of magnitude 10 reaches {found.ReachAtMagnitude10:F0} px)"));
-        }
     }
 
     // -------- tianwen image fill-digs ----------------------------------
@@ -381,22 +320,15 @@ internal sealed partial class ImageSubCommand
         {
             Options = { inputOpt, starlessOpt, outputOpt, keepOvershootOpt },
         };
-        cmd.SetAction(parseResult =>
+        var fillDigs = new FillDigsOperation();
+        cmd.SetAction(async (parseResult, ct) =>
         {
             var starlessPath = parseResult.Required(starlessOpt);
-            // The plate is read as written: remove-stars wrote its absent pixels as NaN, and an exact zero in it is a value
-            // the model gave, not the absent ring a master marks with zero.
-            if (!TryReadMasters([parseResult.Required(inputOpt)], out var input, out var wcs)
-                || !TryReadMasters([starlessPath], out var starless, out _, maskAbsent: false)
-                || !OneGrid([input[0], starless[0]]))
-            {
-                return 1;
-            }
-            var (plate, share) = NarrowbandCombination.FillDigsAlone(input[0], starless[0], holdAtOrUnderPlane: !parseResult.GetValue(keepOvershootOpt));
-            consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                $"[fill-digs] {Path.GetFileName(starlessPath)}: dig-fill step covered {share:P1} of the pixels"));
-            WriteStep(plate, StepOutput(starlessPath, "_filled", parseResult.GetValue(outputOpt), 1), wcs, "fill-digs");
-            return 0;
+            // The plate is read as written there: remove-stars wrote its absent pixels as NaN, and an exact zero in it
+            // is a value the model gave, not the absent ring a master marks with zero.
+            return await RunStepAsync("fill-digs", fillDigs, new FillDigsSettings { KeepOvershoot = parseResult.GetValue(keepOvershootOpt) },
+                [starlessPath, parseResult.Required(inputOpt)],
+                StepOutput(starlessPath, "_filled", parseResult.GetValue(outputOpt), 1), ct);
         });
         return cmd;
     }
@@ -406,7 +338,7 @@ internal sealed partial class ImageSubCommand
     private Command BuildDenoiseCommand()
     {
         var mastersArg = new Argument<string[]>("masters") { Description = "FITS images to denoise; several go through on one scale.", Arity = ArgumentArity.OneOrMore };
-        var outputOpt = new Option<string?>("--output", "-o") { Description = "Output FITS, with one input only. Default: <input>_denoise.fits." };
+        var outputOpt = StepOutputsOption("<input>_denoise.fits");
         var colourOpt = new Option<bool>("--colour") { Description = "Three mono planes (red, green, blue) denoised together as ONE colour image, so the denoiser sees their colour." };
         var strengthOpt = new Option<float?>("--strength") { Description = "Strength in [0, 1]. Default: the denoiser's own (NoiseXTerminator's is set from each plate's noise)." };
         var cmd = new Command("denoise",
@@ -417,35 +349,43 @@ internal sealed partial class ImageSubCommand
             Arguments = { mastersArg },
             Options = { outputOpt, colourOpt, strengthOpt },
         };
+        var denoise = new DenoiseOperation(denoiser);
         cmd.SetAction(async (parseResult, ct) =>
         {
             var paths = parseResult.Required(mastersArg);
+            if (!TryStepOutputs("denoise", paths, "_denoise", parseResult.GetValue(outputOpt), out var outputs))
+            {
+                return 1;
+            }
+            var settings = new DenoiseSettings { Strength = parseResult.GetValue(strengthOpt) is { } strength ? Math.Clamp(strength, 0f, 1f) : null };
+            if (!parseResult.GetValue(colourOpt))
+            {
+                // The operation an edit list runs (DenoiseOperation): every master through the denoiser on one scale.
+                return await RunJointStepAsync("denoise", denoise, settings, paths, [.. outputs.Select(static output => new StepOutputs(output))], ct);
+            }
+
+            // --colour: three mono planes as ONE colour image. Their order is their colour, so this is not that operation.
             if (!TryReadMasters(paths, out var masters, out var wcs) || !OneGrid(masters))
             {
                 return 1;
             }
-            var options = parseResult.GetValue(strengthOpt) is { } strength
-                ? new EnhanceOptions(Tuning: new EnhanceTuning(DenoiseStrength: Math.Clamp(strength, 0f, 1f)))
-                : EnhanceOptions.Default;
-            var colour = parseResult.GetValue(colourOpt);
-            if (colour && masters.Count != 3)
+            if (masters.Count != 3)
             {
                 consoleHost.WriteError("[denoise] --colour takes three mono planes: red, green and blue.");
                 return 1;
             }
-            if (!IEnhancerAvailability.Serves(denoiser, colour ? 3 : masters[0].ChannelCount, options))
+            var options = DenoiseOperation.OptionsOf(settings);
+            if (!IEnhancerAvailability.Serves(denoiser, 3, options))
             {
                 consoleHost.WriteError("[denoise] no denoiser serves this input here. Register one with AddRcAstroAi() (NoiseXTerminator, else TianWen's own N2N model on colour data).");
                 return 3;
             }
-            var denoised = colour
-                ? await NarrowbandCombination.DenoiseColourAsync(masters[0], masters[1], masters[2], denoiser, options, ct)
-                : await NarrowbandCombination.DenoiseAsync(masters, denoiser, options, ct);
+            var denoised = await NarrowbandCombination.DenoiseColourAsync(masters[0], masters[1], masters[2], denoiser, options, ct);
             for (var i = 0; i < denoised.Length; i++)
             {
                 consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
                     $"[denoise] {Path.GetFileName(paths[i])}: noise {SyntheticLuminance.BlockNoise(masters[i]):G4} -> {SyntheticLuminance.BlockNoise(denoised[i]):G4} over {SyntheticLuminance.NoiseBlockPx} px blocks ({denoiser.Name}, strength {ColourComposition.DescribeStrength(options)})"));
-                WriteStep(denoised[i], StepOutput(paths[i], "_denoise", parseResult.GetValue(outputOpt), paths.Length), wcs, "denoise");
+                WriteStep(denoised[i], outputs[i], wcs, "denoise");
             }
             return 0;
         });
@@ -476,18 +416,14 @@ internal sealed partial class ImageSubCommand
         {
             Options = { broadbandOpt, lineOpt, scaleOpt, weightOpt, outputOpt },
         };
-        cmd.SetAction(parseResult =>
+        var addLine = new AddLineOperation();
+        cmd.SetAction(async (parseResult, ct) =>
         {
             var broadbandPath = parseResult.Required(broadbandOpt);
-            if (!TryReadMasters([broadbandPath, parseResult.Required(lineOpt)], out var masters, out var wcs) || !OneGrid(masters))
-            {
-                return 1;
-            }
-            var (withLine, weight) = NarrowbandCombination.AddLineFrom(masters[0], masters[1], parseResult.GetValue(scaleOpt), parseResult.GetValue(weightOpt));
-            consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                $"[add-line] continuum scale {parseResult.GetValue(scaleOpt):G5}; the line added at {weight:G4}"));
-            WriteStep(withLine, StepOutput(broadbandPath, "_line", parseResult.GetValue(outputOpt), 1), wcs, "add-line");
-            return 0;
+            return await RunStepAsync("add-line", addLine,
+                new AddLineSettings { Scale = parseResult.GetValue(scaleOpt), Weight = parseResult.GetValue(weightOpt) },
+                [broadbandPath, parseResult.Required(lineOpt)],
+                StepOutput(broadbandPath, "_line", parseResult.GetValue(outputOpt), 1), ct);
         });
         return cmd;
     }
@@ -512,33 +448,21 @@ internal sealed partial class ImageSubCommand
         {
             Options = { redOpt, greenOpt, blueOpt, measureOpt, outputOpt },
         };
+        var luminance = new LuminanceOperation();
         cmd.SetAction(async (parseResult, ct) =>
         {
-            if (!TryReadMasters([parseResult.Required(redOpt), parseResult.Required(greenOpt), parseResult.Required(blueOpt)], out var masters, out var wcs) || !OneGrid(masters))
-            {
-                return 1;
-            }
-            List<Image>? measureOn = null;
+            // Green first: the luminance is on its scale, and it is the image the operation's edit is on.
+            List<string> inputs = [parseResult.Required(greenOpt), parseResult.Required(redOpt), parseResult.Required(blueOpt)];
             if (parseResult.GetValue(measureOpt) is { Length: > 0 } measurePaths)
             {
-                if (measurePaths.Length != 3 || !TryReadMasters(measurePaths, out measureOn, out _) || !OneGrid([.. masters, .. measureOn]))
+                if (measurePaths.Length != 3)
                 {
                     consoleHost.WriteError("[luminance] --measure-on takes red, green and blue on the masters' grid.");
                     return 1;
                 }
+                inputs.AddRange(measurePaths);
             }
-            var (luminance, parts, noise) = await SyntheticLuminance.BuildAsync(masters, measureOn, reference: 1, ct);
-            string[] names = ["red", "green", "blue"];
-            for (var i = 0; i < parts.Length; i++)
-            {
-                consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                    $"[luminance] {names[i]}: scale {parts[i].Scale:G4} onto green ({parts[i].Stars} stars), noise {parts[i].ScaledNoise:G4} on green's scale, weight {parts[i].Weight:P1}"));
-            }
-            var best = Math.Min(parts[0].ScaledNoise, Math.Min(parts[1].ScaledNoise, parts[2].ScaledNoise));
-            consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                $"[luminance] noise {noise:G4} against the best single channel's {best:G4}: {best / noise:F2}x its signal to noise"));
-            WriteStep(luminance, EnsureFitsExtension(parseResult.Required(outputOpt)), wcs, "luminance");
-            return 0;
+            return await RunStepAsync("luminance", luminance, new NoSettings(), inputs, EnsureFitsExtension(parseResult.Required(outputOpt)), ct);
         });
         return cmd;
     }
@@ -554,33 +478,28 @@ internal sealed partial class ImageSubCommand
             Description = "The blur in pixels a channel keeps its own colour above; below it, the luminance's detail.",
             DefaultValueFactory = _ => LuminanceDetail.DefaultColourSigma,
         };
+        var outputOpt = new Option<string?>("--output", "-o") { Description = "Output FITS, with one channel only. Default: <channel>_lrgb.fits." };
         var cmd = new Command("lrgb", "Give each channel the luminance's fine detail (LuminanceDetail, LRGB in linear form): blur(channel) + "
             + "(L - blur(L)) / scale, the scale measured between the two by a linear fit. Run it on starless planes; the stars go back "
             + "after with image add-stars, in their own colour.")
         {
             Arguments = { channelsArg },
-            Options = { luminanceOpt, colourSigmaOpt },
+            Options = { luminanceOpt, colourSigmaOpt, outputOpt },
         };
-        cmd.SetAction(parseResult =>
+        var lrgb = new LrgbOperation();
+        cmd.SetAction(async (parseResult, ct) =>
         {
             var channels = parseResult.Required(channelsArg);
-            if (!TryReadMasters([parseResult.Required(luminanceOpt), .. channels], out var planes, out var wcs) || !OneGrid(planes))
+            var luminancePath = parseResult.Required(luminanceOpt);
+            var settings = new LrgbSettings { ColourSigma = parseResult.GetValue(colourSigmaOpt) };
+            // One channel a run of the operation, so the luminance is read for each.
+            foreach (var channel in channels)
             {
-                return 1;
-            }
-            for (var i = 1; i < planes.Count; i++)
-            {
-                var scale = LuminanceDetail.ScaleFor(planes[i], planes[0]);
-                if (!double.IsFinite(scale))
+                if (await RunStepAsync("lrgb", lrgb, settings, [channel, luminancePath],
+                        StepOutput(channel, "_lrgb", parseResult.GetValue(outputOpt), channels.Length), ct) != 0)
                 {
-                    consoleHost.WriteError($"[lrgb] {channels[i - 1]}: no scale could be measured against the luminance.");
                     return 1;
                 }
-                // LuminanceDetail.Transfer's two halves, the scale checked first so a refusal is an answer, not a throw.
-                var detailed = LuminanceDetail.Apply(planes[i], planes[0], scale, parseResult.GetValue(colourSigmaOpt));
-                consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                    $"[lrgb] {Path.GetFileName(channels[i - 1])}: the luminance's detail at 1/{scale:G4}"));
-                WriteStep(detailed, DefaultOut(channels[i - 1], "_lrgb"), wcs, "lrgb");
             }
             return 0;
         });
@@ -598,19 +517,14 @@ internal sealed partial class ImageSubCommand
         {
             Options = { starlessOpt, starsOpt, outputOpt },
         };
-        cmd.SetAction(parseResult =>
+        var addStars = new AddStarsOperation();
+        cmd.SetAction(async (parseResult, ct) =>
         {
             var starlessPath = parseResult.Required(starlessOpt);
-            // The stars are read as written: a stars image is exactly zero wherever the remover left a pixel alone, which
-            // is a value there, not the absent ring a master marks with zero.
-            if (!TryReadMasters([starlessPath], out var starless, out var wcs)
-                || !TryReadMasters([parseResult.Required(starsOpt)], out var stars, out _, maskAbsent: false)
-                || !OneGrid([starless[0], stars[0]]))
-            {
-                return 1;
-            }
-            WriteStep(NarrowbandCombination.WithStars(starless[0], stars[0]), StepOutput(starlessPath, "_stars-back", parseResult.GetValue(outputOpt), 1), wcs, "add-stars");
-            return 0;
+            // The stars are read as written there: a stars image is exactly zero wherever the remover left a pixel alone,
+            // which is a value there, not the absent ring a master marks with zero.
+            return await RunStepAsync("add-stars", addStars, new NoSettings(), [starlessPath, parseResult.Required(starsOpt)],
+                StepOutput(starlessPath, "_stars-back", parseResult.GetValue(outputOpt), 1), ct);
         });
         return cmd;
     }
@@ -656,6 +570,101 @@ internal sealed partial class ImageSubCommand
             }
         }
         return true;
+    }
+
+    // One run of the operation an edit list runs (docs/plans/stacking-workbench.md, W1), given files and said under the
+    // verb's name, so the verb and a project's step are one routine. The exit code: 0, or 1 where it gave no result.
+    private async Task<int> RunStepAsync<TSettings>(string verb, Operation<TSettings> operation, TSettings settings, IReadOnlyList<string> inputs, string output,
+        CancellationToken ct)
+        where TSettings : class, new()
+    {
+        if (operation.Refusal(settings) is { } refusal)
+        {
+            consoleHost.WriteError($"[{verb}] {refusal}");
+            return 1;
+        }
+        var outcome = await operation.RunAsync(settings, [.. inputs.Select(OperationInput.FromFile)], output,
+            line => consoleHost.WriteScrollable($"[{verb}] {line}"), ct);
+        if (!outcome.Succeeded)
+        {
+            consoleHost.WriteError($"[{verb}] {outcome.Message}");
+            return 1;
+        }
+        return 0;
+    }
+
+    // One run of an operation several masters go through together (IJointOperation), given files and said under the
+    // verb's name. The exit code: 0, 3 where nothing here serves it, else 1.
+    private async Task<int> RunJointStepAsync<TSettings>(string verb, JointOperation<TSettings> operation, TSettings settings, IReadOnlyList<string> inputs,
+        IReadOnlyList<StepOutputs> outputs, CancellationToken ct)
+        where TSettings : class, new()
+    {
+        if (operation.Refusal(settings) is { } refusal)
+        {
+            consoleHost.WriteError($"[{verb}] {refusal}");
+            return 1;
+        }
+        var outcome = await operation.RunJointAsync(settings, [.. inputs.Select(OperationInput.FromFile)], outputs,
+            line => consoleHost.WriteScrollable($"[{verb}] {line}"), ct);
+        if (!outcome.Succeeded)
+        {
+            consoleHost.WriteError($"[{verb}] {outcome.Message}");
+            return outcome.Failure is OperationFailure.NotServed ? 3 : 1;
+        }
+        return 0;
+    }
+
+    // The -o of a verb that takes several masters: once for each, in their order.
+    private static Option<string[]> StepOutputsOption(string byDefault) => new("--output", "-o")
+    {
+        Description = $"Output FITS, once for each input in their order. Default: {byDefault} beside each input.",
+        Arity = ArgumentArity.ZeroOrMore,
+    };
+
+    // Where each master's result goes: the -o given for it, or beside it under the suffix when none is given. False,
+    // said, when -o is given some other number of times than there are masters.
+    private bool TryStepOutputs(string verb, IReadOnlyList<string> inputs, string suffix, string[]? given, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string[]? outputs)
+    {
+        if (given is not { Length: > 0 })
+        {
+            outputs = [.. inputs.Select(input => DefaultOut(input, suffix))];
+        }
+        else if (given.Length != inputs.Count)
+        {
+            consoleHost.WriteError($"[{verb}] -o is given once for each input ({inputs.Count}), or not at all; got {given.Length}.");
+            outputs = null;
+            return false;
+        }
+        else
+        {
+            outputs = [.. given.Select(EnsureFitsExtension)];
+        }
+
+        // Two masters' results in one file is one of them lost: the second written over the first without a word.
+        if (NamedTwice(outputs) is { } twice)
+        {
+            consoleHost.WriteError($"[{verb}] {twice} is named twice among the outputs: each master's result needs a file of its own.");
+            outputs = null;
+            return false;
+        }
+
+        return true;
+    }
+
+    // The first file named twice among a verb's outputs, as the file system tells files apart; null when each is its own.
+    internal static string? NamedTwice(IEnumerable<string> files)
+    {
+        // Windows and macOS fold the case of a file's name by default, Linux does not.
+        var seen = new HashSet<string>(OperatingSystem.IsLinux() ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase);
+        foreach (var file in files)
+        {
+            if (!seen.Add(Path.GetFullPath(file)))
+            {
+                return file;
+            }
+        }
+
+        return null;
     }
 
     // -o names the output of a step with one input; with several each goes beside its input.

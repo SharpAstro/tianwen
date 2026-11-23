@@ -135,6 +135,32 @@ public sealed class SharpenPipeline(
         => LinearEnhanceProgram.For(CapabilitiesFor(input, options));
 
     /// <summary>
+    /// The enhancer that would serve each role <paramref name="program"/> asks under <paramref name="options"/>, by
+    /// name, with "none" where a role has none and "left out" where no step of the program asks it: what an enhance
+    /// step's key holds beside its settings (<c>docs/architecture/workbench-operations.md</c>), so a result one set of
+    /// enhancers made is never taken for another's. A role whose backend follows from the options is named by the one
+    /// they choose (<see cref="IEnhancerAvailability.NameUnder"/>): a step that says the in-house backend is keyed by
+    /// the in-house model where RC-Astro is licensed too. A role the program leaves out never runs, so it is not named,
+    /// and installing or removing its enhancer moves no key of a step that does not use it (#2475). Whether a role
+    /// SERVES a given image is <see cref="CapabilitiesFor"/>'s to say; this only names what would run.
+    /// </summary>
+    /// <param name="options">The backend, the tuning and the gradient extractor the roles are named under.</param>
+    /// <param name="program">The steps that may run: every switch a caller can leave on, whatever serves.</param>
+    public string DescribeRoles(EnhanceOptions options, LinearEnhanceProgram program)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(program);
+        // The stellar sharpening and the starless deconvolution are steps of the split program alone (PlateSteps).
+        return $"deblur {Named(deblurrer, options, program.Deblur)}; gradient {Named(gradientCorrector, options, program.GradientCorrection)}; "
+            + $"stars {Named(starRemover, options, program.SplitStars)}; stellar {Named(stellarSharpener, options, program.SplitStars && program.StellarSharpen)}; "
+            + $"deconvolve {Named(nonStellarDeconvolver, options, program.SplitStars && program.DeconvolveStarless)}; "
+            + $"denoise {Named(denoiser, options, program.Denoise)}";
+    }
+
+    private static string Named(IImageEnhancer? role, EnhanceOptions options, bool asked)
+        => !asked ? "left out" : role is null ? "none" : (role as IEnhancerAvailability)?.NameUnder(options) ?? role.Name;
+
+    /// <summary>
     /// The finite-input boundary every enhancer stands behind: interior holes are interpolated from
     /// their neighbours, a canvas ring no crop removed becomes the pipeline's zero ring, and only what
     /// is left after both falls back to the per-channel mean. The same instance comes back when there

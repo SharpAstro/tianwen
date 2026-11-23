@@ -80,8 +80,13 @@ come from `Microsoft.Testing.Extensions.CrashDump` / `.HangDump` / `.TrxReport`,
   busy machine says nothing.
 - **A zero or sub-kilobyte allocation bound is asserted on the least of several readings**
   (`AllocationReadings.Least`, #1331), and every reading is written to the test's output. An allocation the call
-  makes shows in every pass, so a call that allocates can never read zero; a one-off landing on the measuring
-  thread from elsewhere shows in one. `RaDecCellEnumerationTests.ANineCellWalkAllocatesNothing` read 5,336 B once
+  makes on every pass shows in every reading, so a call that allocates each time can never read zero; a one-off
+  landing on the measuring thread from elsewhere shows in one. **The body must do the same work on every pass**
+  (#2440): a call that allocates only now and then can read zero in all of them. A periodic allocation (a pool
+  refilled every Nth call) is put into every reading by making N or more calls inside one pass. A one-time one (a
+  scratch buffer that grows to its size and then stays) is spent in the warm-up and is in no reading, like any
+  first-call cost, and more calls in a pass do not bring it back (#2452).
+  `RaDecCellEnumerationTests.ANineCellWalkAllocatesNothing` read 5,336 B once
   in 87 full-suite runs for a walk with no allocating path. What the one-off is, is not known: tiered
   compilation's promotion was the guess, and an allocation-free walk called 60,000 times in a fresh process never
   read anything but 0 B. A bound with room for a few kilobytes ("less than half a frame") needs none of this.

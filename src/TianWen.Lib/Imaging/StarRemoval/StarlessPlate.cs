@@ -117,13 +117,19 @@ public readonly record struct StarlessBand(
 /// <param name="Seconds">Wall time of the build.</param>
 /// <param name="Speckles">Dark speckles at the subtracted sites, per significance band, against the plate's own sky
 /// (<see cref="StarlessSpeckles"/>); null on a record from before they were read.</param>
+/// <param name="DugCores">Subtracted stars whose core the hole sweep refilled for a dug pixel alone: a core pixel the
+/// subtraction took more than 4 sigma from and left more than 4 sigma under the sky round the star, in the pixel-to-pixel
+/// noise there, where the core's mean passed the hole test (#2449). 0 on a record from before the sweep looked for them.</param>
 public sealed record StarlessPlateStatistics(
     ImmutableArray<StarlessBand> Bands, float InpaintFraction, int LeftoverNearThreshold,
     float FaintResidualCentre, float FaintResidualCorners, ImmutableArray<float> FwhmPx, ImmutableArray<float> MoffatBeta,
     float FieldWidthScale, float FieldBeta, float HoleNullRate, ImmutableArray<float> NoiseCorrelation, double Seconds,
-    SpeckleReport? Speckles = null);
+    SpeckleReport? Speckles = null, int DugCores = 0);
 
-/// <summary>What <see cref="ClassicalStarRemover.BuildAsync"/> returns: the starless plate and the record of what made it.</summary>
+/// <summary>
+/// What <see cref="ClassicalStarRemover.BuildAsync(Image, StarlessPlateOptions, Microsoft.Extensions.Logging.ILogger, System.Threading.CancellationToken)"/>
+/// returns: the starless plate and the record of what made it.
+/// </summary>
 /// <param name="Plate">The starless plate, same shape, units, pedestal and metadata as the input.</param>
 /// <param name="Subtracted">Pixels a subtracted star's model reached above a tenth of the local sigma.</param>
 /// <param name="Inpainted">Pixels replaced by the fill.</param>

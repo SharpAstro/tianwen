@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 
 namespace TianWen.Lib
@@ -156,31 +157,32 @@ namespace TianWen.Lib
         private static Stamp For(Assembly assembly)
         {
             var informational = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
-
-            string version;
-            string? sha = null;
-            if (informational is { Length: > 0 })
-            {
-                // Source link appends "+<40 hex>". Split on the LAST '+' so a prerelease label that
-                // already contains one (1.0.0-beta+build.3+sha) still yields the trailing SHA.
-                var plus = informational.LastIndexOf('+');
-                if (plus > 0 && plus < informational.Length - 1)
-                {
-                    version = informational[..plus];
-                    sha = informational[(plus + 1)..];
-                }
-                else
-                {
-                    version = informational;
-                }
-            }
-            else
-            {
-                version = assembly.GetName().Version?.ToString() ?? "unknown";
-            }
-
+            var (version, sha) = informational is { Length: > 0 }
+                ? ParseInformational(informational)
+                : (assembly.GetName().Version?.ToString() ?? "unknown", null);
             return new Stamp(assembly.GetName().Name ?? "unknown", version, sha, BuiltUtcOf(assembly));
         }
+
+        /// <summary>
+        /// The version and the commit an informational version states. Source link appends "+&lt;40 hex&gt;", split on
+        /// the LAST '+' so a prerelease label that already contains one (1.0.0-beta+build.3+sha) still yields the trailing
+        /// SHA. Where the version already carries build metadata, source link appends ".&lt;sha&gt;" to it instead, and CI
+        /// stamps "+&lt;sha&gt;" into the version itself, so a CI build reads 10.1.123+&lt;sha&gt;.&lt;sha&gt;: the commit is
+        /// the metadata's last dot-separated segment when that is a whole SHA, and the metadata whole otherwise.
+        /// </summary>
+        internal static (string Version, string? Sha) ParseInformational(string informational)
+        {
+            var plus = informational.LastIndexOf('+');
+            if (plus <= 0 || plus == informational.Length - 1)
+            {
+                return (informational, null);
+            }
+            var metadata = informational[(plus + 1)..];
+            var last = metadata[(metadata.LastIndexOf('.') + 1)..];
+            return (informational[..plus], IsSha(last) ? last : metadata);
+        }
+
+        private static bool IsSha(string s) => s.Length == 40 && s.All(Uri.IsHexDigit);
 
         // IL3000 warns that Location is always empty under single-file, which is precisely the case
         // handled here: empty falls through to Environment.ProcessPath. Using ProcessPath alone

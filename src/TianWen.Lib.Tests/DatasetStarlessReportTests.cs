@@ -2,6 +2,7 @@ using Shouldly;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text.Json;
 using System.Threading.Tasks;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Dataset;
@@ -87,6 +88,46 @@ public class DatasetStarlessReportTests(ITestOutputHelper output) : IDisposable
             var stem = Path.GetFileNameWithoutExtension(path);
             File.Exists(Path.Combine(outRoot, "plates", stem + "_plate.fits")).ShouldBeTrue();
             File.Exists(StarlessCatalogue.PathFor(Path.Combine(outRoot, "plates"), stem)).ShouldBeTrue();
+        }
+    }
+
+    // #2449: every run says what built its plates, once, before its first master, beside the store: the library's version
+    // and commit (the one the SDK appends to the informational version, which the bake's launcher reads off the binary),
+    // when it started, and the builder's options. A second run adds a line of its own, so a run resumed under another
+    // commit does not take the first run's plates for its own.
+    [Fact]
+    public async Task EachRunRecordsTheCommitAndTheOptionsItBuildsWith()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var masterPath = Path.Combine(_root, "master.fits");
+        Directory.CreateDirectory(_root);
+        var master = SyntheticMaster(seed: 1);
+        master.WriteToFitsFile(masterPath);
+        master.Release();
+        var outRoot = Path.Combine(_root, "out");
+        var options = new DatasetStarlessReport.RunOptions([masterPath], outRoot, ProbeHoles: 0);
+        var started = DateTimeOffset.UtcNow;
+
+        (await DatasetStarlessReport.RunAsync(options, cancellationToken: ct)).Measured.ShouldBe(1);
+        (await DatasetStarlessReport.RunAsync(options, cancellationToken: ct)).Skipped.ShouldBe(1);
+
+        var lines = await File.ReadAllLinesAsync(Path.Combine(outRoot, "stats", DatasetStarlessReport.ProvenanceFileName), ct);
+        foreach (var line in lines)
+        {
+            output.WriteLine(line);
+        }
+        lines.Length.ShouldBe(2, "one line per run");
+        foreach (var line in lines)
+        {
+            var record = JsonSerializer.Deserialize(line, DatasetStarlessJsonContext.Default.StarlessRunProvenance).ShouldNotBeNull();
+            record.Commit.ShouldNotBeNullOrEmpty("a build of a git checkout carries its commit");
+            record.Commit.ShouldMatch("^[0-9a-f]{40}$");
+            record.Commit.ShouldBe(BuildInfo.CommitSha);
+            record.Version.ShouldBe(BuildInfo.Version);
+            record.StartedUtc.ShouldBeGreaterThanOrEqualTo(started);
+            record.Builder.ShouldBe(StarlessPlateOptions.Default);
+            record.Masters.ShouldBe(1);
+            record.WritePlates.ShouldBeTrue();
         }
     }
 
