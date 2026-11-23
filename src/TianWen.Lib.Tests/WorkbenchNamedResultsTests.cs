@@ -28,6 +28,8 @@ internal sealed class SplitFramesOperation : RunNamedOperation<AddSettings>
         "split-frames", Version: 1, Title: "Split", Verb: "none", OperationOutputKind.Stored, ExtraInputs: [], Settings: [])
     {
         NamedByRun = true,
+        // It reads a folder of frames, as the stack does; any operation that does not say so is refused one.
+        TakesFrameSet = true,
     };
 
     protected override JsonTypeInfo<AddSettings> SettingsInfo => WorkbenchTestJsonContext.Default.AddSettings;
