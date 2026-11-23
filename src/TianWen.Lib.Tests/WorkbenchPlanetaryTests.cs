@@ -458,7 +458,10 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
     {
         // A crop's output is not a file: its input has no path, and the identification reads no name, so the process's working
         // directory (whose folders may name a planet, a filter or a telescope) is never taken for the master's.
-        var master = WorkbenchFixtures.Master(seed: 1);
+        // The master's own header names nothing either (the fixture's names a filter and an instrument), so only a file name could.
+        var source = WorkbenchFixtures.Master(seed: 1);
+        var master = new Image([source.GetChannelArray(0)], BitDepth.Float32, 1f, 0f, 0f,
+            WorkbenchFixtures.Meta() with { Filter = Filter.None, Instrument = "", Telescope = "" });
         try
         {
             var identity = await PlanetaryIdentification.IdentifyMasterAsync(master, path: null, cancellationToken: TestContext.Current.CancellationToken);
@@ -472,7 +475,36 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
         finally
         {
             master.Release();
+            source.Release();
         }
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task ACropIntoPlanetarySharpenTakesNoPlanetFromTheFolderOfTheMasterBehindIt()
+    {
+        // The step after a crop reads a derived input: no path. A master filed in a folder named for a planet must not give the
+        // cropped one that planet, whatever the step goes on to do with it (the line is said before the sharpening).
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("planetary-sharpen-crop-").FullName;
+        var inSaturn = Directory.CreateDirectory(Path.Combine(folder, "Saturn")).FullName;
+        var source = WorkbenchFixtures.Master(seed: 1);
+        var bare = new Image([source.GetChannelArray(0)], BitDepth.Float32, 1f, 0f, 0f,
+            WorkbenchFixtures.Meta() with { Filter = Filter.None, Instrument = "", Telescope = "" });
+        var master = WorkbenchFixtures.WriteMaster(inSaturn, "master", bare);
+        bare.Release();
+        source.Release();
+        await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("cut", master,
+                WorkbenchFixtures.Edit(CropOperation.Id, new JsonObject { ["x"] = 8, ["y"] = 8, ["width"] = 96, ["height"] = 96 }),
+                WorkbenchFixtures.Edit(PlanetarySharpenOperation.Id))), ct);
+        var said = new List<string>();
+
+        await new WorkbenchRunner(new OperationCatalog([new CropOperation(), new PlanetarySharpenOperation()]))
+            .RunAsync(folder, new WorkbenchRunOptions { Say = said.Add }, ct);
+
+        var line = said.FirstOrDefault(static text => text.Contains("AUTO:", StringComparison.Ordinal)).ShouldNotBeNull(string.Join(Environment.NewLine, said));
+        line.ShouldContain("nothing names one");
+        line.ShouldNotContain("folder", Case.Insensitive);
     }
 
     [Fact(Timeout = 120_000)]
