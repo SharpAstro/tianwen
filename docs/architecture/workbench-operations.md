@@ -285,7 +285,9 @@ Each is a later leg of W1 (#1641) or a later phase, and none is assumed by the c
 - **`image denoise --colour`** (#2465): three planes denoised as one colour image, where the order of the planes is
   their colour, so it is not a run several images share.
 - **A set of frames as an input** (calibrate, register, integrate; #2467).
-- **Statistics** as the second operation that writes no pixels (#2469); the kind is here with the plate solve.
+- **Statistics** (`image stats`, `image sources`, `image channel-offsets`). A measurement changes nothing a later step
+  reads, so as an edit of a list it would only give every step after it another key. It is a fact about a step's
+  result, which is W9's (#2236): measured when a gate or a panel asks, and kept by the key of the result it measures.
 - **Preconditions and how an operation previews**: the facts are W9's (#2236), the preview W12's (#2239).
 - **The enhance program's steps.** `SharpenStep` and its records stay the pipeline's in-memory program; an operation's
   settings are a JSON class that the operation turns into those records in one place
