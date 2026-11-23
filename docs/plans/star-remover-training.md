@@ -9264,7 +9264,9 @@ the first angle is a step after the model and not another arm:
       starts at, so the registered ratio has no denominator and cannot be formed.** What its log says: at the first
       rate the held-out readings were unsteady (lowest window 2.447e-5 at 16,500, one reading of 1.5e-3 at 17,500),
       so the plateau rule halved 12,000 steps after that best; after it the run set 46 new bests, halved again at
-      84,000, 137,500 and 162,500, and stopped itself at 223,500 (best 211,500), no resume. A stall as the rule has
+      84,000, 137,500 and 162,500, and stopped itself at 223,500 (best 211,500), no resume. (That R4h's second
+      halving and R4i's first both stand at 84,000 is no slip: each log shows a best at step 72,000 and the halving
+      24 readings later; R4i's others came at 111,000, 144,000 and 156,500.) A stall as the rule has
       it needs a run with no new best after its first halving, so R4h did not stall; with the reference taken from
       step 10,000, which is NOT the registered figure, the ratio reads 0.29. Whether a pair whose first halvings
       stand at 28,500 and 84,000 "trained alike" the registration does not say beyond its two examples (one evicted
@@ -9303,9 +9305,11 @@ the first angle is a step after the model and not another arm:
       R4h misses neither failed row, so neither is the exporter's. The peaks row is the one the 40 sigma read failed
       at inference (1 of 77), and it is what the sheet shows on 30 Doradus's core: on the Tarantula R4i's broad
       light taken as trained is 10.05, twice R4h's 5.06.
-    - **R4h's own read: what the exporter's changes did to R4d's rows.** Through the chain every star row is
-      within a point of R4d's (the table above), and the nebula rows are R4d's or better: 18 of 77 peaks standing,
-      the Lagoon's broad light taken 1.91 where R4d reads 2.67. Three things are not within a point. As trained
+    - **R4h's own read: what the exporter's changes did to R4d's rows.** Through the chain the flats, the dug
+      share, the nucleus, purity and Gaia BP 17-19 are within a point of R4d's (the table above), and the three
+      nebula guards are R4d's or better: light added 0.0 %, 18 of 77 peaks standing, the Lagoon's broad light taken
+      1.91 where R4d reads 2.67. The glow's green median moves, far inside its bars: -8.5 to -47.9 on Andromeda
+      (bar 450) and 106.5 to -14.7 on the Tarantula (bar 500). Three more things are not within a point. As trained
       Andromeda's dark flat is 60.4 with 24.7 % dug where R4d reads 69.4 and 19.5; the light taken from the
       Tarantula field over the whole frame is 84 % where R4d's is 82; and **the bright Pleiads are left standing
       more than R4d leaves them** (below). One seed does not say whether that is the exporter's knot fix or the
@@ -9348,15 +9352,32 @@ the first angle is a step after the model and not another arm:
       | Sagittarius (one plane) | 0.019 %, a quarter of it in 7 patches | 1 px |
 
       So the hazard is a frame's, not the rule's everywhere: on Andromeda the median stands on the galaxy's light and
-      the plain sky of the corners lies under a black point that close, on the other two it does not. R4i as
-      trained on the smoothed Andromeda master hands that sky back at the black point: its plate stands over its
-      input on 10.1 % of the frame (`nebula_rows.py`, in the smoothed frame's own noise, which is why its other
-      figures there are no match for the table's), in green by more than one master sigma on 9.3 % of the frame and
-      by 3.3 master sigma at the median of those pixels; on the other two masters it adds nothing (0.00 %). The
-      sheet of a dark corner (`r4i-smoothed-andromeda.png`, x 300, y 2591) shows the sky flat at the black point and
-      the stars left standing, dimmed; the stars there are 1.5 px wider than any the model was shown, so that half
-      is the smoothing's and says nothing of the black point. The guard #2341 asks for is needed before any model
-      with a depth ships; R4i is not that model.
+      the plain sky of the corners lies under a black point that close, on the other two it does not. The smoothed
+      copy is a Gaussian's, not a denoiser's: it cuts the noise 3.6 to 8.3 times, about the 5 to 10 times #2341
+      names for a denoised frame, and it widens every star by 1.5 px, which a denoiser does not.
+      **All three smoothed masters went through R4i as trained**, and the three nebula guards were read on each
+      (`nebula_rows.py`, plate against its smoothed input, in the smoothed frame's own noise, so the nebula region is
+      another, 83 / 39 / 25 % of the frame, and no figure is a match for the table's or its bars):
+
+      | smoothed master | light added on the nebula | on the whole frame | broad light taken | peaks standing, all / the brightest tenth |
+      |---|---|---|---|---|
+      | Andromeda | 0.11 % | **10.12 %** | 9.97 | 9.7 / 0.6 % |
+      | Tarantula | 0.00 % | 0.00 % | 7.20 | 23.5 / 2.6 % |
+      | Sagittarius | 0.00 % | 0.00 % | 5.36 | 13.5 / 6.0 % |
+
+      On Andromeda R4i hands the clipped sky back at the black point: its plate stands over its input on a tenth of
+      the frame, in green by more than one master sigma on 9.3 % of the frame and by 3.3 master sigma at the median
+      of those pixels. On the other two it adds nothing. **Five sheets were looked at** (`smooth_sheet.py`, four
+      panels on one stretch: the master, R4i's plate of it, the smoothed copy, R4i's plate of that; files
+      `r4i-smoothed-*.png`): a dark corner of Andromeda (x 300, y 2591) comes back flat, 5.6 master sigma over the
+      master's sky and grey-green where the sky is blue, with the stars left as dim discs; the other four crops
+      (30 Doradus's core, the Tarantula's knots at x 705, y 1585, the Lagoon's core, a Sagittarius star field at
+      x 600, y 600) keep their level, each crop's median within one master sigma of the master's, as the plate of
+      the master is. The three star fields are left with a mottle of dim stars, and 30 Doradus's core is left
+      bright where the plate of the master has the magenta wash. The stars left and the core kept are the
+      smoothing's doing as far as this can tell (the model was shown no star that wide and no frame that quiet), and
+      say nothing of the black point; the flat corner is the black point's. The guard #2341 asks for is needed
+      before any model with a depth ships; R4i is not that model.
     - **What it says.** (1) **Training the black point in does not do what #2309 hoped.** The two Pleiades nights
       still stand 71 points apart, the bright Pleiads are left more than before, and the model takes the Tarantula's
       knots and 30 Doradus's core, the same failure the depth showed at inference on 2026-11-21. With that read
@@ -9821,7 +9842,8 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     PR is on it, and the cache `r2-bright2` is prepared with the trainer's lists and `--prepare-keep`.
   - **The training.** R4h's recipe, cache, frozen trainer copy and command line exactly, with `--extra-cache
     r2-bright2 --extra-loss-mask --schedule-on main` added, seeds 0 and 1, each a Batch job that removes itself, the
-    two beside each other as R4h ran beside R4i. Models `r4j_synth32b2_s0` and `r4j_synth32b2_s1`. The bright cells
+    two beside each other as R4h ran beside R4i (the trainer copy is put right under "Before the launch" below:
+    R4h's copy has no such switch). Models `r4j_synth32b2_s0` and `r4j_synth32b2_s1`. The bright cells
     are 768 of 18,848 input tiles, 4.1 % of the draw. The masked loss is a mean over a batch's counted pixels, so a
     bright row weighs by the ninth of its pixels its mask counts, all of them on drawn stars: by counted pixels the
     bright rows are about half a percent of what the batches average over. How that weighs against the main rows'
@@ -9860,6 +9882,37 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     Tarantula's standing peaks falling by a few. What speaks against more: a twenty-fifth of the draw, 85 of the 96
     cells one object through one 3 nm filter, no star under the finder's limit in these rows, and seeds that stand
     10 to 20 points apart.
+  - **Before the launch, 2026-11-23, with no upload, training run or score of R4j in existence: one thing the text
+    above has wrong, two it owed, and the data as made.**
+    - **The trainer copy (wrong above).** "R4h's frozen trainer copy exactly, with `--extra-loss-mask` added" cannot
+      be run: that copy does not know the switch. The switch is R4g's (#2290) and sits on R4g's copy, a sibling of
+      R4h's: both are R4d's copy, the one with `--save-best` and the black point parts of #2328 added, the other
+      with the mask switch. R4j trains from the two merged three ways over that common parent (`r4j-run` on the
+      development machine): every line of R4g's switch as it stands, one of them carrying R4h's black-point
+      argument as main's trainer has it. Checked before the launch on the two-session preflight exports
+      (`r4j-check.sh` there): the main cache this copy prepares is R4h's copy's, byte for byte; sixty steps with
+      R4h's switches end on the weights R4h's copy ends on; sixty steps with R4g's switches (an extra cache, its
+      masks, the plateau on the main cache) end on the weights R4g's copy ends on. So nothing but the switch
+      differs from the trainer R4h ran. The line the switch prints still words the mask as D4's ("the sky near
+      their plate's own sources"); what it reads here are the drawn-stars masks.
+    - **R4h's planted figure, the parent's (owed above):** of the 205 bright plants R4h leaves **67.8 %**, of the
+      205 on dark sky 6.8 % (its best step's weights 68.3 and 7.3; R4d 68.8 and 6.8; StarXTerminator 42.4 and 0.5).
+      That is not 45.0 or under, so the bar can show the mask's doing, and the predicted 50 to 58 % is a gain of 10
+      to 18 points on it.
+    - **The two builds give one plate (owed before the first score row).** The fourteen figures and R4h's were
+      made on `bh-bin12`, which has no clamp; R4j's plates are made on a build of main with `--keep-overshoot`.
+      R4h's plate of the Sagittarius master from `bh-bin12` and from main's build (`bh-bin14`, main at "Stacking
+      workbench W1: eight colour steps as operations, their verbs calling them", `--no-protect-cores
+      --no-fill-digs --keep-overshoot`, the one plane in three channels) is the same in every one of its 3,073 x
+      3,085 pixels, absent pixels in the same places, and so is its plate of planted master 1. Without the flag the
+      newer build lowers 17.3 % of the pixels, by up to 7.1e-05 where the sky noise is 9.1e-05: the flag is needed.
+    - **The data as made.** `bright2` is 816 draws of 102 cells, each tile and noise plane copied from `bright1` at
+      its SHA-256, the Lagoon's 24 cells (three session ids) left out. The masks, from `bh-bin14`: 816 written,
+      159,763 drawn stars, 13.0 % of the pixels inside the rim counted (the two preflight sessions read 12.1).
+      The cache `r2-bright2`, prepared and packed by R4j's trainer copy: 102 cells, 96 training and 6 held out, 8
+      draws, 816 masks, stretched from each channel's minimum as `r2-synth32` is. Twenty steps of the launch's own
+      command line on the two real caches print what is registered: 96 training cells of 8 draws, 4.1 % of the
+      training draw, 6 held-out cells, the schedule reading the main cache's objective.
   - **Nothing is adopted;** adoption is the owner's.
 
 #### The dig floor inside bright nebula: floor4, and what it leaves (2026-11-20)

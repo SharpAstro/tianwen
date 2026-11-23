@@ -60,6 +60,9 @@ def sky_noise(plane):
             s = 1.4826 / np.sqrt(2) * float(np.median(d))
             if s > 0:
                 sig.append(s)
+    if not sig:
+        # Image.TryEstimateSkyNoise answers false here, and its caller says so.
+        raise SystemExit("no sky noise to read: every 64 px block touches the canvas ring or is flat")
     sig = np.sort(np.array(sig))
     rank = QUANTILE * (len(sig) - 1)
     lo = int(np.floor(rank))
