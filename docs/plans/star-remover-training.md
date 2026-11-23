@@ -9550,9 +9550,12 @@ scorecard's side of it is #2245.
 The owner, 2026-11-23, asked whether an arm can now aim at the faint stars on bright nebula. Three checks came first,
 none of them a training run. They corrected the row of 2026-11-22, gave a better instrument, and measured where the
 weakness is. All of it is on the held-out Sagittarius master (one plane; its bright nebula is the Lagoon's), ours as
-trained, every remover run with `bh-bin12` (the build R4h's and R4i's plates are made with), no core protection and no
-dig fill. Working files are in `C:/temp/e2/explore` and `D:/temp/tianwen-scratch/plant-neb2` on the development machine,
-the sheets in `D:/temp/tianwen-scratch/r4-look`.
+trained, every remover run with `bh-bin12` (the build R4h's and R4i's plates are made with): `image remove-stars
+--views 1 --no-stars --no-protect-cores --no-fill-digs --mono-as-rgb`, with `--model` for ours. That build is from
+before the plate was held at or under its input (#2433), so its plates are as each remover wrote them; a later build
+needs `--keep-overshoot` for the same, and the planted-star test is not indifferent to it (`plant_read.py` says why).
+Working files are in `C:/temp/e2/explore` and `D:/temp/tianwen-scratch/plant-neb2` on the development machine, the
+sheets in `D:/temp/tianwen-scratch/r4-look`.
 
 - **The row of 2026-11-22 counted nebula bumps as stars, and its median is no figure.**
   - **The median flips with the seed.** Over the plates already scored (twenty-one of ours, `nebula_stars_row.py` as
@@ -9655,8 +9658,9 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     local noise of a disc sum); five are stars of 21 to 107 sky sigma in the input, and what R4d keeps of them stands
     4 to 6 times over that noise. The owner, on that sheet: "yeah these are 3 stars, so are these: and there's
     probably a handful of others", and "they are super faint though".
-- **StarXTerminator's smooth plate of the Tarantula's crowded field makes nothing up** (`judge_floor_check.py`; the
-  owner: "do you think SXT is making up nebulosity here? it feels awfully smooth"). The 400 px crop of the sheet of
+- **StarXTerminator's smooth plate of the Tarantula's crowded field shows no made-up nebulosity: it never stands
+  over the input, and its structure is consistent with the data** (`judge_floor_check.py`; the owner: "do you think
+  SXT is making up nebulosity here? it feels awfully smooth"). The 400 px crop of the sheet of
   2026-11-20 (x 400, y 504, green), in the master's sky noise, beside R4d through the chain:
   - It never adds light: no pixel of its plate stands over the input by more than one sky noise (ours: 1.3 % of the
     crop). It lowers every pixel of the crop by more than that (ours: 66 %).
@@ -9710,10 +9714,14 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     alone, as R4h's does.
   - **Read first:** the 1:1 sheets (below), then the training by the stall rule of R4h's and R4i's registration.
   - **The question, on the models as trained:** of the 205 plants of 20 to 150 sky sigma on the Lagoon's bright
-    nebula (`plant_stars.py --stamp layer` on the Sagittarius master with StarXTerminator's plate, seeds 1, 2 and 3;
-    `plant_read.py`), **at most 45.0 % left on BOTH seeds** (StarXTerminator 42.4; our fourteen 46.8 to 74.6, twelve
-    of them 61.0 or over). R4h's own figure, the parent's, is taken when R4h is scored and written here before any
-    score of R4j exists; if R4h alone reads 45.0 or under, the bar cannot show the mask's doing and the read says so.
+    nebula, **at most 45.0 % left by BOTH training seeds** (StarXTerminator 42.4; our fourteen 46.8 to 74.6, twelve
+    of them 61.0 or over). The plants are the ones the figures above are of: `plant_stars.py --stamp layer` on the
+    Sagittarius master with StarXTerminator's plate, the three planting seeds 1, 2 and 3 (the planted masters as they
+    stand, not planted again), read by `plant_read.py`. The plates are made as those figures' were, since the bar is
+    a comparison with plates made one way: `bh-bin12`, `image remove-stars --views 1 --no-stars --no-protect-cores
+    --no-fill-digs --mono-as-rgb --model <the seed's export>`, on the master and on each planted master. R4h's own
+    figure, the parent's, is taken the same way when R4h is scored and written here before any score of R4j exists;
+    if R4h alone reads 45.0 or under, the bar cannot show the mask's doing and the read says so.
   - **Guards, on each seed:** R4h's and R4i's, on the same terms (every row of the 40 sigma read's table at its bar,
     as trained or through the chain as that table reads it; a row R4h misses too is the exporter's, and R4j is then
     held to R4h's value and the bar's allowance): the Tarantula's crowded flat at least 90.3 and Sagittarius's 96.3;

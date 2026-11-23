@@ -72,12 +72,14 @@ public static class StarRemovalMasks
     /// Why <paramref name="rule"/> cannot write into <paramref name="exportRoot"/>, or null when it can: a draw that has its
     /// mask is skipped, so an export whose masks another rule wrote would keep them under this rule's name. An export with
     /// masks and no <see cref="RuleFileName"/> was written before the file existed, by <see cref="Rule.PlateSources"/>.
+    /// An export with no mask left takes either rule, whatever its record says.
     /// </summary>
     public static async Task<string?> RefusalAsync(string exportRoot, Rule rule, CancellationToken cancellationToken = default)
     {
         var recorded = await RecordedRuleAsync(exportRoot, await ReadRowsAsync(exportRoot, cancellationToken), cancellationToken);
         return recorded is { } other && other != rule
-            ? $"{exportRoot} holds masks written by the {other} rule; a draw that has its mask is skipped, so the {rule} rule needs an export of its own"
+            ? $"{exportRoot} holds masks written by the {other} rule; a draw that has its mask is skipped, so the {rule} rule " +
+              $"needs an export of its own, or this one with its *{KeepTileExtension} files deleted"
             : null;
     }
 
@@ -136,16 +138,22 @@ public static class StarRemovalMasks
         return rows;
     }
 
-    // The rule the export's masks were written by: its record, or D4's for masks from before the record existed, or none.
+    // The rule the masks the export HOLDS were written by: none where no draw has its mask (a record left behind by masks
+    // since deleted says nothing, and the next run writes it anew), else its record, or D4's for masks from before the
+    // record existed.
     private static async Task<Rule?> RecordedRuleAsync(string exportRoot, List<DatasetDegradationExporter.InjectionRow> rows, CancellationToken cancellationToken)
     {
-        var record = Path.Combine(exportRoot, RuleFileName);
-        if (File.Exists(record))
+        if (!rows.Any(row => File.Exists(Path.Combine(exportRoot, StarRemovalEval.Native(KeepPathFor(row.Tile))))))
         {
-            var text = (await File.ReadAllTextAsync(record, cancellationToken)).Trim();
-            return Enum.TryParse<Rule>(text, out var rule) ? rule : throw new InvalidDataException($"{record} names no rule: '{text}'");
+            return null;
         }
-        return rows.Any(row => File.Exists(Path.Combine(exportRoot, StarRemovalEval.Native(KeepPathFor(row.Tile))))) ? Rule.PlateSources : null;
+        var record = Path.Combine(exportRoot, RuleFileName);
+        if (!File.Exists(record))
+        {
+            return Rule.PlateSources;
+        }
+        var text = (await File.ReadAllTextAsync(record, cancellationToken)).Trim();
+        return Enum.TryParse<Rule>(text, out var rule) ? rule : throw new InvalidDataException($"{record} names no rule: '{text}'");
     }
 
     // A draw's noise plane as the exporter wrote it, its plate and its input as luminance, and the tile's size.

@@ -22,8 +22,8 @@ nebula prints "bright n <n> taken - left -". The sky noise is the master's (MAD 
 
 The magnitude check (--match, 2026-11-23). A catalogue lists a star every few pixels on a Milky Way field, most of them
 far under the noise, and on bright nebula a bump of the nebula or of its noise at such a place reads as 20 sky sigma of
-"light": of the Lagoon's 180 stars in the row as first built, 98 held over twice (or under half) the light their
-magnitude gives, and both removers rightly leave those. So a star counts only when its measured light is within a
+"light": of the Lagoon's 180 stars in the row as first built, 96 held over twice (or under half) the light their
+magnitude gives, and a remover is right to leave a bump. So a star counts only when its measured light is within a
 factor --match of what its magnitude gives ON THIS MASTER: the zero point is the median of mag + 2.5 log10(light in sky
 sigma) over the master's own dark-sky stars of 30 to 1500 sky sigma. --match 0 turns the check off and gives the row
 as it read on 2026-11-22. With under 50 dark-sky stars to fit, the check is off and a line on stderr says so.

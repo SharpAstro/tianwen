@@ -394,7 +394,7 @@ public sealed class StarRemovalEvalTests : IDisposable
         var export = Path.Combine(root, "export");
         var star = Star(128, 128, 1.0, 3.0);
         var manifest = new List<string>();
-        WriteDraw(export, "S", 0, (_, _) => Sky, (_, i) => Sky + star[i], [InjectedAt(128, 128)], manifest);
+        var tile = WriteDraw(export, "S", 0, (_, _) => Sky, (_, i) => Sky + star[i], [InjectedAt(128, 128)], manifest);
         await File.WriteAllLinesAsync(Path.Combine(export, DatasetDegradationExporter.InjectionManifestFileName), manifest,
             TestContext.Current.CancellationToken);
         var ct = TestContext.Current.CancellationToken;
@@ -412,6 +412,13 @@ public sealed class StarRemovalEvalTests : IDisposable
         File.Delete(Path.Combine(export, StarRemovalMasks.RuleFileName));
         (await StarRemovalMasks.RefusalAsync(export, StarRemovalMasks.Rule.DrawnStars, ct)).ShouldNotBeNull("masks with no record are the plate-sources rule's");
         (await StarRemovalMasks.RefusalAsync(export, StarRemovalMasks.Rule.PlateSources, ct)).ShouldBeNull();
+
+        // The masks deleted to write them again by the other rule: the record they left behind says nothing.
+        await StarRemovalMasks.RunAsync(export, cancellationToken: ct);
+        File.Delete(Path.Combine(export, StarRemovalMasks.KeepPathFor(tile).Replace('/', Path.DirectorySeparatorChar)));
+        (await StarRemovalMasks.RefusalAsync(export, StarRemovalMasks.Rule.DrawnStars, ct)).ShouldBeNull("an export with no mask left takes either rule");
+        (await StarRemovalMasks.RunAsync(export, StarRemovalMasks.Rule.DrawnStars, cancellationToken: ct)).Draws.ShouldBe(1);
+        (await File.ReadAllTextAsync(Path.Combine(export, StarRemovalMasks.RuleFileName), ct)).ShouldBe(nameof(StarRemovalMasks.Rule.DrawnStars), "and the run writes its own record");
     }
 
     [Fact]

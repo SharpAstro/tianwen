@@ -4,7 +4,11 @@
 
 T is the planted light (planted master less master, exact). What the remover took of it is T less the change of its
 plate (its plate of the planted master less its plate of the master), so the field's own stars and the nebula cancel.
-Both plates must come from one build with the same options (no core protection, no dig fill: the remover as it is).
+Both plates must come from one build with the same options, and those give the remover as it is: `image remove-stars
+--no-protect-cores --no-fill-digs --keep-overshoot`. Inside a protected core the input comes back with the plant in
+it. And a build that holds the plate at or under its input (#2433; one from before it has no such hold and no
+`--keep-overshoot`) breaks the difference this script takes: where the master's plate stood over the master it is
+held and the planted one, its input raised by the plant, is not, so what was "taken" falls by that overshoot.
 Per plant, as nebula_stars_row.py reads a star: the taken light in a 2 px disc less its ring median 5 to 9 px out,
 over T's own. Printed: the median share taken and the share of plants LEFT (under half taken), bright nebula beside
 dark sky:
