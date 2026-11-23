@@ -346,6 +346,55 @@ public class SharedAppDataFileTests(ITestOutputHelper output) : IDisposable
             }
         }
     }
+
+    [Fact(Timeout = 60_000)]
+    public async Task UpdateJsonIfAsyncWritesAndReturnsTrueWhenTheCallbackReturnsAValue()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var path = Path.Combine(_folders.Create("shared-updateif-").FullName, "added.json");
+
+        (await SharedFile.UpdateJsonIfAsync(path, SharedFileTestJsonContext.Default.StringArray, current => [.. current ?? [], "one"], ct: ct)).ShouldBeTrue();
+        (await SharedFile.UpdateJsonIfAsync(path, SharedFileTestJsonContext.Default.StringArray, current => [.. current ?? [], "two"], ct: ct)).ShouldBeTrue();
+
+        File.ReadAllText(path).ShouldContain("one");
+        File.ReadAllText(path).ShouldContain("two");
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task UpdateJsonIfAsyncDeclinedLeavesTheFileAndLeavesNoStagingFile()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("shared-updateif-");
+        var path = Path.Combine(folder.FullName, "added.json");
+        await File.WriteAllTextAsync(path, "[\"keep\"]", ct);
+        var before = File.ReadAllText(path);
+
+        (await SharedFile.UpdateJsonIfAsync(path, SharedFileTestJsonContext.Default.StringArray, _ => null, ct: ct)).ShouldBeFalse();
+
+        File.ReadAllText(path).ShouldBe(before);
+        Directory.GetFiles(folder.FullName, "*.tmp").ShouldBeEmpty();
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task UpdateJsonIfAsyncLogsTheReplacementOfUnreadableJsonOnlyWhenItReplacesIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var path = Path.Combine(_folders.Create("shared-updateif-").FullName, "added.json");
+        await File.WriteAllTextAsync(path, "{ not json", ct);
+
+        var declined = new RecordingLogger<SharedAppDataFileTests>();
+        (await SharedFile.UpdateJsonIfAsync(path, SharedFileTestJsonContext.Default.StringArray, current =>
+        {
+            current.ShouldBeNull();
+            return null;
+        }, declined, ct)).ShouldBeFalse();
+        declined.Drain().ShouldBeEmpty("nothing was replaced, so nothing is said");
+        File.ReadAllText(path).ShouldBe("{ not json");
+
+        var replaced = new RecordingLogger<SharedAppDataFileTests>();
+        (await SharedFile.UpdateJsonIfAsync(path, SharedFileTestJsonContext.Default.StringArray, _ => ["fresh"], replaced, ct)).ShouldBeTrue();
+        replaced.Drain().ShouldContain("Replacing unreadable JSON");
+    }
 }
 
 /// <summary>Keeps what a reader logged, so a miss says why it missed.</summary>

@@ -328,7 +328,7 @@ public static partial class SharedFile
 
     /// <summary>
     /// As <see cref="UpdateJsonAsync"/>, but <paramref name="update"/> may return null to leave the file exactly as it is
-    /// (nothing is staged or replaced). False when it did, true when the file was written.
+    /// (nothing is staged or replaced). Returns true when the file was written, false when <paramref name="update"/> declined.
     /// </summary>
     public static async Task<bool> UpdateJsonIfAsync<T>(string path, JsonTypeInfo<T> jsonTypeInfo, Func<T?, T?> update, ILogger? logger = null,
         CancellationToken cancellationToken = default) where T : class
@@ -340,6 +340,7 @@ public static partial class SharedFile
         {
             using var updating = await LockAsync(directory, exclusive: true, cancellationToken);
             T? current = null;
+            JsonException? unreadable = null;
             if (File.Exists(path))
             {
                 try
@@ -349,13 +350,19 @@ public static partial class SharedFile
                 }
                 catch (JsonException ex)
                 {
-                    logger?.LogWarning(ex, "Replacing unreadable JSON in {FilePath}", path);
+                    unreadable = ex;
                 }
             }
 
             if (update(current) is not { } next)
             {
                 return false;
+            }
+
+            // Said only now: a callback that declined leaves the unreadable file as it is, so nothing was replaced.
+            if (unreadable is not null)
+            {
+                logger?.LogWarning(unreadable, "Replacing unreadable JSON in {FilePath}", path);
             }
 
             await StageAsync(staging, (stream, token) => JsonSerializer.SerializeAsync(stream, next, jsonTypeInfo, token), cancellationToken);
