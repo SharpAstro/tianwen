@@ -29,9 +29,9 @@ public sealed record CombineResult(Image Rgb, Image? Luminance, WCS? Wcs);
 /// red. What serves it is in the step's key: the enhancer of each role the settings switch on.</para>
 /// </remarks>
 public sealed class CombineOperation(
-    IStarRemover? starRemover,
-    IImageDeblurrer? deblurrer,
-    IDenoiseEnhancer? denoiser,
+    IStarRemover? starRemover = null,
+    IImageDeblurrer? deblurrer = null,
+    IDenoiseEnhancer? denoiser = null,
     ICelestialObjectDB? objectDb = null) : Operation<CombineSettings>
 {
     /// <summary>The operation's id.</summary>

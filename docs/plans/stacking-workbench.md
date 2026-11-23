@@ -553,7 +553,10 @@ each step's output is bit-identical to its CLI verb's.
    `fill-digs`, `protect-cores`, the four that put several masters through one run, `match-psf`, `deblur`, `denoise`
    and `remove-stars` (two results: the starless plate and the stars), and `combine`, the recipe as one step. Left:
    `denoise --colour`, where the order of three planes is their colour.
-2. The canonical enhance (#2466): `image sharpen`, its settings turned into the `SharpenStep` records.
+2. The canonical enhance (#2466). Built as `EnhanceOperation`: its settings say which steps of `LinearEnhanceProgram`
+   are kept and at what strength, the program turns them into the `SharpenStep` records in the one place that already
+   did, and `image sharpen` takes its program from the operation and adds only its own stretches. Its steps as edits of
+   their own (the toggles of the Process step, each with before and after) are W6's.
 3. The deep-sky frame steps (#2467): scan, grade, calibrate, register and integrate, which take a set of frames, not an
    image.
 4. The planetary steps (#2468): grade, stack, de-rotate, sharpen, colour.

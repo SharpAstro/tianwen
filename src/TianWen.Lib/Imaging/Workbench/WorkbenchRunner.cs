@@ -696,6 +696,11 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
         // The images being planned, outermost first. An image named again while it is in here takes itself.
         private readonly List<string> _planning = [];
 
+        // What serves an operation under given settings, asked once a plan. For a step a model serves the answer can
+        // cost a licence probe (an RC-Astro role names its backend by asking whether its product is licensed), and a
+        // plan would otherwise ask it for every step of every image, on a status as on a run.
+        private readonly Dictionary<(IOperation Operation, string Settings), string> _served = [];
+
         public bool Knows(string name) => byName.ContainsKey(name);
 
         public ImagePlan Plan(string name)
@@ -934,7 +939,7 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                     }
                 }
 
-                var runKey = StepKey.OfStep(operation.Description, settings, operation.ServedBy(settings), [.. members.Select(static member => member.Key)]);
+                var runKey = StepKey.OfStep(operation.Description, settings, Served(operation, settings), [.. members.Select(static member => member.Key)]);
                 var memberKey = StepKey.OfMember(runKey, previous.Key);
                 node = new Node
                 {
@@ -955,7 +960,7 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             }
             else
             {
-                var key = StepKey.OfStep(operation.Description, settings, operation.ServedBy(settings), [.. inputs.Select(static input => input.Key)]);
+                var key = StepKey.OfStep(operation.Description, settings, Served(operation, settings), [.. inputs.Select(static input => input.Key)]);
                 node = new Node
                 {
                     Label = label,
@@ -1010,6 +1015,17 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                 Extra = description.ExtraResults.ToImmutableDictionary(
                     static result => result.Name, result => store.PathOf(StepKey.OfResult(key, result.Name)), StringComparer.Ordinal),
             };
+
+        private string Served(IOperation operation, string settings)
+        {
+            if (!_served.TryGetValue((operation, settings), out var served))
+            {
+                served = operation.ServedBy(settings);
+                _served[(operation, settings)] = served;
+            }
+
+            return served;
+        }
 
         private static Node? Refuse(StepPlan step, string why)
         {

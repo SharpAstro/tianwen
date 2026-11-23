@@ -41,15 +41,32 @@ The rules that bite:
   (the four numbers, or `MasterAutoCrop.Scan`, handing the scan back for the verb's declined and margin lines) and
   `CropOperation.Write` (`MasterCrop`); `--dry-run` stops between the two. An operation adds nothing between its routines. `WorkbenchVerbParityTests` runs every step's
   printed command line through the real `tianwen image` command and compares the files to the byte.
+  **`image sharpen` shares less than the others.** It takes its start and its program from `EnhanceOperation`
+  (`Start`, `ProgramAsync`) and then runs the pipeline and writes its files itself, because it also stretches the
+  plates and can write each by itself; `EnhanceOperation.RunAsync` runs the pipeline and writes for a project. So the
+  two share the program and not the run, and `WorkbenchEnhanceParityTests` is the one thing that holds their files
+  together.
 - **A setting is a settable property with its default.** The JSON source generator gives an absent init-only property
   its type's default, not the declared one, so `{ get; set; } = default` is the only form. The type goes into
   `OperationSettingsJsonContext`, which refuses a member the type does not have: a misspelt setting must not run at its
   default and say nothing.
 - **Other pixels for the same settings is a new `Version`.** A changed algorithm or a changed default raises it, so a
   result of the old code is never taken for the new code's. Adding a setting changes the canonical settings, and with
-  them every key of that operation; that costs a re-run and is never wrong.
+  them every key of that operation; that costs a re-run and is never wrong. The enhance's default program is pinned
+  step for step by a test (`WorkbenchEnhanceParityTests`), so a change to `LinearEnhanceProgram.For` fails there until
+  the version is raised with it.
 - **What serves the step is in its key.** `GradientOperation.ServedBy` is `classical` or the registered corrector's
-  name, so on a computer where `auto` means GraXpert a result is not taken for the classical fit's.
+  name, so on a computer where `auto` means GraXpert a result is not taken for the classical fit's. The enhance's is the
+  pipeline's word for every role (`SharpenPipeline.DescribeRoles`), asked with the options the step's settings make:
+  a role whose backend follows from them is named by the one they choose (`IEnhancerAvailability.NameUnder`), so a
+  step that says `backend: tianWen` is keyed by the in-house model where RC-Astro is licensed too, and one that
+  says `gradientBackend: classical` by the classical fit where GraXpert is installed too. A role the settings
+  leave out is not named: a step with `gradient` off runs no corrector, so installing or removing GraXpert moves no
+  key of it, and the same for a denoise, a deconvolution and the stellar sharpening left out. An in-house
+  enhancer's name carries its model file, so a retrained model is another key. Naming an RC-Astro role asks whether
+  its product is licensed, which is a
+  subprocess, so **the runner asks what serves once for an operation and its settings in a plan**
+  (`WorkbenchServedTests`), on a status as on a run.
 - **A refusal is an answer, not a throw.** `OperationOutcome` says which kind (`Input`, `Failed`, `NotServed`: the
   verbs' exit codes) and why. A cancellation is thrown and never caught as a failure.
 - **A stored step reads a file and writes a file.** `OperationInput` is a file, or the result of a derived step. Only a
@@ -57,8 +74,8 @@ The rules that bite:
 
 ## Stored and derived
 
-- **Stored** (`gradient`, `linear-fit`): the result is written into the store by the run that made it, and found there
-  by its key ever after.
+- **Stored** (`gradient`, `linear-fit`, `enhance`): the result is written into the store by the run that made it, and
+  found there by its key ever after.
 - **Derived** (`crop`): the edit holds the rectangle or the rule (`auto`); the pixels are cut out of the input when the
   next step asks, and no file is written. A derived step has a key like any other, so a changed rectangle changes the
   key of every step after it. Its `RunAsync` is still its verb's routine: `tianwen workbench run --image <name>
@@ -92,6 +109,7 @@ operation by its id.
 | `denoise` | stored, one run for several | `image denoise` | the other masters of the run |
 | `remove-stars` | stored, one run for several; the stars as a second result | `image remove-stars` | the other masters of the run |
 | `combine` | stored | `image combine` | `green`, `blue`, and optionally `ha`. Its own image is red |
+| `enhance` | stored | `image sharpen` | |
 
 - **An optional image comes last** (`OperationInputRole.Optional`): an edit that names fewer images leaves the last ones
   out. `luminance` takes two, or five with its three measure copies; any other number is refused.
@@ -147,6 +165,14 @@ This is what lets a run of several images be written down without a circle. `red
 name the other's image BEFORE the run (`red`, `green`), and go on from their own. Had `red`'s own list held the star
 removal and named `green`, and `green`'s named `red`, each would take the other as its edits leave it, which is after
 the run: a circle, and it is refused.
+
+## The enhance as one step
+
+`EnhanceOperation` (`enhance`, #2466) runs the canonical program as ONE stored step. Its settings say which steps of
+`LinearEnhanceProgram` are kept and at what strength, and that record turns them into the `SharpenStep` records, which
+stay the pipeline's in-memory program ([stacking-workbench.md](../plans/stacking-workbench.md), "An operation"). No
+setting can switch on a step no enhancer serves. A value `image sharpen` reads as "not stated" (a pass count below 1, a
+strength below 0) is refused as a setting, so no step keeps what its own command line would drop.
 
 ## A step's key
 
@@ -251,19 +277,21 @@ that gave no result.
 3. The verb calls it. Where the verb needs more than the file (a companion picture, a second output), the operation
    offers the work without the files, as `GradientOperation.ExtractAsync` does, and both write with the same writer.
 4. A line in `WorkbenchServiceCollectionExtensions.AddWorkbench`.
-5. A step in `WorkbenchVerbParityTests`, so its command line and its file are held to the verb's.
+5. A step in `WorkbenchVerbParityTests`, so its command line and its file are held to the verb's. The enhance's is in
+   `WorkbenchEnhanceParityTests`: the step and the verb there share one pipeline of stand-in enhancers.
 
 ## Not here yet
 
 Each is a later leg of W1 (#1641) or a later phase, and none is assumed by the code above.
 
-- **The remaining operations.** The canonical enhance (#2466), the deep-sky frame steps (#2467) and the planetary
-  steps (#2468). Every colour step of #2465 is here but the one below.
+- **The remaining operations.** The deep-sky frame steps (#2467) and the planetary steps (#2468). Every colour step of
+  #2465 is here but the one below, and so is the canonical enhance (#2466).
 - **`image denoise --colour`** (#2465): three planes denoised as one colour image, where the order of the planes is
   their colour, so it is not a run several images share.
 - **A set of frames as an input** (calibrate, register, integrate; #2467), and an operation that writes no pixels
   (plate solve, statistics; #2469).
 - **Preconditions and how an operation previews**: the facts are W9's (#2236), the preview W12's (#2239).
-- **The enhance program's steps.** `SharpenStep` and its records stay the pipeline's in-memory program; an operation's
-  settings are a JSON class that the operation turns into those records in one place
-  ([stacking-workbench.md](../plans/stacking-workbench.md), "An operation").
+- **The enhance program's steps as edits of their own.** The enhance is one step today (above). Each of its steps
+  shown and switched by itself is W6's (#1646).
+- **Progress.** An operation reports lines (`say`); the engines' own `IProgress` (a step's percentage) is not passed
+  through the contract yet, and the window (W2, #1642) needs it.

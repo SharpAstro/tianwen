@@ -95,7 +95,14 @@ namespace TianWen.AI.Imaging.RcAstro
         /// <summary>The Auto-resolved backend (used by <see cref="Name"/> and the param-less path).</summary>
         internal IImageEnhancer? Backend => Resolve(EnhanceBackend.Auto);
 
-        public string Name => Backend?.Name ?? $"{role} (no backend: RC-Astro '{productKey}' unavailable)";
+        public string Name => Backend?.Name ?? NoBackend;
+
+        /// <summary>The name of the backend <paramref name="options"/> choose, which is the one that would run: an
+        /// enhance step that states a backend is keyed by that backend's model, never by what Auto would pick (#2475).
+        /// Like <see cref="Name"/> it can cost a licence probe, and only where the backend asked for is Auto.</summary>
+        public string NameUnder(EnhanceOptions options) => Resolve(options.Backend)?.Name ?? NoBackend;
+
+        private string NoBackend => $"{role} (no backend: RC-Astro '{productKey}' unavailable)";
 
         public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
             => Require(EnhanceBackend.Auto).EnhanceAsync(input, cancellationToken);
