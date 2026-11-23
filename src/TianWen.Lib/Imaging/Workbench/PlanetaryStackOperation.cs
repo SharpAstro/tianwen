@@ -82,9 +82,9 @@ public sealed class PlanetaryStackOperation : MultiResultOperation<PlanetaryStac
             return $"planet '{planet}' is not a planet's name: jupiter, saturn, mars or another by its name";
         }
 
-        if (settings.FilterNm is { } nm && !(nm > 0 && double.IsFinite(nm)))
+        if (settings.FilterNm is { } nm && !PlanetaryIdentityGiven.IsWavelengthNm(nm))
         {
-            return "filterNm is a wavelength in nanometres, more than 0";
+            return $"filterNm is a wavelength in nanometres, more than {PlanetaryIdentityGiven.WavelengthAboveNm:0} and less than {PlanetaryIdentityGiven.WavelengthBelowNm:0}";
         }
 
         if (settings.ApertureMm is <= 0)

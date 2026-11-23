@@ -118,6 +118,82 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
         again.Images.SelectMany(static image => image.Steps).Select(static step => step.State).ShouldBe([StepState.Kept, StepState.Kept]);
     }
 
+    private (Command Verb, List<string> Said, FakeExternal External) BuildVerb()
+    {
+        var said = new List<string>();
+        var host = Substitute.For<IConsoleHost>();
+        host.When(h => h.WriteScrollable(Arg.Any<string>(), Arg.Any<bool>())).Do(call => said.Add(call.Arg<string>()));
+        host.When(h => h.WriteError(Arg.Any<string>())).Do(call => said.Add("error: " + call.Arg<string>()));
+        var external = new FakeExternal(output, root: _folders.Create("memory-"));
+        var command = new PlanetaryStackSubCommand(host, new MasterPreviewRenderer(catalogDb: null, NullLogger.Instance), external).Build();
+        return (command, said, external);
+    }
+
+    [Fact(Timeout = 300_000)]
+    public async Task AStepNeverAsksWhatTelescopeACameraWasLastSaidToBeOnAndTheVerbWithItsFlagDoesNot()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("no-memory-").FullName;
+        // No telescope in the header, the settings, the names or the folders: only the memory can say one.
+        var capture = ViewerBestStackTests.WriteCapture(Path.Combine(folder, "Jupiter_Red_2024-12-15T12_56_44.ser"), instrument: "MemoryCam");
+        var (verb, said, external) = BuildVerb();
+        await PlanetaryTelescopeMemory.RememberAsync(external, "MemoryCam", 150, OpticalDesign.Newtonian, ct);
+
+        async Task<string> TelescopeOfVerbAsync(string name, params string[] more)
+        {
+            var master = Path.Combine(folder, name + ".fits");
+            said.Clear();
+            var exit = await verb.Parse([capture, "--auto", "--no-png", "--master", master, "--sharpened", Path.Combine(folder, name + "-s.fits"), .. more])
+                .InvokeAsync(cancellationToken: ct);
+            exit.ShouldBe(0, string.Join(Environment.NewLine, said));
+            return WorkbenchFixtures.Read(master).ImageMeta.Telescope;
+        }
+
+        (await TelescopeOfVerbAsync("asked")).ShouldContain("150", Case.Insensitive, "the verb without the flag takes the remembered telescope");
+        (await TelescopeOfVerbAsync("flagged", "--no-telescope-memory")).ShouldNotContain("150", "the flag keeps the memory out of the run");
+
+        // The flag also stops a given aperture from being remembered.
+        (await TelescopeOfVerbAsync("flagged-told", "--no-telescope-memory", "--aperture-mm", "203", "--design", "sct")).ShouldContain("203");
+        (await PlanetaryTelescopeMemory.RecallAsync(external, "MemoryCam", ct)).ShouldBe(new RememberedTelescope(150, OpticalDesign.Newtonian));
+        await TelescopeOfVerbAsync("told", "--aperture-mm", "203", "--design", "sct");
+        (await PlanetaryTelescopeMemory.RecallAsync(external, "MemoryCam", ct)).ShouldBe(new RememberedTelescope(203, OpticalDesign.SCT));
+
+        // The step is the flagged verb: the memory (150, then 203) is never asked.
+        await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("step", capture, WorkbenchFixtures.Edit(PlanetaryStackOperation.Id))), ct);
+        var report = await new WorkbenchRunner(new OperationCatalog([new PlanetaryStackOperation()])).RunAsync(folder, cancellationToken: ct);
+        report.Succeeded.ShouldBeTrue(Messages(report));
+        var stepTelescope = WorkbenchFixtures.Read(report.Images[0].Steps[0].Output.ShouldNotBeNull()).ImageMeta.Telescope;
+        stepTelescope.ShouldNotContain("150");
+        stepTelescope.ShouldNotContain("203");
+        stepTelescope.ShouldBe(await TelescopeOfVerbAsync("flagged-again", "--no-telescope-memory"));
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task TheVerbRefusesTheAutoFilesAndTheMemoryFlagWithoutAutoAndOneFileWithoutItsPair()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("refusals-").FullName;
+        var capture = ViewerBestStackTests.WriteCapture(Path.Combine(folder, "Jupiter_Red_2024-12-15T12_56_44.ser"));
+        var (verb, said, _) = BuildVerb();
+
+        async Task ShouldRefuseAsync(string message, params string[] args)
+        {
+            said.Clear();
+            var exit = await verb.Parse([capture, .. args]).InvokeAsync(cancellationToken: ct);
+            exit.ShouldBe(1, string.Join(Environment.NewLine, said));
+            said.ShouldContain(line => line.Contains(message), string.Join(Environment.NewLine, said));
+        }
+
+        const string needsAuto = "go with --auto";
+        await ShouldRefuseAsync(needsAuto, "--master", Path.Combine(folder, "m.fits"));
+        await ShouldRefuseAsync(needsAuto, "--sharpened", Path.Combine(folder, "s.fits"));
+        await ShouldRefuseAsync(needsAuto, "--no-telescope-memory");
+        const string needsBoth = "give both, or neither";
+        await ShouldRefuseAsync(needsBoth, "--auto", "--master", Path.Combine(folder, "m.fits"));
+        await ShouldRefuseAsync(needsBoth, "--auto", "--sharpened", Path.Combine(folder, "s.fits"));
+    }
+
     [Fact(Timeout = 120_000)]
     public async Task AFileThatIsNoCaptureIsARefusalOfItsStepAndNeverAThrow()
     {
@@ -145,6 +221,13 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
         stack.Refusal(new PlanetaryStackSettings { Planet = "saturn", FilterNm = 650, ApertureMm = 254, Design = OpticalDesign.Newtonian }).ShouldBeNull();
         stack.Refusal(new PlanetaryStackSettings { Planet = "nowhere" }).ShouldNotBeNull().ShouldContain("not a planet's name");
         stack.Refusal(new PlanetaryStackSettings { FilterNm = 0 }).ShouldNotBeNull().ShouldContain("filterNm");
+        // The verb's --wavelength takes above 200 nm and below 2000 nm, both edges refused, so the step's line is one the verb takes.
+        foreach (var nm in new[] { 200, 100, 2000, 5000, double.NaN, double.PositiveInfinity })
+        {
+            stack.Refusal(new PlanetaryStackSettings { FilterNm = nm }).ShouldNotBeNull().ShouldContain("filterNm");
+        }
+        stack.Refusal(new PlanetaryStackSettings { FilterNm = 200.5 }).ShouldBeNull();
+        stack.Refusal(new PlanetaryStackSettings { FilterNm = 1999.5 }).ShouldBeNull();
         stack.Refusal(new PlanetaryStackSettings { ApertureMm = 0 }).ShouldNotBeNull().ShouldContain("apertureMm");
         stack.Refusal(new PlanetaryStackSettings { Design = OpticalDesign.SCT }).ShouldNotBeNull().ShouldContain("give its aperture too");
 
