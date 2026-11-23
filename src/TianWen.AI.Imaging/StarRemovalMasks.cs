@@ -139,13 +139,18 @@ public static class StarRemovalMasks
     // The rule the export's masks were written by: its record, or D4's for masks from before the record existed, or none.
     private static async Task<Rule?> RecordedRuleAsync(string exportRoot, List<DatasetDegradationExporter.InjectionRow> rows, CancellationToken cancellationToken)
     {
+        // The record speaks for masks that exist: with every mask deleted (to redo them by the other rule) it is stale and ignored.
+        if (!rows.Any(row => File.Exists(Path.Combine(exportRoot, StarRemovalEval.Native(KeepPathFor(row.Tile))))))
+        {
+            return null;
+        }
         var record = Path.Combine(exportRoot, RuleFileName);
         if (File.Exists(record))
         {
             var text = (await File.ReadAllTextAsync(record, cancellationToken)).Trim();
             return Enum.TryParse<Rule>(text, out var rule) ? rule : throw new InvalidDataException($"{record} names no rule: '{text}'");
         }
-        return rows.Any(row => File.Exists(Path.Combine(exportRoot, StarRemovalEval.Native(KeepPathFor(row.Tile))))) ? Rule.PlateSources : null;
+        return Rule.PlateSources;
     }
 
     // A draw's noise plane as the exporter wrote it, its plate and its input as luminance, and the tile's size.
