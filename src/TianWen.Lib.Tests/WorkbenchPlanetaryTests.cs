@@ -739,6 +739,48 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
             .ShouldBe(new PlanetaryAutoChoices { Strength = 2, LuminanceOnly = true, ColourSaturation = 1.4 });
     }
 
+    [Theory(Timeout = 120_000)]
+    [InlineData("--strength", "0", "--strength")]
+    [InlineData("--strength", "NaN", "--strength")]
+    [InlineData("--colour-saturation", "-1", "--colour-saturation is 0 or more")]
+    public async Task AutoRefusesABadStrengthOrSaturationBeforeItStacks(string option, string value, string said)
+        => await AutoRefusesAsync([option, value], said);
+
+    [Fact(Timeout = 120_000)]
+    public async Task AutoRefusesASaturationWithTheColourBalanceOff()
+        => await AutoRefusesAsync(["--no-colour-balance", "--colour-saturation", "1.4"], "with --no-colour-balance");
+
+    private async Task AutoRefusesAsync(string[] choice, string expected)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("planetary-auto-refuses-").FullName;
+        var capture = ViewerBestStackTests.WriteCapture(Path.Combine(folder, "Jupiter_Red_2024-12-15T12_56_44_OTA1.ser"),
+            telescope: "254 mm f/4.7 Newtonian, Test OTA");
+        var told = new List<string>();
+        var host = Substitute.For<IConsoleHost>();
+        host.When(h => h.WriteError(Arg.Any<string>())).Do(call => told.Add(call.Arg<string>()));
+        var renderer = new MasterPreviewRenderer(catalogDb: null, NullLogger.Instance);
+        var stack = new PlanetaryStackSubCommand(host, renderer, new FakeExternal(output, root: _folders.Create("memory-"))).Build();
+
+        var exit = await stack.Parse([capture, "--auto", .. choice]).InvokeAsync(cancellationToken: ct);
+
+        exit.ShouldBe(1, string.Join(Environment.NewLine, told));
+        string.Join(Environment.NewLine, told).ShouldContain(expected);
+        Directory.EnumerateFiles(folder, "*.fits").ShouldBeEmpty("a refusal comes before any stacking");
+    }
+
+    [Fact]
+    public void AutoOptionsCarryTheThreeChoicesIntoTheBestStack()
+    {
+        var identity = new PlanetaryIdentity(null, "", null, null, "", null, OpticalDesign.Unknown, "", null, default);
+        var chosen = PlanetaryAuto.OptionsFor(identity, new PlanetaryAutoChoices { Strength = 1.5, LuminanceOnly = true, ColourSaturation = 1.4 });
+        (chosen.Strength, chosen.LuminanceOnly, chosen.ColourSaturation).ShouldBe((1.5, true, (double?)1.4));
+        PlanetaryAuto.OptionsFor(identity, new PlanetaryAutoChoices { ColourSaturation = null }).ColourSaturation.ShouldBeNull();
+
+        var (plain, defaults) = (PlanetaryAuto.OptionsFor(identity), PlanetaryAuto.OptionsFor(identity, PlanetaryAutoChoices.Defaults));
+        (plain.Strength, plain.LuminanceOnly, plain.ColourSaturation).ShouldBe((defaults.Strength, defaults.LuminanceOnly, defaults.ColourSaturation));
+    }
+
     [Fact]
     public void TheComposeSettingsAreItsVerbsOptionsAndRefuseHalfARingFeather()
     {
