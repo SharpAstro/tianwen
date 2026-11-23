@@ -345,7 +345,7 @@ public static class NarrowbandCombination
     /// This guarantees the stars are never negative and plate plus stars is the plane; it does not make a screen blend of the
     /// stars onto the plate give the plane back (that is short of it by plate times stars). On the three held-out whole masters
     /// TianWen's own plate stood over its input on 4 to 16 % of the pixels, mostly by a few hundredths to a few tenths of the
-    /// noise; StarXTerminator's plate did not stand over its input. The clamp lowered a frame's mean by 0.006 to 0.026 of the noise.
+    /// noise; StarXTerminator's plate stood over its input on 0 to 0.6 % of the pixels. The clamp lowered a frame's mean by 0.006 to 0.026 of the noise.
     /// </summary>
     public static Image AtOrUnderPlane(Image plate, Image plane) => Combine(plate, plane, static (p, input) => MathF.Min(p, input));
 
