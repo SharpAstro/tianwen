@@ -111,10 +111,14 @@ internal sealed class WorkbenchSubCommand(IConsoleHost consoleHost, OperationCat
                 {
                     consoleHost.WriteScrollable("    takes the other images of its run, any number of them: one run for them all");
                 }
+                else if (description.AnyNumber)
+                {
+                    consoleHost.WriteScrollable("    takes any number of other images, as a set");
+                }
 
                 foreach (var result in description.ExtraResults)
                 {
-                    consoleHost.WriteScrollable($"    gives {result.Name}: {result.Summary}");
+                    consoleHost.WriteScrollable($"    gives {result.Name}{(result.Optional ? ", for some inputs only" : string.Empty)}: {result.Summary}");
                 }
 
                 consoleHost.WriteScrollable($"    settings {operation.DefaultSettings}");

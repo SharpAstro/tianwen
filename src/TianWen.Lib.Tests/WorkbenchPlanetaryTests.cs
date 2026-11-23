@@ -401,4 +401,23 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
         compose.Description.AnyNumber.ShouldBeTrue();
         compose.Description.ExtraResults.Select(static result => (result.Name, result.Optional)).ShouldBe([(PlanetaryComposeOperation.Luminance, true)]);
     }
+
+    [Fact(Timeout = 60_000)]
+    public async Task TheListOfOperationsSaysWhatAStepTakesAndGivesBesideItsOwnImage()
+    {
+        var said = new List<string>();
+        var host = Substitute.For<IConsoleHost>();
+        host.When(h => h.WriteScrollable(Arg.Any<string>(), Arg.Any<bool>())).Do(call => said.Add(call.Arg<string>()));
+        var catalog = new OperationCatalog([new PlanetaryStackOperation(), new PlanetaryComposeOperation()]);
+        var workbench = new WorkbenchSubCommand(host, catalog, new WorkbenchRunner(catalog)).Build();
+
+        var exit = await workbench.Parse(new[] { "operations" }).InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
+
+        var text = string.Join(Environment.NewLine, said);
+        exit.ShouldBe(0, text);
+        text.ShouldContain("planetary-compose (version 1)");
+        text.ShouldContain("takes any number of other images, as a set");
+        text.ShouldContain("gives luminance, for some inputs only:");
+        text.ShouldContain("gives sharpened:");
+    }
 }

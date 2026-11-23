@@ -128,8 +128,8 @@ file and a step's export one file.
 
 ## The operations
 
-`tianwen workbench operations` prints this list from the code, with every setting at its default. An edit names an
-operation by its id.
+`tianwen workbench operations` prints this list from the code: each operation with what it takes and gives beside
+its own image, and every setting at its default. An edit names an operation by its id.
 
 | Id | Kept | Verb | The images it takes after its own |
 |---|---|---|---|
@@ -153,6 +153,7 @@ operation by its id.
 | `enhance` | stored | `image sharpen` | |
 | `solve` | no pixels: the plate solution is stored | `solve` | |
 | `planetary-stack` | stored; the sharpened master as an extra result | `planetary stack --auto` | none. Its own image is the capture, a SER file |
+| `planetary-compose` | stored; the luminance as an extra result, where there is one | `planetary compose` | the other mono stacks, any number, as a set |
 
 - **An optional image comes last** (`OperationInputRole.Optional`): an edit that names fewer images leaves the last ones
   out. `luminance` takes two, or five with its three measure copies; any other number is refused.
@@ -234,6 +235,45 @@ master is the step's result, and the sharpened master its extra result (`sharpen
 { "name": "jupiter-sharpened", "from": "jupiter", "result": "sharpened" }
 ```
 
+## Any number of images, as a set
+
+`planetary compose` joins every mono stack of a night into one colour master, however many there are
+(`planetary-compose`; the description says `AnyNumber`). The edit list's own image is one of the stacks and `inputs`
+names the others.
+
+- **The images are a set.** The runner sorts them by key, the edit list's own among them, before it hands them over.
+  So the step's key and its result do not depend on which stack's list holds the edit, nor on the order it names the
+  others in, and two lists that hold the same edit over the same stacks share one result. An image handed in twice is
+  refused. What each image IS is then read off the image, never off its place: a stack's planet, instant and filter
+  are in its header or its file's name.
+- **A result a step may leave out** (`OperationResultRole.Optional`): the stacks through an IR-pass or an L filter are
+  joined as the `luminance`, which is the step's extra result where there is one. The step is whole in the store
+  without it. An image that starts from a result the step left out is refused in words, by a status and a run alike,
+  and an edit of that image is `Blocked`.
+- **Only a step with results of its own can leave one out** (`MultiResultOperation<TSettings>`, with fixed inputs or a
+  set). A run several images share gives every result for every image, and one it does not write is a refusal of the
+  step. A catalog refuses an operation that says `AnyNumber` and also names images by their place, or shares its run.
+- **It runs the verb's routines** in their order: `PlanetaryComposition.Ingest` for each stack,
+  `PlanetaryComposition.Run`, and `PlanetaryComposeOperation.WriteAsync`, which the verb's `compose`, `join` and `lrgb`
+  write through too. A file is read as the verb reads it, so a TIFF another stacker wrote is a stack. The verb's
+  preview picture is its own, and no step writes one.
+- **Its settings are the verb's options**: `planet`, `lrgb`, `viewingWeights`, `bandWeights`, `relight`,
+  `ringFeatherInner` with `ringFeatherOuter`, and `colourBalance`. The verb's `--utc` and `--filter` label every stack
+  alike, which is for one stack; a step has neither.
+- **A stack's file name can be one of its labels** (a WinJUPOS-style name, where its header says nothing), and a name
+  is not in a key, as with a capture above: a stack renamed to another filter keeps its key. A stack a compose step
+  wrote carries its labels in its header.
+- **The verb names the luminance's file** with `--luminance-output`, so a step's line names what it writes.
+
+```json
+{ "name": "red", "path": "stacks/2024-12-15-1256_7-R-Jup.tif" },
+{ "name": "green", "path": "stacks/2024-12-15-1258_2-G-Jup.tif" },
+{ "name": "blue", "path": "stacks/2024-12-15-1259_7-B-Jup.tif" },
+{ "name": "ir", "path": "stacks/2024-12-15-1305_7-IR-Jup.tif" },
+{ "name": "jupiter", "from": "green", "edits": [ { "operation": "planetary-compose", "inputs": [ "red", "blue", "ir" ] } ] },
+{ "name": "jupiter-luminance", "from": "jupiter", "result": "luminance" }
+```
+
 ## An image that starts from another
 
 A project's image is a file, or it starts from another image of the project (`from`): that image as its own edits
@@ -278,6 +318,7 @@ input=<key of each extra input, in order>
 For a run several images share, the `input=` lines are the images' keys in sorted order, and that digest is the run's
 key. One image's result of it is `StepKey.OfMember(run, image)`, and an extra result of a step is
 `StepKey.OfResult(step, name)`. The finding of a step that writes no pixels is kept under `StepKey.OfFinding(step)`.
+For a step over a set of images the `input=` lines are sorted too, and that digest is the step's own key.
 
 An original file's key is the digest of its bytes (`StepKey.OfFile`), computed on every status and run. Keys are made
 from keys, so a stored result is never hashed. Nothing is decided by a file's date: the same bytes under a new date
@@ -361,7 +402,8 @@ that gave no result.
 1. Its settings: a `sealed record` of settable properties with defaults in `OperationSettings.cs`, and a
    `[JsonSerializable]` line on `OperationSettingsJsonContext`.
 2. The class: `Operation<TSettings>` (stored), `DerivedOperation<TSettings>`, `JointOperation<TSettings>` (one run
-   for several images), `MultiResultOperation<TSettings>` (fixed inputs and extra results beside the main one) or `FindingOperation<TSettings>` (no pixels). It reads through `OperationInput`
+   for several images), `MultiResultOperation<TSettings>` (several results of one step, with fixed inputs or a set)
+   or `FindingOperation<TSettings>` (no pixels). It reads through `OperationInput`
    (`TryRead`, or `TryReadMaster` where the verb masks the absent ring) and writes with `OperationOutput.Write`. It
    calls the existing routine and adds nothing.
 3. The verb calls it. Where the verb needs more than the file (a companion picture, a second output), the operation
@@ -376,8 +418,8 @@ that gave no result.
 Each is a later leg of W1 (#1641) or a later phase, and none is assumed by the code above.
 
 - **The remaining operations.** The deep-sky frame steps (#2467) and the rest of the planetary steps (#2468): the
-  stack with settings of its own, the grades as a step, the de-rotation of several stacks, the sharpening of a master
-  and the colour. Every colour step of #2465 is here, and so is the canonical enhance (#2466).
+  stack with settings of its own, the grades as a step, the sharpening of a master and the colour. Every colour step
+  of #2465 is here, and so is the canonical enhance (#2466).
 - **A set of frames as an input** (calibrate, register, integrate; #2467).
 - **Statistics** (`image stats`, `image sources`, `image channel-offsets`). A measurement changes nothing a later step
   reads, so as an edit of a list it would only give every step after it another key. It is a fact about a step's

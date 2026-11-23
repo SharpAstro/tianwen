@@ -512,7 +512,8 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
         Directory.CreateDirectory(folder);
         var stem = Path.Combine(folder, Path.GetFileNameWithoutExtension(output));
         var luminancePath = luminanceOutput ?? stem + "_luminance.fits";
-        if (Path.GetDirectoryName(Path.GetFullPath(luminancePath)) is { Length: > 0 } luminanceFolder)
+        // A folder is made for the luminance only where there is one to write into it.
+        if (composed.Luminance is not null && Path.GetDirectoryName(Path.GetFullPath(luminancePath)) is { Length: > 0 } luminanceFolder)
         {
             Directory.CreateDirectory(luminanceFolder);
         }
