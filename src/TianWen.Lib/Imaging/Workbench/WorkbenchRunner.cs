@@ -58,7 +58,16 @@ public sealed record StepReport(
     string? Output,
     ImmutableArray<string> CommandLine,
     string? Message,
-    bool ChangedSinceLastRun);
+    bool ChangedSinceLastRun)
+{
+    /// <summary>
+    /// What serves the step on this computer (<see cref="IOperation.ServedBy"/>), the text its key holds: the enhancer
+    /// of each role, the gradient corrector, the catalogue. It is what an automatic setting resolved to, so a status
+    /// and a run say it beside the step. Empty where nothing outside the operation serves it, and for an edit that
+    /// could not be planned.
+    /// </summary>
+    public string ServedBy { get; init; } = string.Empty;
+}
 
 /// <summary>One image of a project, as a status or a run found it.</summary>
 /// <param name="Name">The image's name.</param>
@@ -946,6 +955,9 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
         public string? Message { get; set; }
 
         public ImmutableArray<string> CommandLine { get; set; } = [];
+
+        /// <summary>What serves the step, as its key holds it (<see cref="StepReport.ServedBy"/>).</summary>
+        public string ServedBy { get; set; } = string.Empty;
     }
 
     private sealed class ImagePlan
@@ -979,7 +991,10 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                 step.Node?.File ?? step.Node?.Finding,
                 step.CommandLine,
                 step.Message,
-                step is { Node: { } node, Edit.Key: { } recorded } && !string.Equals(recorded, node.Key, StringComparison.Ordinal)))],
+                step is { Node: { } node, Edit.Key: { } recorded } && !string.Equals(recorded, node.Key, StringComparison.Ordinal))
+            {
+                ServedBy = step.ServedBy,
+            })],
             Refusal,
             Image.Digest is { } digest && Key.Length > 0 && !string.Equals(digest, Key, StringComparison.Ordinal));
     }
@@ -1300,7 +1315,8 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                     }
                 }
 
-                var runKey = StepKey.OfStep(operation.Description, settings, Served(operation, settings), [.. members.Select(static member => member.Key)]);
+                step.ServedBy = Served(operation, settings);
+                var runKey = StepKey.OfStep(operation.Description, settings, step.ServedBy, [.. members.Select(static member => member.Key)]);
                 var memberKey = StepKey.OfMember(runKey, previous.Key);
                 node = new Node
                 {
@@ -1336,7 +1352,8 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                     }
                 }
 
-                var key = StepKey.OfStep(operation.Description, settings, Served(operation, settings), [.. taken.Select(static input => input.Key)]);
+                step.ServedBy = Served(operation, settings);
+                var key = StepKey.OfStep(operation.Description, settings, step.ServedBy, [.. taken.Select(static input => input.Key)]);
                 node = new Node
                 {
                     Label = label,

@@ -188,6 +188,13 @@ internal sealed class WorkbenchSubCommand(IConsoleHost consoleHost, OperationCat
                     consoleHost.WriteError($"[workbench]     {message}");
                 }
 
+                // What an automatic setting resolved to here: the enhancer, the corrector or the catalogue the step's
+                // key holds. Said for a kept step as for one that runs, since it is what made (or would make) its result.
+                if (step.ServedBy.Length > 0)
+                {
+                    consoleHost.WriteScrollable($"[workbench]     served by: {step.ServedBy}");
+                }
+
                 if (commandLines && !step.CommandLine.IsDefaultOrEmpty)
                 {
                     consoleHost.WriteScrollable($"[workbench]     {StepCommandLine.Display(step.CommandLine)}");

@@ -52,6 +52,14 @@ public interface IEnhancerAvailability
     /// </summary>
     public static bool ServesAny([NotNullWhen(true)] IImageEnhancer? role, EnhanceOptions options)
         => Serves(role, 1, options) || Serves(role, 3, options);
+
+    /// <summary>
+    /// <see cref="Serves"/> for a rule that must hold whatever the input turns out to be: whether
+    /// <paramref name="role"/> serves a mono AND a colour input, the two shapes a role is handed. What follows from a
+    /// role being live on every image can then be said before the image is read (an enhance step's key, #2475).
+    /// </summary>
+    public static bool ServesEvery([NotNullWhen(true)] IImageEnhancer? role, EnhanceOptions options)
+        => Serves(role, 1, options) && Serves(role, 3, options);
 }
 
 /// <summary>

@@ -214,6 +214,25 @@ public sealed class WorkbenchStackTests(ITestOutputHelper output) : IDisposable
         ofNoLights.Results.ShouldBeEmpty();
     }
 
+    [Fact]
+    public void AGroupsLineSaysTheStrategyThatMadeItsMasterAndWhereItCameFrom()
+    {
+        var group = new GroupResult("M42_L_60s", FramesAttempted: 10, FramesMatched: 9, Result: null,
+            MasterFitsPath: Path.Combine("out", "master_M42_L_60s.fits"), PreviewPngPath: null, Elapsed: TimeSpan.FromSeconds(12.34))
+        {
+            Strategy = IntegrationStrategyKind.InRamAllFrames,
+            StrategyFrom = "stated",
+        };
+        // The seconds are worded in the current culture, so the expectation is built with the same format.
+        var seconds = $"{12.34:F1}";
+
+        StackOperation.GroupLine(group).ShouldBe($"M42_L_60s: 9/10 matched, integrated as InRamAllFrames (stated), wrote master_M42_L_60s.fits in {seconds}s");
+        // A group no strategy was picked for says nothing of one.
+        StackOperation.GroupLine(group with { Strategy = null, StrategyFrom = string.Empty })
+            .ShouldBe($"M42_L_60s: 9/10 matched, wrote master_M42_L_60s.fits in {seconds}s");
+        StackOperation.GroupLine(group with { SkipReason = "fewer than 2 matched" }).ShouldBe("M42_L_60s: SKIPPED (fewer than 2 matched)");
+    }
+
     [Fact(Timeout = 300_000)]
     public async Task TheStackStepsMasterIsTheFileTianwenStackWrites()
     {
@@ -233,11 +252,24 @@ public sealed class WorkbenchStackTests(ITestOutputHelper output) : IDisposable
         var runner = new WorkbenchRunner(new OperationCatalog([new StackOperation(log)]));
         var store = Path.Combine(project, StepStore.FolderName);
 
-        var first = await runner.RunAsync(project, new WorkbenchRunOptions { Say = output.WriteLine }, ct);
+        // The step's lines into a queue: the stack reports from pool threads.
+        var stepSaid = new ConcurrentQueue<string>();
+        var first = await runner.RunAsync(project, new WorkbenchRunOptions
+        {
+            Say = line =>
+            {
+                stepSaid.Enqueue(line);
+                output.WriteLine(line);
+            },
+        }, ct);
 
         var step = Of(first, "night").Steps[0];
         step.State.ShouldBe(StepState.Ran, Said(first));
         first.Succeeded.ShouldBeTrue(Said(first));
+        // The strategy the settings leave out is said with what it resolved to and by which rule: a step's is chosen
+        // for the nominal computer, never for this one.
+        stepSaid.ShouldContain(line => line.Contains(" matched, integrated as ") && line.Contains(" (chosen for the nominal computer), wrote "),
+            string.Join(Environment.NewLine, stepSaid));
         // The step keeps the list of what its run named: one group, so one master, under the group's name.
         StepResultsList.TryRead(step.Output.ShouldNotBeNull(), out var names).ShouldBeTrue();
         var group = names.ShouldHaveSingleItem();
@@ -273,6 +305,8 @@ public sealed class WorkbenchStackTests(ITestOutputHelper output) : IDisposable
         exit.ShouldBe(0, string.Join(Environment.NewLine, said));
         var verbMaster = Path.Combine(into, $"master_{group}.fits");
         File.Exists(verbMaster).ShouldBeTrue(string.Join(Environment.NewLine, said));
+        // The verb says the same of the strategy, in the operation's words: the step's line carried --nominal-host.
+        said.ShouldContain(line => line.Contains(" (chosen for the nominal computer), wrote "), string.Join(Environment.NewLine, said));
         ShouldBeTheSameFile(master, verbMaster, $"the master of '{group}'");
         // What belongs beside the master is beside it in the store: each map the verb wrote, with the verb's bytes.
         static string EndingOf(string map, string ofMaster) => Path.GetFileName(map)[Path.GetFileNameWithoutExtension(ofMaster).Length..];

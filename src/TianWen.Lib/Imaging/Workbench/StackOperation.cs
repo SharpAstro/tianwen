@@ -351,8 +351,10 @@ public sealed class StackOperation(ILogger<StackingPipeline>? logger = null) : R
     public static string GroupLine(GroupResult group)
     {
         ArgumentNullException.ThrowIfNull(group);
+        // The strategy is named as --strategy takes it, with where it came from: an unstated one says what it resolved to.
+        var strategy = group.Strategy is { } kind ? $"integrated as {kind} ({group.StrategyFrom}), " : string.Empty;
         return string.IsNullOrEmpty(group.SkipReason)
-            ? $"{group.GroupSlug}: {group.FramesMatched}/{group.FramesAttempted} matched, wrote {Path.GetFileName(group.MasterFitsPath)} in {group.Elapsed.TotalSeconds:F1}s"
+            ? $"{group.GroupSlug}: {group.FramesMatched}/{group.FramesAttempted} matched, {strategy}wrote {Path.GetFileName(group.MasterFitsPath)} in {group.Elapsed.TotalSeconds:F1}s"
             : $"{group.GroupSlug}: SKIPPED ({group.SkipReason})";
     }
 

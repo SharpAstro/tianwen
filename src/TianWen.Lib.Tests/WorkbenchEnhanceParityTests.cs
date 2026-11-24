@@ -65,6 +65,18 @@ public sealed class WorkbenchEnhanceParityTests(ITestOutputHelper output) : IDis
         }
     }
 
+    /// <summary>A deblurrer that serves a colour image and no mono one, as a model that takes three channels does.</summary>
+    private sealed class ColourOnlyDeblurrer(string name) : IImageDeblurrer, IEnhancerAvailability
+    {
+        private readonly Scaling _scaling = new(name, 0.95f);
+
+        public string Name => name;
+
+        public bool CanServe(int channelCount, EnhanceOptions options) => channelCount == 3;
+
+        public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default) => _scaling.EnhanceAsync(input, cancellationToken);
+    }
+
     /// <summary>
     /// A scaling enhancer that also writes down what it was handed with each image: the options, and for a denoise the
     /// variant. What a verb hands its enhancers is then compared with what a step hands them (#2475's third review:
@@ -433,6 +445,32 @@ public sealed class WorkbenchEnhanceParityTests(ITestOutputHelper output) : IDis
         (pared.GradientCorrection, pared.Denoise).ShouldBe((false, false));
     }
 
+    [Fact(Timeout = 60_000)]
+    public async Task TheProgramSaysWhatServesEachOfItsSteps()
+    {
+        // What the automatic backends resolved to is said once, for the verb and for a step alike: each role the
+        // program asks by its enhancer's name, "left out" where no step asks it, and the SCNR the stars end on.
+        var enhance = new EnhanceOperation(new SharpenPipeline(
+            starRemover: new Scaling("Test/Remover", 0.5f), denoiser: new Scaling("Test/Denoiser", 0.8f), deblurrer: new Scaling("Test/Deblurrer", 0.95f)));
+        var said = new List<string>();
+        var split = new EnhanceStart(WorkbenchFixtures.Master(seed: 1), EnhanceOptions.Default,
+            EnhanceCapabilities.AllRoles(deblur: true) with { GradientCorrection = false });
+
+        await enhance.ProgramAsync(split, new EnhanceSettings(), stretchedInPipeline: false, recombine: true, said.Add, TestContext.Current.CancellationToken);
+
+        said.ShouldContain("served by: deblur Test/Deblurrer; gradient left out; stars Test/Remover; stellar left out; deconvolve left out; "
+            + "denoise Test/Denoiser; scnr average");
+
+        // With no star remover the program is whole-frame: no step asks for the stars, and there is no SCNR.
+        said.Clear();
+        var wholeFrame = split with { Capabilities = EnhanceCapabilities.AllRoles(deblur: false) with { StarRemoval = false, GradientCorrection = false } };
+
+        await enhance.ProgramAsync(wholeFrame, new EnhanceSettings(), stretchedInPipeline: false, recombine: true, said.Add, TestContext.Current.CancellationToken);
+
+        said.ShouldContain("served by: deblur left out; gradient left out; stars left out; stellar left out; deconvolve left out; "
+            + "denoise Test/Denoiser; scnr left out");
+    }
+
     /// <summary>
     /// The enhance's default program, step for step, for both shapes of the split program. A change here is other
     /// pixels for the same settings and enhancers: it needs a new <c>Version</c> of <see cref="EnhanceOperation"/>, or a
@@ -549,6 +587,31 @@ public sealed class WorkbenchEnhanceParityTests(ITestOutputHelper output) : IDis
         // The deblur and the star removal have no switch: they run wherever they serve, and are always named.
         installed.ServedBy(new EnhanceSettings { Gradient = false, Denoise = false, Deconvolve = false })
             .ShouldBe("deblur none; gradient left out; stars none; stellar left out; deconvolve left out; denoise left out");
+    }
+
+    [Fact]
+    public void WhatADeblurrerOnEveryImageLeavesOutIsNoPartOfTheStepsKey()
+    {
+        // A whole-frame deblurrer that serves mono and colour alike runs on every image, and with it the starless
+        // deconvolution runs only where its blend is stated and the stellar sharpening never. A status then names
+        // neither, as a run names neither.
+        static EnhanceOperation Over(IImageDeblurrer? deblurrer, string deconvolver = "Test/Deconvolver") => new(new SharpenPipeline(
+            starRemover: new Scaling("Test/Remover", 0.5f), nonStellarDeconvolver: new Scaling(deconvolver, 0.9f),
+            denoiser: new Scaling("Test/Denoiser", 0.8f), deblurrer: deblurrer));
+        var always = Over(new Scaling("Test/Deblurrer", 0.95f));
+
+        always.ServedBy(new EnhanceSettings()).ShouldBe(
+            "deblur Test/Deblurrer; gradient none; stars Test/Remover; stellar left out; deconvolve left out; denoise Test/Denoiser");
+        // Another deconvolver on that computer moves no key: it would never run.
+        Over(new Scaling("Test/Deblurrer", 0.95f), deconvolver: "Test/Another").ServedBy(new EnhanceSettings()).ShouldBe(always.ServedBy(new EnhanceSettings()));
+        // Its blend stated, the deconvolution is kept beside the deblur, and named.
+        always.ServedBy(new EnhanceSettings { DeconvolveBlend = 0.6f }).ShouldContain("deconvolve Test/Deconvolver");
+        always.ServedBy(new EnhanceSettings { StellarSharpen = true }).ShouldContain("stellar left out");
+
+        // No deblurrer, or one that serves colour alone: on some image the deconvolution runs, so it is named.
+        Over(deblurrer: null).ServedBy(new EnhanceSettings()).ShouldContain("deconvolve Test/Deconvolver");
+        Over(new ColourOnlyDeblurrer("Test/ColourOnly")).ServedBy(new EnhanceSettings()).ShouldContain("deconvolve Test/Deconvolver");
+        Over(new ColourOnlyDeblurrer("Test/ColourOnly")).ServedBy(new EnhanceSettings { StellarSharpen = true }).ShouldContain("stellar none");
     }
 
     [Fact(Timeout = 600_000)]

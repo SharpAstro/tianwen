@@ -63,8 +63,11 @@ The rules that bite:
   step that says `backend: tianWen` is keyed by the in-house model where RC-Astro is licensed too, and one that
   says `gradientBackend: classical` by the classical fit where GraXpert is installed too. A role the settings
   leave out is not named: a step with `gradient` off runs no corrector, so installing or removing GraXpert moves no
-  key of it, and the same for a denoise, a deconvolution and the stellar sharpening left out. An in-house
-  enhancer's name carries its model file, so a retrained model is another key. Naming an RC-Astro role asks whether
+  key of it, and the same for a denoise, a deconvolution and the stellar sharpening left out. Nor is a role the
+  program leaves out on EVERY image: where a deblurrer serves mono and colour alike
+  (`SharpenPipeline.DeblurServesEveryInput`) its whole-frame deblur always runs, so the stellar sharpening never
+  does and the starless deconvolution only with its blend stated, and a status says `deconvolve left out` as the run
+  does. An in-house enhancer's name carries its model file, so a retrained model is another key. Naming an RC-Astro role asks whether
   its product is licensed, which is a
   subprocess, so **the runner asks what serves once for an operation and its settings in a plan**
   (`WorkbenchServedTests`), on a status as on a run.
@@ -551,6 +554,15 @@ the digests of a set of frames it read). `tianwen workbench run <project> [--ima
 Both take `--verify-frames`. `tianwen workbench operations` lists the
 operations with their settings at their defaults. Exit 1 is a project that cannot be read, exit 2 a step or an export
 that gave no result.
+
+**What an automatic setting resolved to is said, never left to be guessed.** A status and a run print `served by:`
+under each step that something outside the operation serves (`StepReport.ServedBy`, the text the key holds): the
+enhancer of each role, the gradient corrector, the catalogue. It is said for a kept step as for one that runs. Where
+a choice is made on the image and not on the settings, the step's own lines say it as it runs, and its verb says the
+same words: the enhance says which enhancer serves each step of its program and the SCNR it ends on
+(`EnhanceOperation.ProgramAsync`), and a stack says the strategy that made each master and where it came from, as
+"integrated as BayerDrizzle (chosen for the nominal computer)", "(chosen for this computer)" or "(stated)"
+(`StackOperation.GroupLine`, `GroupResult.Strategy`).
 
 ## Adding an operation
 
