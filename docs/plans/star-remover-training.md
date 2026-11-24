@@ -10165,8 +10165,8 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
   - **Nothing is adopted;** adoption is the owner's.
 - **R4h's second seed, read 2026-11-25 against its registration: R4h holds every guard on both seeds, R4j's two
   failed guards are the arm's and not the parent's spread, and the one thing the sheets show the two seeds
-  differing on is M31's nucleus as trained.** Scored as registered: both seeds' last steps and best steps in one pass on
-  `bh-bin14`, as trained, with the chain for the rows read through it.
+  differing on is M31's nucleus as trained.** Scored as registered: both seeds' last steps and best steps in one
+  pass on `bh-bin14`, as trained, with the chain for the rows read through it.
   - **In plain words.** R4h is the baseline every arm is held against, and it had been trained once. A second
     training of the same recipe, with another seed, says how far two runs of one recipe stand apart on each row
     of the scorecard, so that an arm's difference from its parent can be told from that spread. On most rows the
@@ -10268,10 +10268,13 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
   - **What it says.** R4h is a baseline on two seeds: no guard fails on either, and the two read within a point
     and a half of each other on the crowded flats, the dark flats and the faint stars on dark sky, and within
     0.5 to 4.4 points on the planted test's three stamps. R4j's read needs no amendment: its 30 Doradus failure
-    and its field-light failure are outside the parent's pair, and its inner-ring sentence stands. The one row R4j's read
-    left open, the Tarantula's glow green median through the chain (253.5 for R4j's seed 0), is closed by this
-    pair: the parent's seeds read -14.7 and -84.5, so that seed stands about 268 over the nearer one, which is the
-    arm's doing and not the parent's spread. Three rows
+    and its field-light failure are outside the parent's pair, and its inner-ring sentence stands. The one row
+    R4j's read left open was the Tarantula's glow green median through the chain, 253.5 on R4j's seed 0 ("one
+    seed cannot say whether it is the arm's doing"). The parent's seeds read -14.7 and -84.5, 70 apart, and R4j's
+    seed 0 stands 268 over the nearer of them: that is outside the parent's pair, so the parent's spread does not
+    explain it. R4j's seed 1 reads 60.8, 75 over the nearer parent seed, and R4j's own two seeds stand 193 apart,
+    so what the pair shows is that this seed of the arm moved the glow, not by how much the arm does. It held
+    its guard (within 500) and stays a move, not a cost. Three rows
     move with the seed by amounts a read has leaned on. The bright stars' innermost ring reads 9 and 3 rows of
     26, where R4i was asked for at least 3 rows fewer than its parent. Gaia's most crowded cell reads 82.7 and
     87.5 %, where R4j's seed 0 was read 9.0 points over its parent's one seed. M31's nucleus as trained is kept
