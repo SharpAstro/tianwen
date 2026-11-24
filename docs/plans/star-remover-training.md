@@ -9681,8 +9681,9 @@ nothing is registered, exported or scored for it.
   - **Where that light sits** (`gaia_forced.py --min-sep 5` and `--min-sep 8`, rerun 2026-11-25). Fitted again with
     only the missed stars more than 5 px from every detection, the scale falls to 0.5 to 1.3 % in cell 1,1 and 0 to
     2.3 % in cell 5,4, and the bands go back to the stored plate's (1,1: 5.2 / 5.8 / 4.5; 5,4: 6.8 / 7.0 / 6.2);
-    beyond 8 px it is 0 to 1.1 % and the bands are the stored plate's exactly. Every gain came from Gaia stars 2 to 5 px from a detected star: close companions and blends a
-    detection's fit sits on. Missed stars clear of any detection carry no grain that can be measured.
+    beyond 8 px it is 0 to 1.1 % and the bands are the stored plate's exactly. Every gain came from Gaia stars 2 to
+    5 px from a detected star: close companions and blends a detection's fit sits on. Missed stars clear of any
+    detection carry no grain that can be measured.
   - **A deblend at those companions** (`gaia_deblend.py --bg median41`, 2026-11-25): each subtracted detection that
     has missed Gaia stars 2 to 5 px away (617, 937 and 753 in the three cells, with 4,802, 6,522 and 4,983
     companions) refit on the stored plate in a disc of 8 px: the PSF at the detection with free sign and its x and y
