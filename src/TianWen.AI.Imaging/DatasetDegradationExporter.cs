@@ -729,7 +729,9 @@ namespace TianWen.AI.Imaging
             {
                 throw new InvalidOperationException($"{options.OutDir}: {refusal}");
             }
-            if (options.Mode == DegradationMode.Stars && RealPairsFolderRefusal(options.OutDir, options.RealPairs, exported.Count > 0) is { } kindRefusal)
+            // Every mode writes the same deg000 tile names and manifests, so a noise or blur export is held out of a
+            // real-pairs folder too (its --force would overwrite tiles whose plate-masks stay).
+            if (RealPairsFolderRefusal(options.OutDir, options.RealPairs, exported.Count > 0) is { } kindRefusal)
             {
                 throw new InvalidOperationException($"{options.OutDir}: {kindRefusal}");
             }

@@ -2539,6 +2539,13 @@ namespace TianWen.Lib.Tests
                     async () => await DatasetDegradationExporter.RunAsync(options with { RealPairs = false, Force = force }, logger: null, TestContext.Current.CancellationToken)))
                     .Message.ShouldContain("is a real-pairs export's");
             }
+            // A noise or blur export writes the same tile names and manifests, so the folder is refused to them as well.
+            foreach (var mode in new[] { DatasetDegradationExporter.DegradationMode.Noise, DatasetDegradationExporter.DegradationMode.Blur })
+            {
+                (await Should.ThrowAsync<InvalidOperationException>(
+                    async () => await DatasetDegradationExporter.RunAsync(options with { RealPairs = false, Mode = mode, Force = true }, logger: null, TestContext.Current.CancellationToken)))
+                    .Message.ShouldContain("is a real-pairs export's");
+            }
             File.Exists(Path.Combine(options.OutDir, DatasetDegradationExporter.DegradationManifestFileName)).ShouldBeFalse("the refused drawn export wrote no row");
             await File.WriteAllBytesAsync(footprintPath, footprint, TestContext.Current.CancellationToken);
             var retried = await DatasetDegradationExporter.RunAsync(options, logger: null, TestContext.Current.CancellationToken);
