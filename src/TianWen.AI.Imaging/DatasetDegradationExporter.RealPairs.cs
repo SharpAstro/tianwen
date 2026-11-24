@@ -99,16 +99,18 @@ public static partial class DatasetDegradationExporter
     }
 
     /// <summary>
-    /// Why a stars export cannot go into <paramref name="outDir"/>, or null when it can: a folder holds real pairs or
-    /// drawn stars, never both, since one folder is one training set and a trainer reads its masks by one rule. A folder is
+    /// Why an export of any mode cannot go into <paramref name="outDir"/>, or null when it can: a folder holds real pairs
+    /// or another export's pairs (drawn stars, noise, blur: every mode writes the same tile names and manifests), never
+    /// both, since one folder is one training set and a trainer reads its masks by one rule. A folder is
     /// a real-pairs export's from the moment its mask record (<see cref="StarRemovalMasks.RuleFileName"/>) says so, which a
     /// real-pairs run writes once its plates store has opened and before its first session (a run that cannot start
-    /// leaves none). From then on, with rows or without, drawn stars never go beside that record. A run that failed or
+    /// leaves none). From then on, with rows or without, no other export goes beside that record. A run that failed or
     /// was stopped inside a session has no row but may have left that session's tiles and masks: a drawn export let in
     /// there would write its own tiles over them and keep their masks, which <c>plate-masks</c> skips as present. So
-    /// the record is never dropped for a drawn export; the real-pairs export runs there again, or the drawn one takes an
-    /// empty folder. A folder that <paramref name="holdsRows"/> without that record holds another export's, and takes no
-    /// real pair.
+    /// the record is never dropped for another export; the real-pairs export runs there again, or the other one takes
+    /// an empty folder. A folder that <paramref name="holdsRows"/> without that record holds another export's, and
+    /// takes no real pair. What this does not hold apart is two exports that are neither a real pair's (a noise export
+    /// into a folder of drawn stars): that is #2510.
     /// </summary>
     internal static string? RealPairsFolderRefusal(string outDir, bool realPairs, bool holdsRows)
     {
@@ -118,10 +120,10 @@ public static partial class DatasetDegradationExporter
         {
             return realPairs
                 ? null
-                : $"the folder is a real-pairs export's (its {StarRemovalMasks.RuleFileName} says {nameof(StarRemovalMasks.Rule.RealStars)}) and this export draws stars; one folder holds one rule, so export into an empty folder";
+                : $"the folder is a real-pairs export's (its {StarRemovalMasks.RuleFileName} says {nameof(StarRemovalMasks.Rule.RealStars)}) and this export is not one; one folder holds one rule, so export into an empty folder";
         }
         return realPairs && holdsRows
-            ? "the folder already holds rows of drawn stars and this export writes real pairs; one folder holds one rule, so export into an empty folder"
+            ? "the folder already holds another export's rows and this export writes real pairs; one folder holds one rule, so export into an empty folder"
             : null;
     }
 

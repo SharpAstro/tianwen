@@ -2407,7 +2407,7 @@ namespace TianWen.Lib.Tests
                     .Message.ShouldContain("is a real-pairs export's");
                 (await Should.ThrowAsync<InvalidOperationException>(
                     async () => await DatasetDegradationExporter.RunAsync(options with { OutDir = drawn.OutDir, Force = force }, logger: null, TestContext.Current.CancellationToken)))
-                    .Message.ShouldContain("already holds rows of drawn stars");
+                    .Message.ShouldContain("already holds another export's rows");
             }
             ReadDegradationRows(options.OutDir).Length.ShouldBe(rows.Length);
             File.Exists(Path.Combine(drawn.OutDir, StarRemovalMasks.RuleFileName)).ShouldBeFalse("a refused export leaves no record in the other's folder");

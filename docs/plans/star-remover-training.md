@@ -10206,10 +10206,11 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     Each tile's noise plane is the master's recorded noise as it is, since that record is what a runner reads off
     the master. Beside the draw goes its mask (`<tile>.keep.f16`), and the export records the rule
     (`plate-masks.rule` says `RealStars`), so `plate-masks` writes no other rule's masks beside them and a folder
-    holds real pairs or drawn stars, never both: the record is written once the plates store has opened, before
-    the first session, and from then on the folder takes no drawn star, whether the run got as far as a row or
-    failed before one (a session that failed part way has no row but may have left tiles and masks, which a
-    drawn export let in there would write over and `plate-masks` would then keep as its own). A cell with no
+    holds real pairs or another export's pairs, never both: the record is written once the plates store has
+    opened, before the first session, and from then on the folder takes no other export of any mode (drawn
+    stars, noise or blur, which all write the same tile names and manifests), whether the run got as far as a
+    row or failed before one (a session that failed part way has no row but may have left tiles and masks, which
+    a drawn export let in there would write over and `plate-masks` would then keep as its own). A cell with no
     counted pixel inside the rim is not exported. The export reads the bake, the plate, its catalogue, its field
     profile and its subtracted footprint, and no PSF store: the one width it uses is the profile's. `--draws` is 1,
     and an option that shapes a drawn star or a background, that names where a drawn star's profile comes from, or
@@ -10231,6 +10232,11 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     before any score, in its own registration: the sessions (the 138 training ones; the three held-out masters
     stay out), the share of real pairs in a batch, which plate store, and bars that include the builder's known
     faults (it is the teacher, and its digs and residue are in the target). An arm needs the owner's word.
+  - **Left open by the review:** real pairs are held apart from every other export, but two exports that are
+    neither a real pair's are not held apart from each other. A `--mode noise` or `--mode blur` export writes
+    the same tile names and manifests as a stars export and is asked nothing in a folder of drawn stars (nor a
+    drawn export in a folder of noise pairs), and the black point's check runs for stars exports alone. That is
+    older than this export. Read in the code, not run. It is #2510 (in this plan's milestone, linked from here).
   - Refs #2203, #2088.
 
 #### The dig floor inside bright nebula: floor4, and what it leaves (2026-11-20)
