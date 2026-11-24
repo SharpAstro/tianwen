@@ -10110,9 +10110,13 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     (and its field light of 84 %) is a `bh-bin12` figure, and R4j's table carried it across builds unre-scored.
     Registered now, before seed 1 is scored: **seed 0 is re-scored on `bh-bin14` for every row seed 1 is scored
     on (every row of Questions 1, 2 and 3 and of the guard table, on every master they use, in one pass with
-    seed 1)**, so the pair is one build on every row. Each question reads that pair: Question 1's bands the worse
-    value, and the figure R4j's table carried (17 %) is quoted beside it; if the re-score differs from a carried
-    figure, that difference is reported as the build's and is not part of the recipe's spread.
+    seed 1)**, so the pair is one build on every row. R4h's last-step weights go through the whole registered step
+    under the name `r4h_synth32_s0b14` (the three masters as trained, the chain, the guard table's rows, the 26
+    bright-star rows, the nebula rows, Gaia BP with the level set aside, the two-sided crowded row), then through
+    the planted test on the layer stamp (planted masters 1, 2 and 3) and on `psf` and `donor`. Every question reads
+    that same-build pair. Each figure carried from `bh-bin12` (17 %, 84 %, 91.4, 82.7, 67.8 and 6.8 %, 34.5 %, 9 of
+    26, 47 points, 18 of 77) is quoted beside its re-score, and a difference between the two is reported as the
+    build's, never as the recipe's spread.
   - **Question 1, the 30 Doradus row.** The rule R4j registered for a row R4h misses too applies: that row is the
     exporter's, and the arm is held to R4h's value plus the bar's allowance, here 27 minus R4d's 22 = 5 points. The
     value the allowance is added to is the worse (higher) of R4h's two seeds, which is seed 1's whenever seed 1
