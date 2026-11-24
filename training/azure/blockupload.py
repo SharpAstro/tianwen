@@ -5,7 +5,10 @@ sending anything, a run asks the service which blocks are already staged (Get Bl
 missing ones, so stopping it, a reboot or changing the cap costs at most the blocks in flight. Each block carries its
 Content-MD5, which the service checks. A blob already committed at the file's size is left alone.
 
-Usage: python -I blockupload.py <file> <blob url without query> <sas file> [--cap-mbps N] [--workers 4] [--block-mib 8]
+Usage: python -I blockupload.py <file> <blob url without query> <sas file> [--cap-mbps N] [--cap-file F] [--workers 4]
+       [--block-mib 8]
+With --cap-file the cap is live: the file is read again every 5 s, and a new number in it is the cap within seconds, so
+the owner can throttle an upload that is running (and let it go again) without stopping it (2026-11-25).
 upload-cache.ps1 sends every file of 1 GB or more through it. Written 2026-10-21, when azcopy sent synth7's 21 GB tile file
 from zero after every restart of its pass. Tested before use: a 64 MB file stopped after 45 s came back with 4 of 16 blocks
 staged, the second run sent the other 12, and the blob read back byte for byte (SHA-256).
@@ -56,24 +59,76 @@ def block_id(i):
     return base64.b64encode(f"blk{i:08d}".encode()).decode()
 
 
-class Throttle:
-    """Holds the total send rate to cap_mbps across every worker (0 is no cap)."""
+def read_cap(path):
+    """The cap a cap file names, in Mb/s: a number over 0. None when the file is missing, being written, holds no number
+    or holds 0 or less, so the caller keeps the cap it has: a slip in the file never takes the cap off."""
+    try:
+        with open(path, encoding="ascii") as f:
+            cap = float(f.read().strip())
+    except (OSError, ValueError, UnicodeDecodeError):
+        return None
+    return cap if cap > 0 else None
 
-    def __init__(self, cap_mbps):
-        self.rate = cap_mbps * 1e6 / 8 if cap_mbps > 0 else 0
+
+class Throttle:
+    """Holds the total send rate to cap_mbps across every worker (0 is no cap).
+
+    Bytes are let out by a running count: the cap adds its rate to what is allowed as time passes, a block is given the
+    place in that count where the blocks before it end, and it may start once the count has reached its place. Idle time
+    earns nothing (the count never runs ahead of what was handed out), so a block that comes to an idle throttle starts at
+    once, as before. With cap_file, the file is read again every `recheck` seconds and a new number is the cap from then
+    on; a worker that waits sleeps in slices of at most `slice_s` seconds and looks again, so a lower cap holds the next
+    blocks back and a higher one lets waiting workers go, within seconds, with nothing restarted. A block already sent is
+    not slowed."""
+
+    def __init__(self, cap_mbps, cap_file=None, recheck=5.0, slice_s=1.0, clock=time.monotonic, sleep=time.sleep,
+                 say=print):
+        self.cap = cap_mbps if cap_mbps > 0 else 0
+        self.cap_file, self.recheck, self.slice_s = cap_file, recheck, slice_s
+        self.clock, self.sleep, self.say = clock, sleep, say
         self.lock = threading.Lock()
-        self.next_free = time.monotonic()
+        self.last = clock()
+        self.allowed = 0.0
+        self.handed = 0.0
+        self.read_at = None
+        if cap_file:
+            self._look(self.last)
+
+    def rate(self):
+        return self.cap * 1e6 / 8 if self.cap > 0 else 0.0
+
+    def _look(self, now):
+        self.read_at = now
+        cap = read_cap(self.cap_file)
+        if cap is not None and cap != self.cap:
+            self.say(f"  cap now {cap:g} Mb/s (from {self.cap_file})")
+            self.cap = cap
+
+    def _advance(self, now):
+        """Under the lock: the count moves on at the rate that held since the last look, then the file is read if due,
+        so a new cap counts from now on."""
+        rate = self.rate()
+        self.allowed = min(self.handed, self.allowed + rate * (now - self.last)) if rate else self.handed
+        self.last = now
+        if self.cap_file and now - self.read_at >= self.recheck:
+            self._look(now)
 
     def wait(self, nbytes):
-        if not self.rate:
-            return
         with self.lock:
-            now = time.monotonic()
-            start = max(now, self.next_free)
-            self.next_free = start + nbytes / self.rate
-        delay = start - time.monotonic()
-        if delay > 0:
-            time.sleep(delay)
+            self._advance(self.clock())
+            place = self.handed
+            self.handed += nbytes
+            if not self.rate():
+                self.allowed = self.handed
+                return
+        while True:
+            with self.lock:
+                self._advance(self.clock())
+                rate = self.rate()
+                if not rate or self.allowed >= place:
+                    return
+                need = (place - self.allowed) / rate
+            self.sleep(min(need, self.slice_s))
 
 
 class Sender:
@@ -142,6 +197,10 @@ def main(argv=None):
     p.add_argument("url")
     p.add_argument("sas_file")
     p.add_argument("--cap-mbps", type=float, default=0)
+    p.add_argument("--cap-file", default=None,
+                   help="a file holding the cap in Mb/s, read again every 5 s while the run goes on: a new number over 0 "
+                        "is the cap within seconds, with nothing restarted; a missing or unreadable file, or 0 or less, "
+                        "keeps the cap the run has")
     p.add_argument("--workers", type=int, default=4)
     p.add_argument("--block-mib", type=int, default=8)
     a = p.parse_args(argv)
@@ -184,9 +243,10 @@ def main(argv=None):
         staged = set()
     todo = [w for w in want if (w[1], w[2]) not in staged]
     print(f"{os.path.basename(a.file)}: {size} bytes in {n} blocks of {a.block_mib} MiB; {n - len(todo)} already staged, "
-          f"{len(todo)} to send{f', capped at {a.cap_mbps:g} Mb/s' if a.cap_mbps else ''}", flush=True)
+          f"{len(todo)} to send{f', capped at {a.cap_mbps:g} Mb/s' if a.cap_mbps else ''}"
+          f"{f', the cap read again from {a.cap_file}' if a.cap_file else ''}", flush=True)
 
-    throttle = Throttle(a.cap_mbps)
+    throttle = Throttle(a.cap_mbps, a.cap_file, say=lambda line: print(line, flush=True))
     done = [n - len(todo)]
     sent = [0]
     t0 = time.monotonic()

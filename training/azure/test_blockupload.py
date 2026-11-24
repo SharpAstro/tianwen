@@ -178,6 +178,15 @@ class Uploads(unittest.TestCase):
         md5 = base64.b64encode(hashlib.md5(data).digest()).decode()
         return B.send_block(sender, meter, target, data, {"Content-Length": str(len(data)), "Content-MD5": md5}, say)
 
+    def test_a_run_with_a_cap_file_reads_it_and_sends_the_file_whole(self):
+        path, data = self.file_of(3)
+        cap = os.path.join(self.dir.name, "upload-cap-mbps.txt")
+        with open(cap, "w", encoding="ascii") as f:
+            f.write("4000")
+        self.assertEqual(B.main([path, self.url, self.sas, "--workers", "2", "--block-mib", "1", "--cap-mbps", "8",
+                                 "--cap-file", cap]), 0)
+        self.assertEqual(self.blob.committed, data)
+
     def test_the_blob_is_the_file_and_a_worker_keeps_its_connection(self):
         path, data = self.file_of(12)
         before = self.blob.connections
@@ -350,6 +359,88 @@ class Charges(unittest.TestCase):
         with self.assertRaises(TimeoutError):
             B.send_block(sender, meter, "/x", b"12345", {}, lambda line: None)
         self.assertEqual(meter.charged, [])
+
+
+class LiveCap(unittest.TestCase):
+    """The cap read again from its file while a run goes on (2026-11-25), on a fake clock: a block's start is when wait
+    returns. 1 MB at 8 Mb/s is 1 s."""
+
+    MB = 1_000_000
+
+    def setUp(self):
+        self.now = 0.0
+        self.hooks = []
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.file = os.path.join(folder.name, "upload-cap-mbps.txt")
+        self.said = []
+
+    def clock(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.assertGreater(seconds, 0)
+        self.assertLessEqual(seconds, 1.0, "a waiting worker sleeps in slices of at most a second")
+        self.now += seconds
+        for at, text in list(self.hooks):
+            if self.now >= at:
+                self.write(text)
+                self.hooks.remove((at, text))
+
+    def write(self, text):
+        with open(self.file, "w", encoding="ascii") as f:
+            f.write(text)
+
+    def throttle(self, cap, cap_file=True):
+        return B.Throttle(cap, self.file if cap_file else None, recheck=5.0, slice_s=1.0, clock=self.clock,
+                          sleep=self.sleep, say=self.said.append)
+
+    def starts(self, throttle, blocks):
+        out = []
+        for _ in range(blocks):
+            throttle.wait(self.MB)
+            out.append(round(self.now, 6))
+        return out
+
+    def test_without_a_file_blocks_are_spaced_by_the_cap_as_before(self):
+        self.assertEqual(self.starts(self.throttle(8, cap_file=False), 4), [0.0, 1.0, 2.0, 3.0])
+
+    def test_a_lower_cap_in_the_file_holds_the_next_blocks_back_within_the_recheck(self):
+        self.write("8")
+        t = self.throttle(8)
+        self.hooks.append((2.0, "1"))
+        s = self.starts(t, 9)
+        gaps = [b - a for a, b in zip(s, s[1:])]
+        self.assertEqual(gaps[:5], [1.0] * 5, "until the file is read again the old cap holds")
+        self.assertTrue(all(abs(g - 8.0) < 1e-6 for g in gaps[6:]), f"1 Mb/s spaces 1 MB 8 s apart: {gaps}")
+        self.assertEqual(self.said, [f"  cap now 1 Mb/s (from {self.file})"])
+
+    def test_a_higher_cap_lets_a_waiting_worker_go_without_a_restart(self):
+        self.write("1")
+        t = self.throttle(1)
+        self.assertEqual(self.starts(t, 1), [0.0])
+        self.hooks.append((2.0, "8"))
+        start = self.starts(t, 1)[0]
+        # At 1 Mb/s the second block would start at 8 s. The file says 8 from 2 s and is read at 5 s, when 5/8 of the
+        # first block's share has gone; the other 3/8 MB at 8 Mb/s is 0.375 s.
+        self.assertAlmostEqual(start, 5.375, places=6)
+
+    def test_a_slip_in_the_file_keeps_the_cap(self):
+        for text in ("0", "-3", "fast", ""):
+            self.assertIsNone(B.read_cap(self.write(text) or self.file), text)
+        self.assertIsNone(B.read_cap(self.file + ".missing"))
+        self.write("0")
+        t = self.throttle(8)
+        self.assertEqual(self.starts(t, 3), [0.0, 1.0, 2.0])
+        self.assertEqual(self.said, [])
+
+    def test_idle_time_earns_nothing(self):
+        t = self.throttle(8, cap_file=False)
+        self.starts(t, 1)
+        self.now += 100.0
+        # The first block after the idle starts at once; the second still waits its full share, so the idle earned no
+        # burst.
+        self.assertEqual(self.starts(t, 2), [100.0, 101.0])
 
 
 if __name__ == "__main__":
