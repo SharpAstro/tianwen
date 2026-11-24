@@ -78,7 +78,8 @@ public class StackingPipelineRgbBayerDrizzleTest(ITestOutputHelper output)
         result.FramesMatched.ShouldBeGreaterThanOrEqualTo(6,
             $"expected at least 6/8 RGGB frames to register; got {result.FramesMatched}");
         // The strategy was stated, and the pipeline says so of the one that made the master.
-        (result.Strategy, result.StrategyFrom).ShouldBe(((IntegrationStrategyKind?)IntegrationStrategyKind.BayerDrizzle, "stated"));
+        result.Strategy.ShouldBe(IntegrationStrategyKind.BayerDrizzle);
+        result.StrategyFrom.ShouldBe("stated");
 
         // 2) Master FITS round-trips with 3 channels. The drizzle code path
         //    bypasses DebayerAsync entirely -- if the strategy still pushed
