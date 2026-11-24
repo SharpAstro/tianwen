@@ -590,7 +590,7 @@ namespace TianWen.AI.Imaging
             string? PlatesRoot = null,
             InjectionPlacement Placement = InjectionPlacement.Random,
             StarProfileFamily Profile = StarProfileFamily.Field,
-            double SaturatedFraction = 0.25,
+            double SaturatedFraction = DefaultSaturatedFraction,
             string? PsfStorePath = null,
             bool MeasureInjection = false,
             double? MonoWarpResampleSigma = null,

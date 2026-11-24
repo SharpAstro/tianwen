@@ -10190,8 +10190,11 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     | 100 to 1,000 | stored | 0.3 to 0.9 % | 1.0 to 2.3 % | 0.0 to 0.1 % |
     | 100 to 1,000 | rebuilt | 0.3 to 0.9 % | 1.4 to 2.1 % | 0.0 to 0.1 % |
 
-    The ranges are over the seven sessions, 116 to 4,000 stars a band a session. The mask counts 11 to 49 % of a
-    frame. So the truth at a counted star is clean in both stores: the builder digs under 1 in 100, and what it
+    The ranges are over the seven sessions, 116 to 4,000 stars a band a session. The check's own mask counts 11
+    to 49 % of a frame; it was drawn before the exporter was written and is close to the exporter's, not equal to
+    it (it takes the width from the first channel where `RealPairMask` takes the profile's luminance width, and it
+    drops the zone of a source whose disc reaches the frame's edge where `RealPairMask` cuts it at the edge), so
+    an export's shares are read off its own masks. So the truth at a counted star is clean in both stores: the builder digs under 1 in 100, and what it
     leaves of a star of 20 sigma or more is a percent or two at the median. The rebuilt plates leave residue
     over the noise at MORE faint stars than the stored ones, not fewer, so real pairs are no test of the rebuild:
     what an arm on them would test is real stars against drawn ones, with the builder as the teacher.
@@ -10202,8 +10205,13 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     Each tile's noise plane is the master's recorded noise as it is, since that record is what a runner reads off
     the master. Beside the draw goes its mask (`<tile>.keep.f16`), and the export records the rule
     (`plate-masks.rule` says `RealStars`), so `plate-masks` writes no other rule's masks beside them and a folder
-    holds real pairs or drawn stars, never both. A cell with no counted pixel inside the rim is not exported.
-    `--draws` is 1 and every option that shapes a drawn star, a background or the noise is refused by name.
+    holds real pairs or drawn stars, never both: the record is written before the first session, and from then on
+    the folder takes no drawn star, whether the run got as far as a row or failed before one. A cell with no
+    counted pixel inside the rim is not exported. The export reads the bake, the plate, its catalogue, its field
+    profile and its subtracted footprint, and no PSF store: the one width it uses is the profile's. `--draws` is 1,
+    and an option that shapes a drawn star or a background, that names where a drawn star's profile comes from, or
+    that sets the noise's level, shape or correlation is refused by name (`--saturated-fraction` when it is not
+    its default); the warped shape's own parameters are read only under `--shape warped`, which is refused.
   - **How a trainer reads it:** as R4g's bright cells, with no change to the trainer: `--prepare`, then
     `--prepare-keep`, then `--extra-cache` and `--extra-loss-mask` beside a main cache of drawn stars. A real pair
     has one draw a cell where a drawn cell has four, so at equal cells it is a quarter of the tiles.

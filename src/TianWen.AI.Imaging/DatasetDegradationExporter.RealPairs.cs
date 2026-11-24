@@ -29,10 +29,17 @@ public static partial class DatasetDegradationExporter
     /// <summary>What a real pair's rows say where a drawn export names its placement and its profile.</summary>
     public const string RealPairsLabel = "Real";
 
+    /// <summary>The chance a drawn export gives a draw one saturated star beyond the cell's own count
+    /// (<see cref="Options.SaturatedFraction"/>), unless another is asked for.</summary>
+    public const double DefaultSaturatedFraction = 0.25;
+
     /// <summary>
     /// Why <paramref name="options"/> cannot export real pairs, or null when it can or does not ask to
-    /// (<see cref="Options.RealPairs"/>). A real pair has one draw and draws nothing, so an option that shapes a drawn star,
-    /// a background or the noise has nothing to act on, and is refused by name before it is silently ignored.
+    /// (<see cref="Options.RealPairs"/>). A real pair has one draw and draws nothing, so an option that shapes a drawn star
+    /// or a background, that names where a drawn star's profile comes from, or that sets the noise's level, shape or
+    /// correlation has nothing to act on, and is refused by name before it is silently ignored. An option with a default
+    /// that is no "off" (<see cref="Options.SaturatedFraction"/>) is refused when it differs from it. The warped shape's
+    /// own parameters are read only under <see cref="NoiseShape.Warped"/>, which is itself refused.
     /// </summary>
     public static string? RealPairsRefusal(Options options)
     {
@@ -51,9 +58,14 @@ public static partial class DatasetDegradationExporter
         (string Name, bool Given)[] drawn =
         [
             (nameof(Options.SyntheticBackground), options.SyntheticBackground),
+            (nameof(Options.BrightKnotsWide), options.BrightKnotsWide),
+            (nameof(Options.NebulaKnots), options.NebulaKnots),
+            (nameof(Options.Steering), options.Steering is not null),
             (nameof(Options.NoiseScale), options.NoiseScale is not null),
             (nameof(Options.Placement), options.Placement != InjectionPlacement.Random),
             (nameof(Options.Profile), options.Profile != StarProfileFamily.Field),
+            (nameof(Options.SaturatedFraction), options.SaturatedFraction != DefaultSaturatedFraction),
+            (nameof(Options.PsfStorePath), options.PsfStorePath is not null),
             (nameof(Options.MeasureInjection), options.MeasureInjection),
             (nameof(Options.StarLobes), options.StarLobes),
             (nameof(Options.StarSubs), options.StarSubs),
@@ -87,26 +99,27 @@ public static partial class DatasetDegradationExporter
     }
 
     /// <summary>
-    /// Why a stars export cannot go into <paramref name="outDir"/>, or null when it can: a folder that
-    /// <paramref name="holdsRows"/> holds real pairs or drawn stars, never both, since one folder is one training set and a
-    /// trainer reads its masks by one rule. A folder of real pairs is known by its mask record
-    /// (<see cref="StarRemovalMasks.RuleFileName"/>).
+    /// Why a stars export cannot go into <paramref name="outDir"/>, or null when it can: a folder holds real pairs or
+    /// drawn stars, never both, since one folder is one training set and a trainer reads its masks by one rule. A folder is
+    /// a real-pairs export's from the moment its mask record (<see cref="StarRemovalMasks.RuleFileName"/>) says so, which a
+    /// real-pairs run writes before its first session: with rows or without (a run that failed or was stopped before any
+    /// row, whose masks may lie there already), drawn stars never go beside that record, so no drawn row can ever stand
+    /// under it. A folder that <paramref name="holdsRows"/> without that record holds another export's, and takes no real
+    /// pair.
     /// </summary>
     internal static string? RealPairsFolderRefusal(string outDir, bool realPairs, bool holdsRows)
     {
-        if (!holdsRows)
-        {
-            return null;
-        }
         var record = Path.Combine(outDir, StarRemovalMasks.RuleFileName);
-        var holdsRealPairs = File.Exists(record) && File.ReadAllText(record).Trim() == nameof(StarRemovalMasks.Rule.RealStars);
-        if (holdsRealPairs == realPairs)
+        var startedAsRealPairs = File.Exists(record) && File.ReadAllText(record).Trim() == nameof(StarRemovalMasks.Rule.RealStars);
+        if (startedAsRealPairs)
         {
-            return null;
+            return realPairs
+                ? null
+                : $"the folder is a real-pairs export's (its {StarRemovalMasks.RuleFileName} says {nameof(StarRemovalMasks.Rule.RealStars)}) and this export draws stars; one folder holds one rule, so export into an empty folder";
         }
-        return realPairs
+        return realPairs && holdsRows
             ? "the folder already holds rows of drawn stars and this export writes real pairs; one folder holds one rule, so export into an empty folder"
-            : "the folder already holds real pairs and this export draws stars; one folder holds one rule, so export into an empty folder";
+            : null;
     }
 
     private static async Task<SessionResult> ExportRealPairsSessionAsync(

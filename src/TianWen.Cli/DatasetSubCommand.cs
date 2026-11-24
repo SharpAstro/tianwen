@@ -1879,7 +1879,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
         var saturatedFractionOpt = new Option<double>("--saturated-fraction")
         {
             Description = "--mode stars: the chance a draw gains one saturated star beyond the cell's own count.",
-            DefaultValueFactory = _ => 0.25,
+            DefaultValueFactory = _ => DatasetDegradationExporter.DefaultSaturatedFraction,
         };
         var psfStoreOpt = new Option<string>("--psf-store")
         {

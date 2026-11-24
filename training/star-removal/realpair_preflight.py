@@ -11,7 +11,11 @@ and the plate builder's subtraction is the truth. This asks what that truth woul
   - what a loss mask would count: the builder's subtracted footprint, less two FWHM round every source it did not
     subtract (knots, merged, no fit, too narrow) and less 30 px round every saturated star (its halo stays in the
     plate), as a share of the frame.
-Writes <prefix>-<n>.png: for the session's cell with the most counted stars, master / stored plate / rebuilt plate
+This was the check BEFORE the exporter was written, and its mask is close to the exporter's, not equal to it: it takes
+the width from the first channel's Moffat where RealPairMask takes the profile's luminance width, and it leaves out
+the zone of a source whose disc reaches the frame's edge where RealPairMask cuts the zone at the edge. Its mask
+shares are therefore not the exporter's numbers; realpair_export_look.py reads those off an export's own masks.
+Writes <prefix>-<n>.png: for the session's median cell by counted stars, master / stored plate / rebuilt plate
 / the mask, 256 px at 3x, captioned. Reads only.
 """
 import csv

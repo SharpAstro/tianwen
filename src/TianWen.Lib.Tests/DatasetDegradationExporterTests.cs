@@ -2404,7 +2404,7 @@ namespace TianWen.Lib.Tests
             {
                 (await Should.ThrowAsync<InvalidOperationException>(
                     async () => await DatasetDegradationExporter.RunAsync(drawn with { OutDir = options.OutDir, Force = force }, logger: null, TestContext.Current.CancellationToken)))
-                    .Message.ShouldContain("already holds real pairs");
+                    .Message.ShouldContain("is a real-pairs export's");
                 (await Should.ThrowAsync<InvalidOperationException>(
                     async () => await DatasetDegradationExporter.RunAsync(options with { OutDir = drawn.OutDir, Force = force }, logger: null, TestContext.Current.CancellationToken)))
                     .Message.ShouldContain("already holds rows of drawn stars");
@@ -2475,6 +2475,11 @@ namespace TianWen.Lib.Tests
             (string Name, DatasetDegradationExporter.Options With)[] drawn =
             [
                 (nameof(DatasetDegradationExporter.Options.SyntheticBackground), options with { SyntheticBackground = true }),
+                (nameof(DatasetDegradationExporter.Options.BrightKnotsWide), options with { BrightKnotsWide = true }),
+                (nameof(DatasetDegradationExporter.Options.NebulaKnots), options with { NebulaKnots = true }),
+                (nameof(DatasetDegradationExporter.Options.Steering), options with { Steering = new SyntheticBackground.Steering(0.5, 2.0) }),
+                (nameof(DatasetDegradationExporter.Options.SaturatedFraction), options with { SaturatedFraction = 1.0 }),
+                (nameof(DatasetDegradationExporter.Options.PsfStorePath), options with { PsfStorePath = "psf-sessions.jsonl" }),
                 (nameof(DatasetDegradationExporter.Options.NoiseScale), options with { NoiseScale = 2.0 }),
                 (nameof(DatasetDegradationExporter.Options.Placement), options with { Placement = InjectionPlacement.AtSite }),
                 (nameof(DatasetDegradationExporter.Options.Profile), options with { Profile = StarProfileFamily.Gaussian }),
@@ -2513,10 +2518,63 @@ namespace TianWen.Lib.Tests
             Directory.Exists(options.OutDir).ShouldBeFalse("refused before anything is written");
 
             // Without the plate's subtracted footprint there is nothing a real pair may count: the session fails and says why.
-            File.Delete(StarlessMasks.SubtractedPathFor(Path.Combine(platesRoot, "plates"), DatasetTileExporter.Sanitize(SessionId)));
+            var platesDir = Path.Combine(platesRoot, "plates");
+            var slug = DatasetTileExporter.Sanitize(SessionId);
+            var footprintPath = StarlessMasks.SubtractedPathFor(platesDir, slug);
+            var footprint = await File.ReadAllBytesAsync(footprintPath, TestContext.Current.CancellationToken);
+            File.Delete(footprintPath);
             var result = await DatasetDegradationExporter.RunAsync(options, logger: null, TestContext.Current.CancellationToken);
             result.Failed.ShouldBe(1);
             result.Sessions.ShouldBeEmpty();
+
+            // That run wrote no row, but the folder is a real-pairs export's from its first moment: drawn stars are refused
+            // there, with --force as without it, so no drawn row can come to stand under the real pairs' mask record; and
+            // the real-pairs export itself runs there again once the plate has its footprint.
+            File.Exists(Path.Combine(options.OutDir, DatasetDegradationExporter.DegradationManifestFileName)).ShouldBeFalse("the failed run left no row");
+            (await File.ReadAllTextAsync(Path.Combine(options.OutDir, StarRemovalMasks.RuleFileName), TestContext.Current.CancellationToken))
+                .ShouldBe(nameof(StarRemovalMasks.Rule.RealStars));
+            foreach (var force in new[] { false, true })
+            {
+                (await Should.ThrowAsync<InvalidOperationException>(
+                    async () => await DatasetDegradationExporter.RunAsync(options with { RealPairs = false, Force = force }, logger: null, TestContext.Current.CancellationToken)))
+                    .Message.ShouldContain("is a real-pairs export's");
+            }
+            File.Exists(Path.Combine(options.OutDir, DatasetDegradationExporter.DegradationManifestFileName)).ShouldBeFalse("the refused drawn export wrote no row");
+            await File.WriteAllBytesAsync(footprintPath, footprint, TestContext.Current.CancellationToken);
+            var retried = await DatasetDegradationExporter.RunAsync(options, logger: null, TestContext.Current.CancellationToken);
+            retried.Failed.ShouldBe(0);
+            retried.Sessions.Length.ShouldBe(1);
+        }
+
+        /// <summary>
+        /// A real pair draws no star, so it reads no PSF store: its one width is the plate's own field profile's. A bake
+        /// without the store exports real pairs, the same bytes as with it, where a drawn export is refused.
+        /// </summary>
+        [Fact]
+        public async Task RealPairsNeedNoPsfStore()
+        {
+            var bake = BuildBakeWithHalves();
+            var (platesRoot, _) = await BuildPlatesStoreAsync(bake);
+            var with = RealPairOptions(bake, Path.Combine(_root, "real-with-psf"), platesRoot);
+            (await DatasetDegradationExporter.RunAsync(with, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+
+            File.Delete(Path.Combine(bake, "stats", DatasetPsfStore.FileName));
+            var without = with with { OutDir = Path.Combine(_root, "real-without-psf") };
+            var result = await DatasetDegradationExporter.RunAsync(without, logger: null, TestContext.Current.CancellationToken);
+            result.Failed.ShouldBe(0);
+            result.Sessions.Length.ShouldBe(1);
+            var rows = ReadDegradationRows(without.OutDir);
+            rows.Length.ShouldBe(2);
+            foreach (var row in rows)
+            {
+                foreach (var file in new[] { row.Tile, CleanTileOf(row), row.SigmaTile!, StarRemovalMasks.KeepPathFor(row.Tile) })
+                {
+                    File.ReadAllBytes(Path.Combine(without.OutDir, file)).ShouldBeTheSameBytesAs(File.ReadAllBytes(Path.Combine(with.OutDir, file)));
+                }
+            }
+
+            await Should.ThrowAsync<FileNotFoundException>(async () => await DatasetDegradationExporter.RunAsync(
+                with with { OutDir = Path.Combine(_root, "drawn-without-psf"), RealPairs = false }, logger: null, TestContext.Current.CancellationToken));
         }
 
         /// <summary>
