@@ -50,6 +50,14 @@ public static class StarRemovalMasks
         /// synthetic background, whose target is clean everywhere.
         /// </summary>
         DrawnStars,
+
+        /// <summary>
+        /// A real pair's mask (<see cref="TianWen.Lib.Imaging.StarRemoval.RealPairMask"/>): the plate builder's subtracted
+        /// footprint, away from the sources it kept and from its saturated stars. Written by the real-pairs export itself
+        /// (<see cref="DatasetDegradationExporter.Options.RealPairs"/>), which holds the plate's footprint and catalogue;
+        /// this class only records it, so that no other rule's masks are written beside them.
+        /// </summary>
+        RealStars,
     }
 
     /// <summary>A draw's mask path: its tile's <c>.f16</c> replaced by <see cref="KeepTileExtension"/>.</summary>
@@ -87,8 +95,13 @@ public static class StarRemovalMasks
 
     /// <summary>Writes <paramref name="rule"/>'s mask beside every draw of <paramref name="exportRoot"/>'s injection manifest that has none.</summary>
     /// <exception cref="InvalidOperationException">The export holds masks another rule wrote (<see cref="RefusalAsync"/>).</exception>
+    /// <exception cref="ArgumentException"><paramref name="rule"/> is <see cref="Rule.RealStars"/>, which only the real-pairs export writes.</exception>
     public static async Task<Result> RunAsync(string exportRoot, Rule rule, IProgress<string>? progress = null, CancellationToken cancellationToken = default)
     {
+        if (rule is Rule.RealStars)
+        {
+            throw new ArgumentException("a real pair's mask needs the plate's footprint and catalogue; the real-pairs export writes it beside each draw", nameof(rule));
+        }
         var rows = await ReadRowsAsync(exportRoot, cancellationToken);
         if (await RecordedRuleAsync(exportRoot, rows, cancellationToken) is { } other && other != rule)
         {

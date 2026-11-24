@@ -12,6 +12,7 @@ using TianWen.AI.Imaging.Onnx;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Dataset;
 using TianWen.Lib.Imaging.Degradation;
+using TianWen.Lib.Imaging.Sources;
 using TianWen.Lib.Imaging.Stacking;
 using TianWen.Lib.Imaging.StarRemoval;
 using Xunit;
@@ -2267,6 +2268,330 @@ namespace TianWen.Lib.Tests
             }
         }
 
+        /// <summary>The radius of the footprint the fixture's plate builder "subtracted" round each of its sites.</summary>
+        private const double FootprintRadiusPx = 6.0;
+
+        // The plate's subtracted footprint, as tianwen dataset starless-plates writes it: a disc round every site.
+        private static void WriteSubtractedFootprint(string platesDir, string slug, (double X, double Y)[] sites)
+        {
+            var footprint = new BitMatrix(H, W);
+            for (var y = 0; y < H; y++)
+            {
+                for (var x = 0; x < W; x++)
+                {
+                    footprint[y, x] = InFootprint(sites, x, y);
+                }
+            }
+            var map = SourceDetectionWriter.MaskToImage(footprint);
+            SourceDetectionWriter.WriteMap(StarlessMasks.SubtractedPathFor(platesDir, slug), map, "SUBTRACTED", wcs: null);
+            map.Release();
+        }
+
+        private static bool InFootprint((double X, double Y)[] sites, int x, int y)
+            => sites.Any(s => ((s.X - x) * (s.X - x)) + ((s.Y - y) * (s.Y - y)) <= FootprintRadiusPx * FootprintRadiusPx);
+
+        private static bool[] ReadKeepMask(string root, string tile)
+        {
+            var bytes = File.ReadAllBytes(Path.Combine(root, StarRemovalMasks.KeepPathFor(tile).Replace('/', Path.DirectorySeparatorChar)));
+            bytes.Length.ShouldBe(TileSize * TileSize * 2, "one channel of fp16, as the trainer's --prepare-keep reads it");
+            var keep = new bool[TileSize * TileSize];
+            for (var i = 0; i < keep.Length; i++)
+            {
+                var value = (float)BitConverter.ToHalf(bytes, i * 2);
+                (value is 0f or 1f).ShouldBeTrue();
+                keep[i] = value > 0.5f;
+            }
+            return keep;
+        }
+
+        private static DatasetDegradationExporter.Options RealPairOptions(string bake, string outDir, string platesRoot)
+            => new DatasetDegradationExporter.Options(bake, outDir,
+                Mode: DatasetDegradationExporter.DegradationMode.Stars, Draws: 1, CellsPerSession: 0, Seed: 5,
+                NoiseAnchor: DatasetDegradationExporter.NoiseAnchorKind.MasterCalibration, PlatesRoot: platesRoot, RealPairs: true);
+
+        /// <summary>
+        /// Real pairs end to end (star-remover-training.md, "Real pairs"): nothing is drawn. A cell's one draw is the tile the
+        /// bake itself cut from the master, its clean tile the one a drawn export takes from the plate, and beside the draw
+        /// goes its loss mask: 1 inside the plate's subtracted footprint and outside the saturated star's reach, 0 everywhere
+        /// else. The rows say so, the export records its mask rule, and no other rule's masks can be written beside them.
+        /// </summary>
+        [Fact]
+        public async Task ARealPairIsTheMastersOwnCellAgainstThePlatesWithItsMaskAndNothingDrawn()
+        {
+            var bake = BuildBakeWithHalves();
+            var (platesRoot, sites) = await BuildPlatesStoreAsync(bake);
+            var options = RealPairOptions(bake, Path.Combine(_root, "real"), platesRoot);
+            DatasetDegradationExporter.RealPairsRefusal(options).ShouldBeNull();
+            var result = await DatasetDegradationExporter.RunAsync(options, logger: null, TestContext.Current.CancellationToken);
+            result.Failed.ShouldBe(0);
+            result.Sessions.Length.ShouldBe(1);
+
+            // The same bake's master tiles as the noise mode writes them (the bytes P0 wrote), and the plate's as a drawn
+            // export writes them.
+            var masters = new DatasetDegradationExporter.Options(bake, Path.Combine(_root, "real-masters"), Draws: 1, CellsPerSession: 0,
+                NoiseAnchor: DatasetDegradationExporter.NoiseAnchorKind.MasterCalibration);
+            var mastersRun = await DatasetDegradationExporter.RunAsync(masters, logger: null, TestContext.Current.CancellationToken);
+            mastersRun.Failed.ShouldBe(0);
+            mastersRun.WorstParity.ShouldBe(0.0);
+            var drawn = options with { OutDir = Path.Combine(_root, "real-drawn"), RealPairs = false };
+            (await DatasetDegradationExporter.RunAsync(drawn, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+
+            var rows = ReadDegradationRows(options.OutDir);
+            var injections = ReadInjectionRows(options.OutDir);
+            rows.Length.ShouldBe(2, "two cells, one draw each");
+            injections.Length.ShouldBe(rows.Length);
+            var saturated = sites[0];
+            var asideInAll = 0;
+            foreach (var row in rows)
+            {
+                row.Mode.ShouldBe(nameof(DatasetDegradationExporter.DegradationMode.Stars));
+                row.Frame.ShouldBe(DatasetDegradationExporter.FrameForDraw(0), "a draw's frame name, so the trainer's --prepare reads the export as injected");
+                row.Draw.ShouldBe(0);
+                row.Placement.ShouldBe(DatasetDegradationExporter.RealPairsLabel);
+                row.Profile.ShouldBe(DatasetDegradationExporter.RealPairsLabel);
+                row.InjectedStars.ShouldBe(0);
+                row.InjectedSaturated.ShouldBe(0);
+                row.Stretch.ShouldBe("master");
+                row.NoiseAnchor.ShouldBe("master-calibration");
+                row.PlateNoiseRatio.ShouldBeNull("the input is the master, so its plane is the master's recorded noise as it is");
+                var injection = injections.Single(i => i.Tile == row.Tile);
+                injection.Stars.ShouldBeEmpty();
+                injection.Placement.ShouldBe(DatasetDegradationExporter.RealPairsLabel);
+
+                File.ReadAllBytes(Path.Combine(options.OutDir, row.Tile))
+                    .ShouldBeTheSameBytesAs(File.ReadAllBytes(Path.Combine(masters.OutDir, CleanTileOf(row))), "the input is the master's own tile");
+                File.ReadAllBytes(Path.Combine(options.OutDir, CleanTileOf(row)))
+                    .ShouldBeTheSameBytesAs(File.ReadAllBytes(Path.Combine(drawn.OutDir, CleanTileOf(row))), "the target is the plate's tile");
+                File.Exists(Path.Combine(options.OutDir, row.SigmaTile.ShouldNotBeNull())).ShouldBeTrue();
+                File.Exists(Path.Combine(options.OutDir, DatasetDegradationExporter.SigmaPathFor(CleanTileOf(row)))).ShouldBeTrue();
+
+                var keep = ReadKeepMask(options.OutDir, row.Tile);
+                var counted = 0;
+                var aside = 0;
+                for (var y = 0; y < TileSize; y++)
+                {
+                    for (var x = 0; x < TileSize; x++)
+                    {
+                        var fx = x + row.CellX;
+                        var fy = y + row.CellY;
+                        var nearSaturated = ((fx - saturated.X) * (fx - saturated.X)) + ((fy - saturated.Y) * (fy - saturated.Y))
+                            <= RealPairMask.SaturatedReachPx * RealPairMask.SaturatedReachPx;
+                        var expected = InFootprint(sites, fx, fy) && !nearSaturated;
+                        keep[(y * TileSize) + x].ShouldBe(expected, $"{row.Tile} x{x} y{y}");
+                        counted += expected ? 1 : 0;
+                        aside += InFootprint(sites, fx, fy) && nearSaturated ? 1 : 0;
+                    }
+                }
+                output.WriteLine($"{row.Tile}: {counted} px counted, {aside} px of the footprint set aside round the saturated star");
+                counted.ShouldBeGreaterThan(100, "the cell holds subtracted stars");
+                asideInAll += aside;
+            }
+            asideInAll.ShouldBeGreaterThan(0, "the saturated star's footprint lies in a cell, so the check that it is set aside is not vacuous");
+
+            // The masks are the export's own: its record names the rule, plate-masks writes no other rule beside them and
+            // cannot write this one.
+            var record = Path.Combine(options.OutDir, StarRemovalMasks.RuleFileName);
+            (await File.ReadAllTextAsync(record, TestContext.Current.CancellationToken)).ShouldBe(nameof(StarRemovalMasks.Rule.RealStars));
+            (await StarRemovalMasks.RefusalAsync(options.OutDir, StarRemovalMasks.Rule.PlateSources, TestContext.Current.CancellationToken))
+                .ShouldNotBeNull().ShouldContain(nameof(StarRemovalMasks.Rule.RealStars));
+            (await StarRemovalMasks.RefusalAsync(options.OutDir, StarRemovalMasks.Rule.DrawnStars, TestContext.Current.CancellationToken)).ShouldNotBeNull();
+            await Should.ThrowAsync<ArgumentException>(
+                async () => await StarRemovalMasks.RunAsync(options.OutDir, StarRemovalMasks.Rule.RealStars, progress: null, TestContext.Current.CancellationToken));
+
+            // One folder holds one rule: drawn stars do not go into a folder of real pairs, nor real pairs into drawn stars',
+            // with --force as without it; and the rows there stay as they were.
+            foreach (var force in new[] { false, true })
+            {
+                (await Should.ThrowAsync<InvalidOperationException>(
+                    async () => await DatasetDegradationExporter.RunAsync(drawn with { OutDir = options.OutDir, Force = force }, logger: null, TestContext.Current.CancellationToken)))
+                    .Message.ShouldContain("is a real-pairs export's");
+                (await Should.ThrowAsync<InvalidOperationException>(
+                    async () => await DatasetDegradationExporter.RunAsync(options with { OutDir = drawn.OutDir, Force = force }, logger: null, TestContext.Current.CancellationToken)))
+                    .Message.ShouldContain("already holds another export's rows");
+            }
+            ReadDegradationRows(options.OutDir).Length.ShouldBe(rows.Length);
+            File.Exists(Path.Combine(drawn.OutDir, StarRemovalMasks.RuleFileName)).ShouldBeFalse("a refused export leaves no record in the other's folder");
+
+            // The same export again skips its session, and the same options make the same bytes.
+            var again = await DatasetDegradationExporter.RunAsync(options, logger: null, TestContext.Current.CancellationToken);
+            again.Failed.ShouldBe(0);
+            again.Sessions.ShouldBeEmpty("no session is exported again");
+            var twin = options with { OutDir = Path.Combine(_root, "real-again") };
+            (await DatasetDegradationExporter.RunAsync(twin, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+            foreach (var row in rows)
+            {
+                foreach (var file in new[] { row.Tile, CleanTileOf(row), row.SigmaTile!, StarRemovalMasks.KeepPathFor(row.Tile) })
+                {
+                    File.ReadAllBytes(Path.Combine(twin.OutDir, file)).ShouldBeTheSameBytesAs(File.ReadAllBytes(Path.Combine(options.OutDir, file)));
+                }
+            }
+        }
+
+        /// <summary>
+        /// A cell where the plate's builder subtracted nothing a real pair may count has no pixel for the loss, so it is not
+        /// exported: here the only subtracted star lies in the first cell and outside the second.
+        /// </summary>
+        [Fact]
+        public async Task ARealPairsCellWithNoCountedPixelIsLeftOut()
+        {
+            var bake = BuildBakeWithHalves();
+            var (platesRoot, _) = await BuildPlatesStoreAsync(bake);
+            var platesDir = Path.Combine(platesRoot, "plates");
+            var slug = DatasetTileExporter.Sanitize(SessionId);
+            // One unsaturated star at (60, 30): inside the cell at the origin, left of and above the cell at (128, 64).
+            (double X, double Y)[] only = [(60.0, 30.0)];
+            await StarlessCatalogue.WriteAsync(StarlessCatalogue.PathFor(platesDir, slug),
+                [new FittedStar(60f, 30f, 20f, 800f, 1f, 1000f, 5f, StarFitOutcome.Subtracted, false, false,
+                    float.NaN, float.NaN, false, float.NaN, StarFitModel.Moffat, [800f, 640f, 480f])],
+                TestContext.Current.CancellationToken);
+            WriteSubtractedFootprint(platesDir, slug, only);
+
+            var options = RealPairOptions(bake, Path.Combine(_root, "real-one-cell"), platesRoot);
+            var result = await DatasetDegradationExporter.RunAsync(options, logger: null, TestContext.Current.CancellationToken);
+            result.Failed.ShouldBe(0);
+            result.Sessions.Single().Cells.ShouldBe(1);
+
+            var row = ReadDegradationRows(options.OutDir).ShouldHaveSingleItem();
+            (row.CellX, row.CellY).ShouldBe((0, 0));
+            ReadKeepMask(options.OutDir, row.Tile).Count(static k => k).ShouldBeGreaterThan(80, "a disc of 6 px");
+            Directory.GetFiles(Path.Combine(options.OutDir, "tiles", slug)).Select(Path.GetFileName)
+                .ShouldAllBe(name => name!.StartsWith("x0_y0_", StringComparison.Ordinal), "nothing of the cell left out is written");
+        }
+
+        /// <summary>
+        /// A real pair has one draw and draws nothing, so more draws, another mode, a missing footprint and every option that
+        /// shapes a drawn star, a background or the noise are refused by name before anything is silently ignored.
+        /// </summary>
+        [Fact]
+        public async Task RealPairsRefuseWhatHasNothingToActOn()
+        {
+            var bake = BuildBakeWithHalves();
+            var (platesRoot, _) = await BuildPlatesStoreAsync(bake);
+            var options = RealPairOptions(bake, Path.Combine(_root, "real-refused"), platesRoot);
+
+            DatasetDegradationExporter.RealPairsRefusal(options with { RealPairs = false, Draws = 4, BrightMeasured = true }).ShouldBeNull("nothing is asked of a drawn export");
+            DatasetDegradationExporter.RealPairsRefusal(options with { Draws = 2 }).ShouldNotBeNull().ShouldContain("one draw");
+            DatasetDegradationExporter.RealPairsRefusal(options with { Mode = DatasetDegradationExporter.DegradationMode.Noise }).ShouldNotBeNull().ShouldContain("Stars-mode");
+            (string Name, DatasetDegradationExporter.Options With)[] drawn =
+            [
+                (nameof(DatasetDegradationExporter.Options.SyntheticBackground), options with { SyntheticBackground = true }),
+                (nameof(DatasetDegradationExporter.Options.BrightKnotsWide), options with { BrightKnotsWide = true }),
+                (nameof(DatasetDegradationExporter.Options.NebulaKnots), options with { NebulaKnots = true }),
+                (nameof(DatasetDegradationExporter.Options.Steering), options with { Steering = new SyntheticBackground.Steering(0.5, 2.0) }),
+                (nameof(DatasetDegradationExporter.Options.SaturatedFraction), options with { SaturatedFraction = 1.0 }),
+                (nameof(DatasetDegradationExporter.Options.PsfStorePath), options with { PsfStorePath = "psf-sessions.jsonl" }),
+                (nameof(DatasetDegradationExporter.Options.NoiseScale), options with { NoiseScale = 2.0 }),
+                (nameof(DatasetDegradationExporter.Options.Placement), options with { Placement = InjectionPlacement.AtSite }),
+                (nameof(DatasetDegradationExporter.Options.Profile), options with { Profile = StarProfileFamily.Gaussian }),
+                (nameof(DatasetDegradationExporter.Options.MeasureInjection), options with { MeasureInjection = true }),
+                (nameof(DatasetDegradationExporter.Options.StarLobes), options with { StarLobes = true }),
+                (nameof(DatasetDegradationExporter.Options.StarSubs), options with { StarSubs = true }),
+                (nameof(DatasetDegradationExporter.Options.ChannelRelationSessions), options with { ChannelRelationSessions = [SessionId] }),
+                (nameof(DatasetDegradationExporter.Options.StarShapesPath), options with { StarShapesPath = "shapes.jsonl" }),
+                (nameof(DatasetDegradationExporter.Options.ChannelWingCut), options with { ChannelWingCut = 0.5 }),
+                (nameof(DatasetDegradationExporter.Options.ClampWingRelations), options with { ClampWingRelations = true }),
+                (nameof(DatasetDegradationExporter.Options.OuterHaloPath), options with { OuterHaloPath = "halo-profiles.json" }),
+                (nameof(DatasetDegradationExporter.Options.ChromaticWidthRatio), options with { ChromaticWidthRatio = 1.2 }),
+                (nameof(DatasetDegradationExporter.Options.SaturatedAtOwnShare), options with { SaturatedAtOwnShare = true }),
+                (nameof(DatasetDegradationExporter.Options.SaturatedMeasured), options with { SaturatedMeasured = true }),
+                (nameof(DatasetDegradationExporter.Options.BrightMeasured), options with { BrightMeasured = true }),
+                (nameof(DatasetDegradationExporter.Options.HaloOverPlate), options with { HaloOverPlate = true }),
+                (nameof(DatasetDegradationExporter.Options.StarBeta), options with { StarBeta = 3.0 }),
+                (nameof(DatasetDegradationExporter.Options.StarBetaDraw), options with { StarBetaDraw = new StarBetaDraw(0.5, 2.0, 6.0, 1.0) }),
+                (nameof(DatasetDegradationExporter.Options.KeptCores), options with { KeptCores = true }),
+                (nameof(DatasetDegradationExporter.Options.FaintStarFloor), options with { FaintStarFloor = 3.0 }),
+                (nameof(DatasetDegradationExporter.Options.ChannelNoiseCorrelation), options with { ChannelNoiseCorrelation = true }),
+                (nameof(DatasetDegradationExporter.Options.ChannelNoiseStructure), options with { ChannelNoiseStructure = true }),
+                (nameof(DatasetDegradationExporter.Options.NoiseAsRecorded), options with { NoiseAsRecorded = true }),
+                (nameof(DatasetDegradationExporter.Options.Shape), options with { Shape = DatasetDegradationExporter.NoiseShape.Warped }),
+            ];
+            foreach (var (name, with) in drawn)
+            {
+                DatasetDegradationExporter.RealPairsRefusal(with).ShouldNotBeNull(name).ShouldContain(name);
+            }
+            // The stretch and the black point are the pair's own domain, not something drawn.
+            DatasetDegradationExporter.RealPairsRefusal(options with { StretchFromMaster = false, BlackPointSigma = 40 }).ShouldBeNull();
+
+            (await Should.ThrowAsync<ArgumentException>(
+                async () => await DatasetDegradationExporter.RunAsync(options with { Draws = 2 }, logger: null, TestContext.Current.CancellationToken)))
+                .Message.ShouldContain("one draw");
+            Directory.Exists(options.OutDir).ShouldBeFalse("refused before anything is written");
+
+            // Without the plate's subtracted footprint there is nothing a real pair may count: the session fails and says why.
+            var platesDir = Path.Combine(platesRoot, "plates");
+            var slug = DatasetTileExporter.Sanitize(SessionId);
+            var footprintPath = StarlessMasks.SubtractedPathFor(platesDir, slug);
+            var footprint = await File.ReadAllBytesAsync(footprintPath, TestContext.Current.CancellationToken);
+            File.Delete(footprintPath);
+            var result = await DatasetDegradationExporter.RunAsync(options, logger: null, TestContext.Current.CancellationToken);
+            result.Failed.ShouldBe(1);
+            result.Sessions.ShouldBeEmpty();
+
+            // That run wrote no row, but the folder is a real-pairs export's from its first moment: drawn stars are refused
+            // there, with --force as without it, so no drawn row can come to stand under the real pairs' mask record; and
+            // the real-pairs export itself runs there again once the plate has its footprint.
+            File.Exists(Path.Combine(options.OutDir, DatasetDegradationExporter.DegradationManifestFileName)).ShouldBeFalse("the failed run left no row");
+            (await File.ReadAllTextAsync(Path.Combine(options.OutDir, StarRemovalMasks.RuleFileName), TestContext.Current.CancellationToken))
+                .ShouldBe(nameof(StarRemovalMasks.Rule.RealStars));
+            foreach (var force in new[] { false, true })
+            {
+                (await Should.ThrowAsync<InvalidOperationException>(
+                    async () => await DatasetDegradationExporter.RunAsync(options with { RealPairs = false, Force = force }, logger: null, TestContext.Current.CancellationToken)))
+                    .Message.ShouldContain("is a real-pairs export's");
+            }
+            // A noise or blur export writes the same tile names and manifests, so the folder is refused to them as well.
+            foreach (var mode in new[] { DatasetDegradationExporter.DegradationMode.Noise, DatasetDegradationExporter.DegradationMode.Blur })
+            {
+                (await Should.ThrowAsync<InvalidOperationException>(
+                    async () => await DatasetDegradationExporter.RunAsync(options with { RealPairs = false, Mode = mode, Force = true }, logger: null, TestContext.Current.CancellationToken)))
+                    .Message.ShouldContain("is a real-pairs export's");
+            }
+            File.Exists(Path.Combine(options.OutDir, DatasetDegradationExporter.DegradationManifestFileName)).ShouldBeFalse("the refused drawn export wrote no row");
+            await File.WriteAllBytesAsync(footprintPath, footprint, TestContext.Current.CancellationToken);
+            var retried = await DatasetDegradationExporter.RunAsync(options, logger: null, TestContext.Current.CancellationToken);
+            retried.Failed.ShouldBe(0);
+            retried.Sessions.Length.ShouldBe(1);
+        }
+
+        /// <summary>
+        /// A real pair draws no star, so it reads no PSF store: its one width is the plate's own field profile's. A bake
+        /// without the store exports real pairs, the same bytes as with it, where a drawn export is refused.
+        /// </summary>
+        [Fact]
+        public async Task RealPairsNeedNoPsfStore()
+        {
+            var bake = BuildBakeWithHalves();
+            var (platesRoot, _) = await BuildPlatesStoreAsync(bake);
+            var with = RealPairOptions(bake, Path.Combine(_root, "real-with-psf"), platesRoot);
+            (await DatasetDegradationExporter.RunAsync(with, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+
+            File.Delete(Path.Combine(bake, "stats", DatasetPsfStore.FileName));
+            var without = with with { OutDir = Path.Combine(_root, "real-without-psf") };
+            var result = await DatasetDegradationExporter.RunAsync(without, logger: null, TestContext.Current.CancellationToken);
+            result.Failed.ShouldBe(0);
+            result.Sessions.Length.ShouldBe(1);
+            var rows = ReadDegradationRows(without.OutDir);
+            rows.Length.ShouldBe(2);
+            foreach (var row in rows)
+            {
+                foreach (var file in new[] { row.Tile, CleanTileOf(row), row.SigmaTile!, StarRemovalMasks.KeepPathFor(row.Tile) })
+                {
+                    File.ReadAllBytes(Path.Combine(without.OutDir, file)).ShouldBeTheSameBytesAs(File.ReadAllBytes(Path.Combine(with.OutDir, file)));
+                }
+            }
+
+            await Should.ThrowAsync<FileNotFoundException>(async () => await DatasetDegradationExporter.RunAsync(
+                with with { OutDir = Path.Combine(_root, "drawn-without-psf"), RealPairs = false }, logger: null, TestContext.Current.CancellationToken));
+
+            // A real-pairs run that cannot start (no plates store to open) leaves no record: its folder is nobody's yet,
+            // and a drawn export may take it.
+            var neverStarted = with with { OutDir = Path.Combine(_root, "real-never-started"), PlatesRoot = Path.Combine(_root, "no-such-store") };
+            await Should.ThrowAsync<DirectoryNotFoundException>(
+                async () => await DatasetDegradationExporter.RunAsync(neverStarted, logger: null, TestContext.Current.CancellationToken));
+            File.Exists(Path.Combine(neverStarted.OutDir, StarRemovalMasks.RuleFileName)).ShouldBeFalse();
+            DatasetDegradationExporter.RealPairsFolderRefusal(neverStarted.OutDir, realPairs: false, holdsRows: false).ShouldBeNull();
+        }
+
         /// <summary>
         /// A starless-plates store for the halves bake, as <c>tianwen dataset starless-plates</c> lays one out, and the
         /// master's per-channel PSF in the bake's store. The plate is the fixture's sky without its stars; the catalogue
@@ -2349,6 +2674,7 @@ namespace TianWen.Lib.Tests
                     float.NaN, float.NaN, false, float.NaN, StarFitModel.Moffat, [amplitude, 0.8f * amplitude, 0.6f * amplitude]));
             }
             await StarlessCatalogue.WriteAsync(StarlessCatalogue.PathFor(platesDir, slug), stars.ToImmutable(), TestContext.Current.CancellationToken);
+            WriteSubtractedFootprint(platesDir, slug, [.. sites]);
             if (fieldProfile)
             {
                 var alpha = MoffatPsf.AlphaFor(FieldFwhm, FieldBeta);

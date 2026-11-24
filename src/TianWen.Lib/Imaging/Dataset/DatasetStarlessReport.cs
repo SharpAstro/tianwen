@@ -167,8 +167,8 @@ public static class DatasetStarlessReport
                     var starsOnly = StarsOnly(image, plate.Plate);
                     starsOnly.WriteToFitsFile(Path.Combine(platesDir, stem + "_stars.fits"), wcs);
                     starsOnly.Release();
-                    SourceDetectionWriter.WriteMap(Path.Combine(platesDir, stem + "_plate.inpainted.fits.gz"), SourceDetectionWriter.MaskToImage(plate.Inpainted), "INPAINTED", wcs);
-                    SourceDetectionWriter.WriteMap(Path.Combine(platesDir, stem + "_plate.subtracted.fits.gz"), SourceDetectionWriter.MaskToImage(plate.Subtracted), "SUBTRACTED", wcs);
+                    SourceDetectionWriter.WriteMap(StarlessMasks.InpaintedPathFor(platesDir, stem), SourceDetectionWriter.MaskToImage(plate.Inpainted), "INPAINTED", wcs);
+                    SourceDetectionWriter.WriteMap(StarlessMasks.SubtractedPathFor(platesDir, stem), SourceDetectionWriter.MaskToImage(plate.Subtracted), "SUBTRACTED", wcs);
                     await StarlessCatalogue.WriteAsync(StarlessCatalogue.PathFor(platesDir, stem), plate.Stars, cancellationToken);
                     if (plate.FieldProfile is { } profile)
                     {

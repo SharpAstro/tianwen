@@ -551,6 +551,14 @@ namespace TianWen.AI.Imaging
         /// deepest subtraction holes and so stretches the sky up to 3.8 times more gently (#1776). The default since R2w's
         /// read (2026-10-24); false stretches with the plate's, as every export before synth11 did. Either way the
         /// session's log line gives the slope ratio between the two.</param>
+        /// <param name="RealPairs">Stars mode: real pairs (docs/plans/star-remover-training.md, "Real pairs"). The one draw of a
+        /// cell is the MASTER's own cell, its real stars in, and the clean tile the plate's, both stretched with one set of
+        /// parameters; no star, background or noise is drawn. Beside the draw goes its loss mask
+        /// (<see cref="StarRemovalMasks.KeepPathFor"/>, by <see cref="TianWen.Lib.Imaging.StarRemoval.RealPairMask"/>), since
+        /// the plate is a truth only where its builder subtracted a star: a trainer reads the export as a second cache with
+        /// its masks (<c>--extra-cache</c>, <c>--extra-loss-mask</c>). A cell with no counted pixel inside the rim is not
+        /// exported. <see cref="Draws"/> is 1 and every option that shapes a drawn star, a background or the noise is refused
+        /// (<see cref="RealPairsRefusal"/>).</param>
         public sealed record Options(
             string BakeRoot,
             string OutDir,
@@ -582,7 +590,7 @@ namespace TianWen.AI.Imaging
             string? PlatesRoot = null,
             InjectionPlacement Placement = InjectionPlacement.Random,
             StarProfileFamily Profile = StarProfileFamily.Field,
-            double SaturatedFraction = 0.25,
+            double SaturatedFraction = DefaultSaturatedFraction,
             string? PsfStorePath = null,
             bool MeasureInjection = false,
             double? MonoWarpResampleSigma = null,
@@ -613,7 +621,8 @@ namespace TianWen.AI.Imaging
             Action<string>? Say = null,
             bool BrightMeasured = false,
             bool NoiseAsRecorded = false,
-            double? BlackPointSigma = null);
+            double? BlackPointSigma = null,
+            bool RealPairs = false);
 
         /// <summary>
         /// The options one session's draws are made with: the warped shape's smoothing chosen by what made the master's noise.
@@ -691,6 +700,10 @@ namespace TianWen.AI.Imaging
         public static async Task<RunResult> RunAsync(Options options, ILogger? logger = null, CancellationToken cancellationToken = default)
         {
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(options.Draws);
+            if (RealPairsRefusal(options) is { } realPairsRefusal)
+            {
+                throw new ArgumentException(realPairsRefusal, nameof(options));
+            }
             SessionFilter.Require(options.SessionFilters);
             if (Path.GetFullPath(options.BakeRoot).Equals(Path.GetFullPath(options.OutDir), StringComparison.OrdinalIgnoreCase))
             {
@@ -716,6 +729,12 @@ namespace TianWen.AI.Imaging
             {
                 throw new InvalidOperationException($"{options.OutDir}: {refusal}");
             }
+            // Every mode writes the same deg000 tile names and manifests, so a noise or blur export is held out of a
+            // real-pairs folder too (its --force would overwrite tiles whose plate-masks stay).
+            if (RealPairsFolderRefusal(options.OutDir, options.RealPairs, exported.Count > 0) is { } kindRefusal)
+            {
+                throw new InvalidOperationException($"{options.OutDir}: {kindRefusal}");
+            }
             var alreadyDone = options.Force ? [] : exported;
             var extraCells = options.ExtraCellsPath is { } extraPath
                 ? DatasetCellList.Read(extraPath)
@@ -731,6 +750,13 @@ namespace TianWen.AI.Imaging
             // Said after the cap, so the count is what runs; and before any work: a StarsContext reads the plates and the PSF store.
             SessionFilter.Announce("degrade", sessions, cellsBySession.Count, options.SessionFilters, logger, options.Say, matched, options.MaxSessions);
             var stars = options.Mode == DegradationMode.Stars ? await StarsContext.OpenAsync(options, logger, cancellationToken) : null;
+            if (options.RealPairs)
+            {
+                // The masks are the export's own (RealPairMask): the record keeps plate-masks from writing another rule's
+                // beside them, and any other export out of the folder (RealPairsFolderRefusal). Written once the context
+                // has opened, so a run that cannot start leaves none.
+                await File.WriteAllTextAsync(Path.Combine(options.OutDir, StarRemovalMasks.RuleFileName), nameof(StarRemovalMasks.Rule.RealStars), cancellationToken);
+            }
 
             var results = ImmutableArray.CreateBuilder<SessionResult>();
             var skipped = 0;
@@ -767,7 +793,9 @@ namespace TianWen.AI.Imaging
 
                 try
                 {
-                    var result = stars is not null
+                    var result = stars is not null && options.RealPairs
+                        ? await ExportRealPairsSessionAsync(options, stars, sessionId, cellsBySession[sessionId], extraCells.GetValueOrDefault(sessionId), outTileManifest, outDegManifest, logger, cancellationToken)
+                        : stars is not null
                         ? await ExportStarsSessionAsync(options, stars, sessionId, cellsBySession[sessionId], extraCells.GetValueOrDefault(sessionId), outTileManifest, outDegManifest, logger, cancellationToken)
                         : await ExportSessionAsync(options, sessionId, cellsBySession[sessionId], extraCells.GetValueOrDefault(sessionId), outTileManifest, outDegManifest, logger, cancellationToken);
                     results.Add(result);

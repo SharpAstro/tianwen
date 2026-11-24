@@ -1879,7 +1879,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
         var saturatedFractionOpt = new Option<double>("--saturated-fraction")
         {
             Description = "--mode stars: the chance a draw gains one saturated star beyond the cell's own count.",
-            DefaultValueFactory = _ => 0.25,
+            DefaultValueFactory = _ => DatasetDegradationExporter.DefaultSaturatedFraction,
         };
         var psfStoreOpt = new Option<string>("--psf-store")
         {
@@ -1887,8 +1887,12 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
         };
         var backgroundOpt = new Option<string>("--background")
         {
-            Description = "--mode stars: plate (default; inject into the starless plate) or synthetic (R2d's background: the plate's " +
-                          "coarse scales, synthetic fine ones to its own local signal, the master's noise, and knots the target keeps).",
+            Description = "--mode stars: plate (default; inject into the starless plate), synthetic (R2d's background: the plate's " +
+                          "coarse scales, synthetic fine ones to its own local signal, the master's noise, and knots the target keeps) " +
+                          "or real (real pairs: nothing is drawn; a cell's one draw is the master's own cell with its real stars, the " +
+                          "target the plate's, and beside the draw its loss mask, 1 inside the plate builder's subtracted footprint away " +
+                          "from the sources it kept and from its saturated stars. A trainer reads it with --extra-cache and " +
+                          "--extra-loss-mask. --draws is 1, and no option that shapes a drawn star, a background or the noise is taken).",
             DefaultValueFactory = _ => "plate",
         };
         var nebulaKnotsOpt = new Option<bool>("--nebula-knots")
@@ -2106,11 +2110,19 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 return 1;
             }
             var backgroundText = parseResult.GetValue(backgroundOpt) ?? "plate";
-            if (backgroundText is not ("plate" or "synthetic"))
+            if (backgroundText is not ("plate" or "synthetic" or "real"))
             {
-                consoleHost.WriteError($"--background must be plate or synthetic, got '{backgroundText}'");
+                consoleHost.WriteError($"--background must be plate, synthetic or real, got '{backgroundText}'");
                 return 1;
             }
+            var realPairs = backgroundText == "real";
+            if (realPairs && mode != DatasetDegradationExporter.DegradationMode.Stars)
+            {
+                consoleHost.WriteError("--background real exports real pairs against starless plates; it needs --mode stars");
+                return 1;
+            }
+            // A real pair has one draw; the option's default is the drawn exports' eight, so only a number typed is checked.
+            var draws = realPairs && parseResult.GetResult(drawsOpt) is not { Implicit: false } ? 1 : parseResult.GetValue(drawsOpt);
             var brightKnotsWide = parseResult.GetValue(brightKnotsWideOpt);
             var nebulaKnots = parseResult.GetValue(nebulaKnotsOpt);
             if ((brightKnotsWide || nebulaKnots) && backgroundText != "synthetic")
@@ -2429,7 +2441,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 OutDir: parseResult.Required(outOpt),
                 Mode: mode,
                 Shape: shape,
-                Draws: parseResult.GetValue(drawsOpt),
+                Draws: draws,
                 CellsPerSession: parseResult.GetValue(cellsOpt),
                 MaxSessions: parseResult.GetValue(sessionsOpt),
                 Seed: parseResult.GetValue(seedOpt),
@@ -2481,7 +2493,13 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 StarBeta: starBeta,
                 StarBetaDraw: starBetaDraw,
                 Say: Say,
-                BrightMeasured: parseResult.GetValue(brightMeasuredOpt));
+                BrightMeasured: parseResult.GetValue(brightMeasuredOpt),
+                RealPairs: realPairs);
+            if (DatasetDegradationExporter.RealPairsRefusal(options) is { } realPairsRefusal)
+            {
+                consoleHost.WriteError($"--background real: {realPairsRefusal}");
+                return 1;
+            }
 
             var result = await DatasetDegradationExporter.RunAsync(options, logger, ct);
             var degraded = result.Sessions.Sum(s => s.DegradedTiles);

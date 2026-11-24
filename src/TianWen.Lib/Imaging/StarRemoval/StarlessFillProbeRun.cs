@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Imaging.Sources;
 using TianWen.Lib.IO;
 
 namespace TianWen.Lib.Imaging.StarRemoval;
@@ -73,8 +74,8 @@ public static class StarlessFillProbeRun
             }
             var profile = await StarlessFieldProfile.ReadAsync(Path.Combine(platesDir, stem + "_plate.profile.json"), cancellationToken);
             if (profile is null || !Image.TryReadFitsFile(path, out var image)
-                || ReadMask(Path.Combine(platesDir, stem + "_plate.subtracted.fits.gz")) is not { } subtracted
-                || ReadMask(Path.Combine(platesDir, stem + "_plate.inpainted.fits.gz")) is not { } inpainted)
+                || SourceDetectionWriter.ReadMask(StarlessMasks.SubtractedPathFor(platesDir, stem)) is not { } subtracted
+                || SourceDetectionWriter.ReadMask(StarlessMasks.InpaintedPathFor(platesDir, stem)) is not { } inpainted)
             {
                 progress?.Report($"[fill-probe] {stem}: the plate, its masks or its profile are missing or unreadable");
                 failed++;
@@ -100,26 +101,6 @@ public static class StarlessFillProbeRun
             measured++;
         }
         return new Result(measured, skipped, failed, Stopped: false, outPath);
-    }
-
-    // A stored mask (SourceDetectionWriter.MaskToImage): set where the map's first plane is over a half.
-    private static BitMatrix? ReadMask(string path)
-    {
-        if (!File.Exists(path) || !Image.TryReadFitsFile(path, out var map))
-        {
-            return null;
-        }
-        var (_, width, height) = map.Shape;
-        var plane = map.GetChannelSpan(0);
-        var mask = new BitMatrix(height, width);
-        for (var y = 0; y < height; y++)
-        {
-            for (var x = 0; x < width; x++)
-            {
-                mask[y, x] = plane[(y * width) + x] > 0.5f;
-            }
-        }
-        return mask;
     }
 }
 
