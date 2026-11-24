@@ -433,6 +433,32 @@ public sealed class WorkbenchEnhanceParityTests(ITestOutputHelper output) : IDis
         (pared.GradientCorrection, pared.Denoise).ShouldBe((false, false));
     }
 
+    [Fact(Timeout = 60_000)]
+    public async Task TheProgramSaysWhatServesEachOfItsSteps()
+    {
+        // What the automatic backends resolved to is said once, for the verb and for a step alike: each role the
+        // program asks by its enhancer's name, "left out" where no step asks it, and the SCNR the stars end on.
+        var enhance = new EnhanceOperation(new SharpenPipeline(
+            starRemover: new Scaling("Test/Remover", 0.5f), denoiser: new Scaling("Test/Denoiser", 0.8f), deblurrer: new Scaling("Test/Deblurrer", 0.95f)));
+        var said = new List<string>();
+        var split = new EnhanceStart(WorkbenchFixtures.Master(seed: 1), EnhanceOptions.Default,
+            EnhanceCapabilities.AllRoles(deblur: true) with { GradientCorrection = false });
+
+        await enhance.ProgramAsync(split, new EnhanceSettings(), stretchedInPipeline: false, recombine: true, said.Add, TestContext.Current.CancellationToken);
+
+        said.ShouldContain("served by: deblur Test/Deblurrer; gradient left out; stars Test/Remover; stellar left out; deconvolve left out; "
+            + "denoise Test/Denoiser; scnr average");
+
+        // With no star remover the program is whole-frame: no step asks for the stars, and there is no SCNR.
+        said.Clear();
+        var wholeFrame = split with { Capabilities = EnhanceCapabilities.AllRoles(deblur: false) with { StarRemoval = false, GradientCorrection = false } };
+
+        await enhance.ProgramAsync(wholeFrame, new EnhanceSettings(), stretchedInPipeline: false, recombine: true, said.Add, TestContext.Current.CancellationToken);
+
+        said.ShouldContain("served by: deblur left out; gradient left out; stars left out; stellar left out; deconvolve left out; "
+            + "denoise Test/Denoiser; scnr left out");
+    }
+
     /// <summary>
     /// The enhance's default program, step for step, for both shapes of the split program. A change here is other
     /// pixels for the same settings and enhancers: it needs a new <c>Version</c> of <see cref="EnhanceOperation"/>, or a

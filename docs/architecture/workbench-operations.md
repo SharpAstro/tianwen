@@ -552,6 +552,15 @@ Both take `--verify-frames`. `tianwen workbench operations` lists the
 operations with their settings at their defaults. Exit 1 is a project that cannot be read, exit 2 a step or an export
 that gave no result.
 
+**What an automatic setting resolved to is said, never left to be guessed.** A status and a run print `served by:`
+under each step that something outside the operation serves (`StepReport.ServedBy`, the text the key holds): the
+enhancer of each role, the gradient corrector, the catalogue. It is said for a kept step as for one that runs. Where
+a choice is made on the image and not on the settings, the step's own lines say it as it runs, and its verb says the
+same words: the enhance says which enhancer serves each step of its program and the SCNR it ends on
+(`EnhanceOperation.ProgramAsync`), and a stack says the strategy that made each master and where it came from, as
+"integrated as BayerDrizzle (chosen for the nominal computer)", "(chosen for this computer)" or "(stated)"
+(`StackOperation.GroupLine`, `GroupResult.Strategy`).
+
 ## Adding an operation
 
 1. Its settings: a `sealed record` of settable properties with defaults in `OperationSettings.cs`, and a

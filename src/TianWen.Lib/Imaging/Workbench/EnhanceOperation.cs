@@ -444,7 +444,7 @@ public sealed class EnhanceOperation(SharpenPipeline pipeline, ILogger<EnhanceOp
         //  - WhiteBalance multiplies a broadband SPCC balance the input states (a stacked master's WB cards), or the
         //    one the settings give for an input that states none, into the linear data first, as `stack --enhance`
         //    and the viewer apply theirs.
-        return LinearEnhanceProgram.For(capabilities) with
+        var program = LinearEnhanceProgram.For(capabilities) with
         {
             WhiteBalance = whiteBalance,
             // The deblur's blend is left at the step default, as the canonical program has it; deblurSharpen tunes the
@@ -466,6 +466,12 @@ public sealed class EnhanceOperation(SharpenPipeline pipeline, ILogger<EnhanceOp
             // the natural bounded composite: Final = 1 - (1-bg)(1-fg). Split stays in linear (mode controls that).
             RecombineMode = stretchedInPipeline ? RecombineMode.Screen : settings.Mode,
         };
+
+        // What the automatic backends resolved to for THIS image: the enhancer of each role the program asks, "none"
+        // where a role has none and "left out" where no step asks it. The verb and a step both say it, so a result
+        // is never read without knowing whether RC-Astro, GraXpert or an in-house model made it.
+        say?.Invoke($"served by: {pipeline.DescribeRoles(start.Options, program)}; scnr {(program.SplitStars ? program.Scnr.ToString().ToLowerInvariant() : "left out")}");
+        return program;
     }
 
     /// <summary>

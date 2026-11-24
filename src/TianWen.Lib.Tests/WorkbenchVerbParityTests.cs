@@ -543,6 +543,10 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
         ShouldBeTheSameFile(exported.Exported.ShouldNotBeNull(exported.Refusal), verbs[NamedOutput(crop)], "the exported auto-crop with a margin");
     }
 
+    // The lines of a status or a run that say what serves a step.
+    private static string[] ServedLines(string said)
+        => [.. said.Split(Environment.NewLine).Where(static line => line.Contains("served by:", StringComparison.Ordinal))];
+
     [Fact(Timeout = 300_000)]
     public async Task TheWorkbenchVerbSaysWhatWillRunRunsItAndThenKeepsIt()
     {
@@ -577,17 +581,23 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
         status.Said.ShouldContain("tianwen image crop");
         status.Said.ShouldContain("tianwen image flatten");
         status.Said.ShouldContain("--backend classical --degree 2 --downsample 4");
+        // What serves a step is said beside it, before it runs: the text its key holds. The crop is served by nothing
+        // outside itself, so it has no such line.
+        ServedLines(status.Said).ShouldBe(["[workbench]     served by: classical"]);
 
         var first = await InvokeAsync("run", folder);
         first.Exit.ShouldBe(0);
         first.Said.ShouldContain("2 gradient: ran");
         // A step's own lines are said with the step named.
         first.Said.ShouldContain("[m 2 gradient]");
+        ServedLines(first.Said).ShouldBe(["[workbench]     served by: classical"]);
 
         var second = await InvokeAsync("run", folder);
         second.Exit.ShouldBe(0);
         second.Said.ShouldContain("2 gradient: kept");
         second.Said.ShouldNotContain(": ran");
+        // A kept step says it too: it is what made the result the store serves.
+        ServedLines(second.Said).ShouldBe(["[workbench]     served by: classical"]);
 
         var exportedTo = Path.Combine(folder, "out", "m.fits");
         var export = await InvokeAsync("run", folder, "--image", "m", "--export", exportedTo);

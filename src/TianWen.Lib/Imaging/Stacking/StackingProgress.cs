@@ -48,7 +48,16 @@ public sealed record GroupResult(
     string SkipReason = "",
     SpccDiagnostics? Spcc = null,
     ImmutableArray<StageTimings.Stage> Stages = default,
-    string? CompositeFitsPath = null);
+    string? CompositeFitsPath = null)
+{
+    /// <summary>The integration strategy that made the master; null for a group skipped before one was picked.</summary>
+    public IntegrationStrategyKind? Strategy { get; init; }
+
+    /// <summary>Where <see cref="Strategy"/> came from, in words a line can carry: <c>stated</c> (<c>--strategy</c>),
+    /// <c>chosen for this computer</c>, or <c>chosen for the nominal computer</c>
+    /// (<see cref="StackingOptions.NominalProbe"/>). Empty where there is no strategy.</summary>
+    public string StrategyFrom { get; init; } = string.Empty;
+}
 
 /// <summary>
 /// Coarse phase markers used by <see cref="StackingPipeline.RunAsync"/>
