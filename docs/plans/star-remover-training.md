@@ -10096,11 +10096,22 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     the 1070. As R3y's seed 1 said, the pair's difference also holds the two GPUs' arithmetic. So wherever this
     section reads seed 1's difference as "the parent's spread" or "the recipe's spread", and wherever it amends or
     reports R4j on it, the spread is the seed's and the hardware's together, and the amendment or report says so.
-  - **Scored as R4j was:** on `bh-bin14`, the build seed 0's column here (67.8, 6.8, 60.0, 63.2, 34.5, 91.4, 82.7)
-    and R4j's rows were scored on, not a newer one (a newer build is used only after it is shown to reproduce R4h
-    seed 0's plates), with `--no-protect-cores --no-fill-digs --keep-overshoot` for the
-    plates as trained, the chain for the rows the table reads through it, the planted test on the layer stamp
-    (seeds 1, 2 and 3) and on `psf` and `donor`.
+  - **Scored as R4j was:** on `bh-bin14` (main at "Stacking workbench W1: eight colour steps as operations, their
+    verbs calling them"), not a newer build (a newer one is used only after it is shown to reproduce seed 0's plates),
+    with `--no-protect-cores --no-fill-digs --keep-overshoot` for the plates as trained, the chain for the rows the
+    table reads through it, the planted test on the layer stamp (seeds 1, 2 and 3) and on `psf` and `donor`.
+    **Where seed 0's figures come from, stated as the plan records it.** R4h's plates, and so seed 0's column of
+    the figures named under "Reported, no bar" below, were made on `bh-bin12`: the planted 67.8 and 6.8 %, the
+    Lagoon's 34.5 %, Gaia BP 17-19's 91.4 and its crowded cell's 82.7 % (the figures of R4h's read and of the
+    11-23 measurements). Only the `psf` and `donor` figures (60.0 and 63.2 %) were run on `bh-bin14`. R4j's
+    registration showed the two builds give one plate for the Sagittarius master and for planted master 1 and for
+    no other master, so for the Tarantula and Andromeda rows nothing shows they agree. R4h's 17 % on 30 Doradus
+    (and its field light of 84 %) is a `bh-bin12` figure, and R4j's table carried it across builds unre-scored.
+    Registered now, before seed 1 is scored: **seed 0 is re-scored on `bh-bin14` for every Tarantula row Questions
+    1 and 3 read (30 Doradus, the field light, the peaks, the crowded flats), in the same pass as seed 1**, so the
+    pair is one build. Question 1's bands read that pair's worse value, and the figure R4j's table carried (17 %)
+    is quoted beside it; if the re-score differs from the carried one, that difference is reported as the build's
+    and is not part of the recipe's spread.
   - **Question 1, the 30 Doradus row.** The rule R4j registered for a row R4h misses too applies: that row is the
     exporter's, and the arm is held to R4h's value plus the bar's allowance, here 27 minus R4d's 22 = 5 points. The
     value the allowance is added to is the worse (higher) of R4h's two seeds, which is seed 1's whenever seed 1
@@ -10111,13 +10122,20 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
       seed 1 (36 %) is over it and stands as the arm's failure.
     - **31 % or over:** the bound is 36 % or more, so both R4j seeds hold it and R4j's read is amended on both.
     R4j's kill stands in every band: it fires on the planted row alone.
-  - **Question 2, the bright stars' innermost ring.** If seed 1 reads 11 rows or fewer of 26 under 80 %, "R4j
-    leaves the bright Pleiads standing more than its parent" stands (R4h's own sentence: "Both seeds leave the bright Pleiads standing more than their parent does"); at 12
-    or more it is withdrawn.
+  - **Question 2, the bright stars' innermost ring.** If seed 1 reads 11 rows or fewer of 26 under 80 %, R4j's
+    read, which says that R4j leaves the bright Pleiads standing more than its parent does, stands (its sentence:
+    "Both seeds leave the bright Pleiads standing more than their parent does", about R4j's two seeds; R4h's own
+    sentence on the Pleiads is that they are left standing more than R4d leaves them); at 12 or more it is
+    withdrawn.
   - **Question 3, is R4h a baseline on two seeds.** Every guard of R4h's registration, each row as R4j's table
     reads it. A row seed 1 fails that seed 0 holds is reported as the recipe's spread on that row, and a later
     registration that holds an arm "to R4h's value" takes the worse of the two seeds. The light taken from the
     Tarantula field stands at its bar on seed 0 (84 % against 84), so it is the row most likely to miss.
+    That row is also a ground of R4j's kill, and R4j's seed 0 failed it (86 % against 84). Registered now, as
+    Question 1 does for 30 Doradus: if seed 1 (and the re-score of seed 0) misses the row too, it is the exporter's
+    and the arm is held to the worse R4h value plus the bar's allowance (84 minus R4d's 82 = 2 points). R4j seed 0's
+    86 % holds that bound when the worse R4h value is 84 % or over, and its read is amended on this row; at a lower
+    bound the failure stands as the arm's. If R4h's pair holds the row, R4j seed 0's failure stands.
   - **Reported, no bar:** the planted rows beside seed 0's (67.8 and 6.8 % on the layer stamp, 60.0 and 63.2 % on
     `psf` and `donor`); the corrected row on the Lagoon's 84 real stars (34.5 %); the two Pleiades nights' gap
     (47 points); the Tarantula's standing peaks (18 of 77); Gaia BP 17-19 with the level set aside (91.4) and its
