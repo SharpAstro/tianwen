@@ -108,6 +108,7 @@ class Throttle:
         self.handed = 0.0
         self.read_at = None
         self.complained = None
+        self.complained_count = 0
         if cap_file:
             self._look(self.last)
 
@@ -116,13 +117,19 @@ class Throttle:
 
     def _complain(self, message):
         """A file problem is said once per distinct message, not at every look."""
+        self.complained_count += 1
         if message != self.complained:
             self.complained = message
             self.say(message)
 
     def _look(self, now):
         self.read_at = now
+        before = self.complained_count
         cap = read_cap(self.cap_file, self._complain)
+        if self.complained_count == before:
+            # A look with no complaint (a good number, or no file) ends the run of one slip, so the same slip written
+            # again later is said again.
+            self.complained = None
         if cap is not None and cap != self.cap:
             self.say(f"  cap now {cap:g} Mb/s (from {self.cap_file})")
             self.cap = cap

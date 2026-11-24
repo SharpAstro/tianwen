@@ -435,9 +435,25 @@ class LiveCap(unittest.TestCase):
         self.assertIsNone(B.read_cap(self.file + ".missing"))
         self.write("0")
         t = self.throttle(8)
-        self.assertEqual(self.starts(t, 3), [0.0, 1.0, 2.0])
+        # 13 blocks at 8 Mb/s reach 12 s: looks at construction, 5 s and 10 s.
+        self.assertEqual(len(self.starts(t, 13)), 13)
         self.assertEqual(len(self.said), 1, "a file that is not taken is said once, not at every look")
         self.assertIn("0 or less is ignored", self.said[0])
+
+    def test_a_slip_repeated_after_a_good_read_is_said_again(self):
+        self.write("0")
+        t = self.throttle(8)
+        self.assertEqual(len(self.said), 1)
+        self.write("500")
+        self.now = 5.0
+        self.starts(t, 1)
+        self.assertEqual(t.cap, 500)
+        self.write("0")
+        self.now = 10.0
+        self.starts(t, 1)
+        self.assertEqual(t.cap, 500, "the slip keeps the cap")
+        self.assertEqual(len(self.said), 3, f"slip, cap now 500, slip again: {self.said}")
+        self.assertIn("0 or less is ignored", self.said[2])
 
     def test_a_bom_is_accepted_and_an_unreadable_file_is_said(self):
         with open(self.file, "wb") as f:
