@@ -10194,10 +10194,11 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     to 49 % of a frame; it was drawn before the exporter was written and is close to the exporter's, not equal to
     it (it takes the width from the first channel where `RealPairMask` takes the profile's luminance width, and it
     drops the zone of a source whose disc reaches the frame's edge where `RealPairMask` cuts it at the edge), so
-    an export's shares are read off its own masks. So the truth at a counted star is clean in both stores: the builder digs under 1 in 100, and what it
-    leaves of a star of 20 sigma or more is a percent or two at the median. The rebuilt plates leave residue
-    over the noise at MORE faint stars than the stored ones, not fewer, so real pairs are no test of the rebuild:
-    what an arm on them would test is real stars against drawn ones, with the builder as the teacher.
+    an export's shares are read off its own masks. So the truth at a counted star is clean in both stores: the
+    builder digs under 1 in 100, and what it leaves of a star of 20 sigma or more is a percent or two at the
+    median. The rebuilt plates leave residue over the noise at MORE faint stars than the stored ones, not fewer,
+    so real pairs are no test of the rebuild: what an arm on them would test is real stars against drawn ones,
+    with the builder as the teacher.
   - **The export** (`tianwen dataset degrade --mode stars --background real`, `DatasetDegradationExporter`'s
     real-pairs half). Nothing is drawn: no star, no background, no noise. A cell's one draw is the master's own
     cell and its clean tile the plate's, both stretched with the master's parameters, which makes the input the
@@ -10205,8 +10206,10 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     Each tile's noise plane is the master's recorded noise as it is, since that record is what a runner reads off
     the master. Beside the draw goes its mask (`<tile>.keep.f16`), and the export records the rule
     (`plate-masks.rule` says `RealStars`), so `plate-masks` writes no other rule's masks beside them and a folder
-    holds real pairs or drawn stars, never both: the record is written before the first session, and from then on
-    the folder takes no drawn star, whether the run got as far as a row or failed before one. A cell with no
+    holds real pairs or drawn stars, never both: the record is written once the plates store has opened, before
+    the first session, and from then on the folder takes no drawn star, whether the run got as far as a row or
+    failed before one (a session that failed part way has no row but may have left tiles and masks, which a
+    drawn export let in there would write over and `plate-masks` would then keep as its own). A cell with no
     counted pixel inside the rim is not exported. The export reads the bake, the plate, its catalogue, its field
     profile and its subtracted footprint, and no PSF store: the one width it uses is the profile's. `--draws` is 1,
     and an option that shapes a drawn star or a background, that names where a drawn star's profile comes from, or

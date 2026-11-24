@@ -733,11 +733,6 @@ namespace TianWen.AI.Imaging
             {
                 throw new InvalidOperationException($"{options.OutDir}: {kindRefusal}");
             }
-            if (options.RealPairs)
-            {
-                // The masks are the export's own (RealPairMask): the record keeps plate-masks from writing another rule's beside them.
-                await File.WriteAllTextAsync(Path.Combine(options.OutDir, StarRemovalMasks.RuleFileName), nameof(StarRemovalMasks.Rule.RealStars), cancellationToken);
-            }
             var alreadyDone = options.Force ? [] : exported;
             var extraCells = options.ExtraCellsPath is { } extraPath
                 ? DatasetCellList.Read(extraPath)
@@ -753,6 +748,13 @@ namespace TianWen.AI.Imaging
             // Said after the cap, so the count is what runs; and before any work: a StarsContext reads the plates and the PSF store.
             SessionFilter.Announce("degrade", sessions, cellsBySession.Count, options.SessionFilters, logger, options.Say, matched, options.MaxSessions);
             var stars = options.Mode == DegradationMode.Stars ? await StarsContext.OpenAsync(options, logger, cancellationToken) : null;
+            if (options.RealPairs)
+            {
+                // The masks are the export's own (RealPairMask): the record keeps plate-masks from writing another rule's
+                // beside them, and drawn stars out of the folder (RealPairsFolderRefusal). Written once the context has
+                // opened, so a run that cannot start leaves none.
+                await File.WriteAllTextAsync(Path.Combine(options.OutDir, StarRemovalMasks.RuleFileName), nameof(StarRemovalMasks.Rule.RealStars), cancellationToken);
+            }
 
             var results = ImmutableArray.CreateBuilder<SessionResult>();
             var skipped = 0;

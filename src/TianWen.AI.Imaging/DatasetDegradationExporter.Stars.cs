@@ -233,15 +233,12 @@ public static partial class DatasetDegradationExporter
             {
                 throw new DirectoryNotFoundException($"no plates folder in the starless-plates store {platesRoot}");
             }
-            if (options.RealPairs)
-            {
-                // A real pair draws no star: its one width is the plate's own field profile's, so the PSF store is not
-                // read, and every option checked below is refused before this (RealPairsRefusal).
-                return new StarsContext(platesDir, new Dictionary<string, DatasetPsfNoiseReport.SessionPsf>(StringComparer.Ordinal));
-            }
             var psfPath = options.PsfStorePath ?? Path.Combine(options.BakeRoot, "stats", DatasetPsfStore.FileName);
-            var psf = await DatasetPsfStore.ReadAsync(psfPath, logger, cancellationToken);
-            if (psf.Count == 0)
+            // A real pair draws no star and takes its FWHM from the plate's own field profile, so it needs no PSF store.
+            var psf = options.RealPairs
+                ? []
+                : await DatasetPsfStore.ReadAsync(psfPath, logger, cancellationToken);
+            if (!options.RealPairs && psf.Count == 0)
             {
                 throw new FileNotFoundException("the PSF store is empty or missing; the injected stars take each channel's profile from it", psfPath);
             }

@@ -29,8 +29,8 @@ public static partial class DatasetDegradationExporter
     /// <summary>What a real pair's rows say where a drawn export names its placement and its profile.</summary>
     public const string RealPairsLabel = "Real";
 
-    /// <summary>The chance a drawn export gives a draw one saturated star beyond the cell's own count
-    /// (<see cref="Options.SaturatedFraction"/>), unless another is asked for.</summary>
+    /// <summary><see cref="Options.SaturatedFraction"/>'s default, the one number for the option, the CLI and the check: a
+    /// real-pairs export refuses any other value, which it would ignore.</summary>
     public const double DefaultSaturatedFraction = 0.25;
 
     /// <summary>
@@ -102,10 +102,13 @@ public static partial class DatasetDegradationExporter
     /// Why a stars export cannot go into <paramref name="outDir"/>, or null when it can: a folder holds real pairs or
     /// drawn stars, never both, since one folder is one training set and a trainer reads its masks by one rule. A folder is
     /// a real-pairs export's from the moment its mask record (<see cref="StarRemovalMasks.RuleFileName"/>) says so, which a
-    /// real-pairs run writes before its first session: with rows or without (a run that failed or was stopped before any
-    /// row, whose masks may lie there already), drawn stars never go beside that record, so no drawn row can ever stand
-    /// under it. A folder that <paramref name="holdsRows"/> without that record holds another export's, and takes no real
-    /// pair.
+    /// real-pairs run writes once its plates store has opened and before its first session (a run that cannot start
+    /// leaves none). From then on, with rows or without, drawn stars never go beside that record. A run that failed or
+    /// was stopped inside a session has no row but may have left that session's tiles and masks: a drawn export let in
+    /// there would write its own tiles over them and keep their masks, which <c>plate-masks</c> skips as present. So
+    /// the record is never dropped for a drawn export; the real-pairs export runs there again, or the drawn one takes an
+    /// empty folder. A folder that <paramref name="holdsRows"/> without that record holds another export's, and takes no
+    /// real pair.
     /// </summary>
     internal static string? RealPairsFolderRefusal(string outDir, bool realPairs, bool holdsRows)
     {

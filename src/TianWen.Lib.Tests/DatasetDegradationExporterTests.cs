@@ -2575,6 +2575,14 @@ namespace TianWen.Lib.Tests
 
             await Should.ThrowAsync<FileNotFoundException>(async () => await DatasetDegradationExporter.RunAsync(
                 with with { OutDir = Path.Combine(_root, "drawn-without-psf"), RealPairs = false }, logger: null, TestContext.Current.CancellationToken));
+
+            // A real-pairs run that cannot start (no plates store to open) leaves no record: its folder is nobody's yet,
+            // and a drawn export may take it.
+            var neverStarted = with with { OutDir = Path.Combine(_root, "real-never-started"), PlatesRoot = Path.Combine(_root, "no-such-store") };
+            await Should.ThrowAsync<DirectoryNotFoundException>(
+                async () => await DatasetDegradationExporter.RunAsync(neverStarted, logger: null, TestContext.Current.CancellationToken));
+            File.Exists(Path.Combine(neverStarted.OutDir, StarRemovalMasks.RuleFileName)).ShouldBeFalse();
+            DatasetDegradationExporter.RealPairsFolderRefusal(neverStarted.OutDir, realPairs: false, holdsRows: false).ShouldBeNull();
         }
 
         /// <summary>
