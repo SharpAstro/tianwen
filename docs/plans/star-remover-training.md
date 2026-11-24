@@ -10087,16 +10087,33 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     code and the cache are the same bytes). It was started on 2026-11-24 at 14:41, before this text was pushed and
     with no score of it in existence; it trains for about half a day.
   - **Read first:** the 1:1 sheets R4j's read lists, then the training by the stall rule of R4h's registration.
-    A stalled run is reported as one and answers none of the questions below.
-  - **Scored as R4j was:** main's frozen build with `--no-protect-cores --no-fill-digs --keep-overshoot` for the
+    A stalled run is reported as one and answers none of the questions below. That rule's ratio (median of the
+    held-out windows over the 60,000 steps after the first halving, over the median from step 30,000 to it) has no
+    denominator when the first halving comes before step 30,000, as R4h's seed 0's did (28,500). Registered now for
+    seed 1, before any log of it is read: with no denominator, the run is stalled only if it makes no new best after
+    its first halving; the ratio is then reported and not judged.
+  - **Two GPUs' arithmetic.** Seed 0 of R4h and both R4j seeds trained on T4s (R4j as Batch jobs); seed 1 trains on
+    the 1070. As R3y's seed 1 said, the pair's difference also holds the two GPUs' arithmetic. So wherever this
+    section reads seed 1's difference as "the parent's spread" or "the recipe's spread", and wherever it amends or
+    reports R4j on it, the spread is the seed's and the hardware's together, and the amendment or report says so.
+  - **Scored as R4j was:** on `bh-bin14`, the build seed 0's column here (67.8, 6.8, 60.0, 63.2, 34.5, 91.4, 82.7)
+    and R4j's rows were scored on, not a newer one (a newer build is used only after it is shown to reproduce R4h
+    seed 0's plates), with `--no-protect-cores --no-fill-digs --keep-overshoot` for the
     plates as trained, the chain for the rows the table reads through it, the planted test on the layer stamp
     (seeds 1, 2 and 3) and on `psf` and `donor`.
-  - **Question 1, the 30 Doradus row.** If seed 1 leaves 27 % or under of 30 Doradus's faint stars, both parent
-    seeds hold the guard both of R4j's fail, and the failure is the arm's. If it leaves over 27 %, the failure is
-    inside the parent's spread and R4j's read is amended to say so. R4j's kill stands either way: it fires on the
-    planted row alone.
+  - **Question 1, the 30 Doradus row.** The rule R4j registered for a row R4h misses too applies: that row is the
+    exporter's, and the arm is held to R4h's value plus the bar's allowance, here 27 minus R4d's 22 = 5 points. The
+    value the allowance is added to is the worse (higher) of R4h's two seeds, which is seed 1's whenever seed 1
+    leaves more than seed 0's 17 %. The bands:
+    - **27 % or under:** both parent seeds hold the guard both of R4j's fail, and the failure is the arm's, for
+      both R4j seeds.
+    - **28 to 30 %:** the bound is 33 to 35 %. R4j seed 0 (31 %) holds it and its read is amended to say so; R4j
+      seed 1 (36 %) is over it and stands as the arm's failure.
+    - **31 % or over:** the bound is 36 % or more, so both R4j seeds hold it and R4j's read is amended on both.
+    R4j's kill stands in every band: it fires on the planted row alone.
   - **Question 2, the bright stars' innermost ring.** If seed 1 reads 11 rows or fewer of 26 under 80 %, "R4j
-    leaves the bright Pleiads standing more than its parent" stands; at 12 or more it is withdrawn.
+    leaves the bright Pleiads standing more than its parent" stands (R4h's own sentence: "Both seeds leave the bright Pleiads standing more than their parent does"); at 12
+    or more it is withdrawn.
   - **Question 3, is R4h a baseline on two seeds.** Every guard of R4h's registration, each row as R4j's table
     reads it. A row seed 1 fails that seed 0 holds is reported as the recipe's spread on that row, and a later
     registration that holds an arm "to R4h's value" takes the worse of the two seeds. The light taken from the
