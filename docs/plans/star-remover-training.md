@@ -9655,27 +9655,22 @@ nothing is registered, exported or scored for it.
   `gaia_forced.py`, `gaia_deblend.py`). In plain words: the grain did follow the catalogue's faint stars, so the
   first idea was to subtract them from the truth plate where Gaia says they are. Measured, it takes too little, and
   what it does take is not the catalogue's doing.
-  - **The forced subtraction** (`gaia_forced.py`, plus an uncommitted variant, see below): every missed Gaia star
-    (BP to 21, the positions shifted by the matched detections' median offset of +0.21, -0.18 px) drawn as a round
-    Gaussian of the master's width (FWHM 3.8 px). The committed script's model A takes one scale per channel from
-    the median ratio of matched moderate detections' peaks to their catalogue flux, and fits nothing to the plate
-    (its model B is a free non-negative fit). The positions hold (the plate's grain against this light: +0.49
-    to +0.71 in the two crowded cells, +0.17 to +0.22 in the nebula cell); the brightness does not (a scale fitted
-    to the cell comes out 2 to 6 % of the one the bright stars give, 0.7 to 1 % with G).
-    **Which figures the committed code makes:** the stored plate, plate less A and StarXTerminator columns of the
-    table, and model A's scale. **Made by an uncommitted variant, not reproducible from the repo:** the per-cell
-    fitted scale (with and without G), the residue bound columns (and 4.1 / 4.4 / 3.3 below), the refits with only
-    stars over 5 px and 8 px from a detection, and the +0.49 to +0.71 correlations (those are `grain_gaia.py`'s
-    light, not this script's). **Open question on the table's second column:** it is the
-    committed script's "plate less A" line (model A at the bright stars' full scale), but this was not rerun on the machine
-    that reviewed it, and it sits uneasily beside a fit that finds only 2 to 6 % of that scale in the plate (a full-scale
-    subtraction might be expected to dig, not to lower the band). A rerun owes confirming which model made that column. The variant is not committed because its cache and run are not on the machine that
-    reviewed this; a rerun owes it a script, with its output recorded as for the deblend. The scale and the PSF
-    width are read from the first 4000 matched moderate detections in the Gaia cache's order, which is not known to
-    be spread over the field (the recorded figures are from that sample); the script now takes a strided pick of about
-    4000 and prints its extent, so a rerun may move the recorded PSF width and scale. Bands, R / G / B, in the plate's 9 px
-    mean sigma, with an upper bound of a residue fix (every pixel within 4 px of a subtracted star of 10 sigma and up
-    replaced by the plate's 15 px median):
+  - **The forced subtraction** (`gaia_forced.py`): every missed Gaia star (BP to 21, the positions shifted by the
+    matched detections' median offset of +0.21, -0.18 px) drawn as a round Gaussian of the master's width (FWHM 3.8
+    px). Its model A takes one scale per channel from the median ratio of matched moderate detections' peaks to
+    their catalogue flux, and fits nothing to the plate; at that scale it is far too bright (the plate less A reads
+    30 to 122 in these units). The script then fits one scale per channel to the cell's band: that is the table's
+    "less the catalogue light" column. The positions hold (the plate's grain against this light, from
+    `grain_gaia.py`: +0.49 to +0.71 in the two crowded cells, +0.17 to +0.22 in the nebula cell); the brightness
+    does not (the fitted scale is 3.8 to 8.2 % of the bright stars' in the crowded cells and 0.9 to 1.4 % in the
+    nebula cell; 0.7 to 1 % with G). **Rerun 2026-11-25 from the committed script**, after review: the first run
+    read its calibration from the first 4,000 matched detections in the cache's order, the script now takes a
+    strided pick (3,524, spread over the whole frame, x 13 to 3,907 and y 12 to 2,277). That calibration is 1.3 to
+    1.6 times lower than the first run's, so the fitted share reads higher (the first run said 2 to 6 %), and the
+    fitted light is the same: every band in the table's first three columns comes back to the printed digit. The
+    residue bound columns (and 4.1 / 4.4 / 3.3 below) are from a variant that is not committed: every pixel within 4
+    px of a subtracted star of 10 sigma and up replaced by the plate's 15 px median. Bands, R / G / B, in the plate's
+    9 px mean sigma:
 
     | cell | stored plate | less the catalogue light | residue bound, then less the light | StarXTerminator |
     |---|---|---|---|---|
@@ -9683,9 +9678,10 @@ nothing is registered, exported or scored for it.
     | 5,4 (crowded) | 6.9 / 7.2 / 6.2 | 6.0 / 5.8 / 5.3 | 4.9 / 4.6 / 4.0 | 2.9 / 2.1 / 1.8 |
     | 4,4 (faint nebula) | 4.8 / 5.0 / 5.2 | 4.7 / 4.9 / 5.1 | 4.4 / 4.1 / 4.0 | 5.3 / 5.3 / 3.8 |
 
-  - **Where that light sits.** Fitted again with only the missed stars more than 5 px from every detection, the
-    scale falls to 0.4 to 0.8 % and the bands go back to the stored plate's (1,1: 5.2 / 5.8 / 4.5); beyond 8 px it
-    is about 0. Every gain came from Gaia stars 2 to 5 px from a detected star: close companions and blends a
+  - **Where that light sits** (`gaia_forced.py --min-sep 5` and `--min-sep 8`, rerun 2026-11-25). Fitted again with
+    only the missed stars more than 5 px from every detection, the scale falls to 0.5 to 1.3 % in cell 1,1 and 0 to
+    2.3 % in cell 5,4, and the bands go back to the stored plate's (1,1: 5.2 / 5.8 / 4.5; 5,4: 6.8 / 7.0 / 6.2);
+    beyond 8 px it is 0 to 1.1 % and the bands are the stored plate's exactly. Every gain came from Gaia stars 2 to 5 px from a detected star: close companions and blends a
     detection's fit sits on. Missed stars clear of any detection carry no grain that can be measured.
   - **A deblend at those companions** (`gaia_deblend.py --bg median41`, 2026-11-25): each subtracted detection that
     has missed Gaia stars 2 to 5 px away (617, 937 and 753 in the three cells, with 4,802, 6,522 and 4,983
@@ -10363,6 +10359,31 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     the builder found count, and on bright nebula its finder works at the nebula's own noise, so the faintest stars
     the row plants sit near its limit there; and a target that is the builder's plate cannot teach the model to do
     better than the builder.
+  - **Before the launch, 2026-11-25, with no upload, training run or score of R4k in existence: the data as made.**
+    - **The export** (`bh-bin15`, a Release build of main at "Star remover: real pairs, an export of a master's own
+      cells against its starless plate, each with its loss mask (#2203)"; `--cells 40 --draws 1`, the stored plates):
+      129 ids, 5,160 cells, none skipped or failed, every input equal to the bake's own tile (worst parity 0). Two
+      ids were exported first on their own, one side of a meridian flip and a held-out test session, 40 cells each.
+      15 of the 129 ids are mono sessions that are in neither of R4h's lists (the trainer is 3-channel), as in
+      synth32's export.
+    - **The cache** `r2-real1`, prepared and packed by R4j's trainer copy from R4h's train and validation lists less
+      the dropped objects (105 and 8 sessions): 4,520 cells, 4,200 training and 320 held out, one draw, 4,520 masks.
+      The masks count 24.4 % of the pixels inside the rim, more than the Rosette's 11 % this registration estimated
+      from: by session from 2.3 to 60.2 % (median 23.0), and at a session's median cell 33 to 98 % (median 87) of the
+      light the input holds over the target lies on counted pixels.
+    - **The dose, corrected:** 18.9 % of the training draw by tiles, as estimated; by the pixels a batch's loss
+      averages over, about 5 % (0.189 x 0.244 against 0.811 + 0.189 x 0.244), so about ten times R4j's half a
+      percent where the registration said five.
+    - **Twenty steps of the launch line** on the two caches, R4j's copy, on the GTX 1070: it runs through, and prints
+      4,200 training cells of one draw at 18.9 % of the draw, 320 held-out cells (240 read for the extra objective),
+      the masks from `keep.u8`, and the plateau on the main cache's objective alone. Its line still words the mask as
+      D4's ("the sky near their plate's own sources"), as R4j's did; what it reads are the real-pairs masks. The
+      check's weights were deleted.
+    - **The sheet at 1:1** (`realpair_export_look.py`, every session; looked at: eta Carinae in SII of 2024-03-02, M42
+      in luminance of 2022-12-03, Omega Centauri of 2026-02-20): each target is clean where its input holds stars,
+      the masks sit on the catalogued stars' discs, and the saturated stars and the faint stars the builder never
+      listed are outside them. M42's target keeps a soft disc where a saturated star's halo was, outside the mask,
+      as the rule means it to.
   - **Nothing is adopted;** adoption is the owner's.
 
 #### The dig floor inside bright nebula: floor4, and what it leaves (2026-11-20)

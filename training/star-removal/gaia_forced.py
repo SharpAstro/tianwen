@@ -2,7 +2,7 @@
 finder missed, at their catalogue positions, and read what it does to the crowded grain and to the nebula.
 
     python gaia_forced.py --store <dataset store> --stem <master stem> --sxt <StarXTerminator plate> --gaia <cache.npz>
-        [--cells 1,1 5,4 4,4] [--out <folder>]
+        [--cells 1,1 5,4 4,4] [--min-sep <px>] [--out <folder>]
 
 The Tarantula session of 2024-10-02 (the 2026-10-12 store), band.py's cells (300 px, 48 px margin). Per channel:
   - the PSF: a round Gaussian whose width is the second moment of the master's moderate isolated detections, stacked;
@@ -11,7 +11,10 @@ The Tarantula session of 2024-10-02 (the 2026-10-12 store), band.py's cells (300
   - A, the catalogue's light: each missed star at 10^(-0.4 (BP - 20)) times one scale per channel, the median ratio of
     the master's peak over the annulus to that figure for matched moderate detections. Nothing is fitted to the plate, so
     the model cannot take the nebula;
+  - A at its fitted scale: one scale per channel, the least-squares share of A whose band best matches the plate's
+    band (the plan's "less the catalogue light" column);
   - B, a free fit: non-negative amplitudes for every missed star, least squares on the plate less its 41 px median.
+--min-sep keeps only the missed stars further than that from every detection (the plan's 5 px and 8 px refits).
 Printed per cell and model: band.py's band (7 px median, 9 px box less 41 px box, rms in the plate's 9 px-mean sigma),
 R / G / B, beside the stored plate's and StarXTerminator's; and the light each model removes, as a share of the plate's.
 """
@@ -33,6 +36,8 @@ p.add_argument("--stem", required=True, help="the session master's file stem in 
 p.add_argument("--sxt", required=True, help="StarXTerminator's plate of the same master (FITS)")
 p.add_argument("--gaia", required=True, help="the Gaia cache of the field (.npz: ra, dec, mag, as training/denoise/gaia_vizier.py fetch_box caches it)")
 p.add_argument("--out", default=".", help="folder for the per-cell .npz")
+p.add_argument("--min-sep", type=float, default=0.0,
+               help="model A takes only the missed stars further than this many px from every detection (0: all of them)")
 a = p.parse_args()
 STEM = a.stem
 STORE = a.store
@@ -126,6 +131,8 @@ for cell in a.cells:
     sl = (slice(None), slice(y0, y0 + side), slice(x0, x0 + side))
     pl, sx = plate[sl], sxt[sl]
     sel = (~found) & (gx >= x0 - 4) & (gx < x0 + side + 4) & (gy >= y0 - 4) & (gy < y0 + side + 4)
+    if a.min_sep > 0:
+        sel &= dtree.query(np.stack([gx, gy], 1), distance_upper_bound=a.min_sep)[0] > a.min_sep
     px, py, pm = gx[sel] - x0, gy[sel] - y0, gmag[sel]
     rr, cc, vv, col = [], [], [], []
     for n, (fx, fy) in enumerate(zip(px, py)):
@@ -144,8 +151,24 @@ for cell in a.cells:
     modelB = np.stack(modelB)
     inner = (slice(None), slice(PAD, -PAD), slice(PAD, -PAD))
     light = float(np.sum(pl[inner] - np.median(pl[inner], axis=(1, 2), keepdims=True).clip(0)))
-    print(f"\ncell {i},{j}: {len(px)} missed Gaia stars (median BP {np.median(pm):.1f}); band R / G / B in the plate's 9 px-mean sigma")
-    for label, img in (("stored plate", pl), ("plate less A (catalogue light)", pl - modelA), ("plate less B (free fit)", pl - modelB),
+
+    def bandimg(x):
+        p7 = median_filter(x, 7)
+        return (uniform_filter(p7, 9) - uniform_filter(p7, 41))[PAD:-PAD, PAD:-PAD].ravel()
+
+    # A at its fitted scale: per channel, the least-squares share of the calibrated A whose band best matches the plate's
+    # band (clipped at 0). This is the "less the catalogue light" column of the plan's table.
+    fit = []
+    for c in range(C):
+        bp, ba = bandimg(pl[c]), bandimg(modelA[c])
+        fit.append(max(0.0, float(bp @ ba / max(ba @ ba, 1e-30))))
+    modelAf = np.stack([fit[c] * modelA[c] for c in range(C)])
+    print(f"\ncell {i},{j}: {len(px)} missed Gaia stars (median BP {np.median(pm):.1f})"
+          + (f", only those over {a.min_sep:g} px from every detection" if a.min_sep > 0 else "")
+          + "; A's fitted scale, a share of the calibration: " + " / ".join(f"{100 * f:.1f} %" for f in fit)
+          + "; band R / G / B in the plate's 9 px-mean sigma")
+    for label, img in (("stored plate", pl), ("plate less A (catalogue light)", pl - modelA),
+                       ("plate less A at its fitted scale", pl - modelAf), ("plate less B (free fit)", pl - modelB),
                        ("StarXTerminator", sx)):
         print(f"  {label:32s} " + " / ".join(f"{v:4.1f}" for v in band(img, pl)))
     for label, mdl in (("A", modelA), ("B", modelB)):
