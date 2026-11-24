@@ -34,14 +34,24 @@ namespace TianWen.AI.Imaging.RcAstro
         private readonly ConcurrentDictionary<string, byte> _licensed = new();
         private readonly ConcurrentDictionary<string, string> _refusals = new();
         private readonly Func<string, string, LicenseProbe> _probe;
-        // What the CLI says of itself, asked at the first question about a version and kept for the process, as a
-        // granted licence is: a model installed while a host runs is seen at its next start. PublicationOnly, so no
-        // lock is held over a subprocess; two first askers at once each ask and one answer is kept.
-        private readonly Lazy<RcAstroInstall?> _install;
+        // What the CLI says of itself, asked at the first question about a version. A description that parsed is kept
+        // for the process, as a granted licence is: a model installed while a host runs is seen at its next start.
+        // A CLI that answered but not with a description (no --json, a non-zero exit) is settled as none. A failure
+        // that says nothing of the CLI (no answer in time, would not start) is asked again, at most MaxDescribeAsks
+        // times in all, so one busy moment does not give every RC-Astro step a version-less name, and so the legacy
+        // key, for the whole run. No lock is held over a subprocess; two askers at once each ask and one answer is kept.
+        private readonly string? _executablePath;
+        private readonly Func<string, DescribeResult>? _describe;
+        private RcAstroInstall? _install;
+        private int _describeSettled;
+        private int _describeAsks;
+
+        /// <summary>The most times a process asks <c>rc-astro --json</c> while it keeps failing to answer.</summary>
+        internal const int MaxDescribeAsks = 3;
 
         /// <param name="logger">Optional diagnostics logger.</param>
         public RcAstroCli(ILogger<RcAstroCli>? logger = null)
-            : this(LocateExecutable(), RunLicenseProbe, logger, RunDescribe)
+            : this(LocateExecutable(), RunLicenseProbe, logger, (Func<string, DescribeResult>)RunDescribe)
         {
         }
 
@@ -49,12 +59,18 @@ namespace TianWen.AI.Imaging.RcAstro
         /// itself (the text of <c>rc-astro --json</c>, or null; left out, it says nothing).</summary>
         internal RcAstroCli(string? executablePath, Func<string, string, LicenseProbe> probe, ILogger<RcAstroCli>? logger = null,
             Func<string, string?>? describe = null)
+            : this(executablePath, probe, logger, describe is null ? null : path => DescribeResult.Of(describe(path)))
+        {
+        }
+
+        /// <summary>Test seam: as above, with a description that says whether a failure may be asked again.</summary>
+        internal RcAstroCli(string? executablePath, Func<string, string, LicenseProbe> probe, ILogger<RcAstroCli>? logger,
+            Func<string, DescribeResult>? describe)
         {
             _logger = logger;
             _probe = probe;
-            _install = new Lazy<RcAstroInstall?>(
-                () => executablePath is not null && describe?.Invoke(executablePath) is { } json ? ParseInstall(json) : null,
-                LazyThreadSafetyMode.PublicationOnly);
+            _executablePath = executablePath;
+            _describe = describe;
             ExecutablePath = executablePath;
             if (ExecutablePath is not null)
             {
@@ -116,12 +132,42 @@ namespace TianWen.AI.Imaging.RcAstro
                 : _refusals.TryGetValue(productKey, out var refusal) ? refusal
                 : null;
 
+        private RcAstroInstall? Install()
+        {
+            if (Volatile.Read(ref _install) is { } known)
+            {
+                return known;
+            }
+            if (_executablePath is not { } exePath || _describe is null || Volatile.Read(ref _describeSettled) != 0)
+            {
+                return null;
+            }
+
+            var result = _describe(exePath);
+            if (result.Json is { } json && ParseInstall(json) is { } install)
+            {
+                return Interlocked.CompareExchange(ref _install, install, null) ?? install;
+            }
+
+            // An answer that is no description is this CLI's: asking again gives the same. A failure to answer is not.
+            if (!result.Transient || Interlocked.Increment(ref _describeAsks) >= MaxDescribeAsks)
+            {
+                Volatile.Write(ref _describeSettled, 1);
+            }
+            else
+            {
+                _logger?.LogDebug("rc-astro --json gave no description ({Why}); asked again at the next question", result.Why);
+            }
+
+            return null;
+        }
+
         /// <inheritdoc/>
-        public string? CliVersion => _install.Value?.CliVersion;
+        public string? CliVersion => Install()?.CliVersion;
 
         /// <inheritdoc/>
         public string? ModelVersion(string productKey)
-            => _install.Value is { } install && install.ModelVersions.TryGetValue(productKey, out var version) ? version : null;
+            => Install() is { } install && install.ModelVersions.TryGetValue(productKey, out var version) ? version : null;
 
         /// <summary>What <c>rc-astro --json</c> says of an installation, as far as it is read here: the CLI's version and,
         /// for each product, the newest model installed.</summary>
@@ -396,7 +442,7 @@ namespace TianWen.AI.Imaging.RcAstro
         /// server. Null when it did not run, did not answer in time or failed. The text is handed to
         /// <see cref="ParseInstall"/> and to nothing else: it holds the account's email address.
         /// </summary>
-        private static string? RunDescribe(string exePath)
+        private static DescribeResult RunDescribe(string exePath)
         {
             try
             {
@@ -412,29 +458,47 @@ namespace TianWen.AI.Imaging.RcAstro
                 using var proc = Process.Start(psi);
                 if (proc is null)
                 {
-                    return null;
+                    return DescribeResult.Failed("the process did not start");
                 }
 
-                // stderr drains on its own thread and is dropped, so neither pipe can fill while the other is read.
+                // Both pipes drain on their own: stdout into a buffer, stderr dropped, so neither can fill while the
+                // wait below runs, and a CLI that hangs with its pipe open is bounded by that wait, not by the read.
+                var stdout = new ConcurrentQueue<string>();
+                proc.OutputDataReceived += (_, e) => { if (e.Data is not null) stdout.Enqueue(e.Data); };
                 proc.ErrorDataReceived += static (_, _) => { };
+                proc.BeginOutputReadLine();
                 proc.BeginErrorReadLine();
 
-                // A small document; ReadToEnd returns when the stream closes (on exit), so this cannot deadlock.
-                var stdout = proc.StandardOutput.ReadToEnd();
                 if (!proc.WaitForExit(LicenseProbeTimeoutMs))
                 {
                     try { proc.Kill(entireProcessTree: true); }
                     catch (InvalidOperationException) { /* it ended between the wait and the kill */ }
-                    return null;
+                    return DescribeResult.Failed($"no answer in {LicenseProbeTimeoutMs / 1000} s");
                 }
 
-                return proc.ExitCode == 0 ? stdout : null;
+                // The parameterless wait flushes the redirected handlers once the timed wait saw the exit.
+                proc.WaitForExit();
+                return proc.ExitCode == 0 ? DescribeResult.Of(string.Join('\n', stdout)) : DescribeResult.None;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // No description is not a fault: the names then carry no version, as before this was asked.
-                return null;
+                // Not starting is no fault of the names: they then carry no version, as before this was asked.
+                return DescribeResult.Failed(ex.Message);
             }
+        }
+
+        /// <summary>What asking the CLI to describe itself gave: its text, or why not, and whether asking again may
+        /// answer.</summary>
+        internal readonly record struct DescribeResult(string? Json, bool Transient, string? Why)
+        {
+            /// <summary>The CLI ran and said nothing usable: asking again gives the same.</summary>
+            public static DescribeResult None => new(null, false, null);
+
+            /// <summary>The CLI did not answer (no answer in time, did not start): a later ask may.</summary>
+            public static DescribeResult Failed(string why) => new(null, true, why);
+
+            /// <summary>The text the CLI printed, or none.</summary>
+            public static DescribeResult Of(string? json) => json is null ? None : new(json, false, null);
         }
 
         /// <summary>The last non-blank line of a probe's output, trimmed: the status line, after the banner.</summary>

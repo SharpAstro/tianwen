@@ -223,10 +223,18 @@ public sealed class EnhanceOperation(SharpenPipeline pipeline, ILogger<EnhanceOp
     /// the Auto backend asks whether its product is licensed. The runner therefore asks this once for an operation and
     /// its settings in a plan, and a caller with many steps should do the same.</para>
     /// </remarks>
-    public override string ServedBy(EnhanceSettings settings)
+    public override string ServedBy(EnhanceSettings settings) => Served(settings).By;
+
+    /// <summary>
+    /// What serves these settings, as <see cref="ServedBy"/> words it, and the one word for whose models those are
+    /// (<see cref="ServedTag"/>), from ONE resolution of the roles: each RC-Astro role costs a licence probe to name,
+    /// and a refusal can flip between two asks, so the text and the word never come from two.
+    /// </summary>
+    public override (string By, string Tag) Served(EnhanceSettings settings)
     {
         var options = TryOptions(settings, out var made, out _) ? made : EnhanceOptions.Default;
-        return pipeline.DescribeRoles(options, Widest(settings, pipeline.DeblurServesEveryInput(options)));
+        var roles = pipeline.Roles(options, Widest(settings, pipeline.DeblurServesEveryInput(options)));
+        return (SharpenPipeline.Describe(roles), EnhancerOrigin.TagOf(roles.Where(static role => role.Asked).Select(static role => role.Origin)));
     }
 
     /// <summary>
@@ -377,11 +385,16 @@ public sealed class EnhanceOperation(SharpenPipeline pipeline, ILogger<EnhanceOp
     /// models with its version, which is no part of a key. <c>image sharpen</c> and a step write the same cards.
     /// </summary>
     public Dictionary<string, (object Value, string Comment)> HeaderOf(EnhanceOptions options, LinearEnhanceProgram program)
+        => HeaderOf(options, program, pipeline.Roles(options, program));
+
+    /// <summary><see cref="HeaderOf(EnhanceOptions, LinearEnhanceProgram)"/> over roles already resolved
+    /// (<see cref="SharpenPipeline.Roles"/>), so a caller that named them for its own line pays no second probe.</summary>
+    public Dictionary<string, (object Value, string Comment)> HeaderOf(
+        EnhanceOptions options, LinearEnhanceProgram program, ImmutableArray<EnhanceRole> roles)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(program);
         var header = SharpenPipeline.SwModifyHeader();
-        var roles = pipeline.Roles(options, program);
         foreach (var role in roles)
         {
             if (role.Asked)
@@ -406,7 +419,9 @@ public sealed class EnhanceOperation(SharpenPipeline pipeline, ILogger<EnhanceOp
         return header;
     }
 
-    /// <summary>The longest text a FITS string card holds here (FITS.Lib takes 70 characters with its two quotes).</summary>
+    /// <summary>The longest text a FITS string card holds here. FITS.Lib accepts a raw value of 70 characters, but a
+    /// card is cut to 80 columns (keyword, "= ", the quoted value and the comment), so a 69 or 70 character value
+    /// loses its closing quote; 68 always survives the round trip.</summary>
     internal const int MaxCardText = 68;
 
     // The card of each role of SharpenPipeline.Roles; eight characters at most.
@@ -425,12 +440,7 @@ public sealed class EnhanceOperation(SharpenPipeline pipeline, ILogger<EnhanceOp
     /// The one word for whose models serve these settings (<see cref="EnhancerOrigin.TagOf"/>: rc, tw or mix; empty
     /// where no role says), over every step the settings could keep, as <see cref="ServedBy"/> names them.
     /// </summary>
-    public override string ServedTag(EnhanceSettings settings)
-    {
-        var options = TryOptions(settings, out var made, out _) ? made : EnhanceOptions.Default;
-        return EnhancerOrigin.TagOf(pipeline.Roles(options, Widest(settings, pipeline.DeblurServesEveryInput(options)))
-            .Where(static role => role.Asked).Select(static role => role.Origin));
-    }
+    public override string ServedTag(EnhanceSettings settings) => Served(settings).Tag;
 
     /// <summary>The input on the unit scale, and which roles serve it under these options. The RC-Astro licence probe
     /// runs here, at the first enhance, never when the services are built.</summary>

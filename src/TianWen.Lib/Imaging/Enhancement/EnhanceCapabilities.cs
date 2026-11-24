@@ -46,6 +46,14 @@ public interface IEnhancerAvailability
     EnhancerOrigin? OriginUnder(EnhanceOptions options) => null;
 
     /// <summary>
+    /// <see cref="NameUnder"/> and <see cref="OriginUnder"/> from ONE resolution, or null for an enhancer that is one
+    /// thing whatever the options. A deferred role resolves its backend by asking whether RC-Astro's product is
+    /// licensed, which can cost a subprocess and can answer differently a moment later, so a caller that wants both
+    /// asks this once: the name and the origin it gets then describe the same backend.
+    /// </summary>
+    EnhancerAnswer? AnswerUnder(EnhanceOptions options) => null;
+
+    /// <summary>
     /// Whether <paramref name="role"/> is registered AND serves an input of <paramref name="channelCount"/>
     /// channels under <paramref name="options"/>: the ONE rule every caller asks. A registration is not
     /// an answer, because a deferred RC-Astro role is registered on every host and serves only where the
@@ -79,6 +87,12 @@ public interface IEnhancerAvailability
     public static string TagOf(IImageEnhancer? role, EnhanceOptions options)
         => EnhancerOrigin.TagOf([(role as IEnhancerAvailability)?.OriginUnder(options)]);
 }
+
+/// <summary>What one resolution of a role answers (<see cref="IEnhancerAvailability.AnswerUnder"/>): the name of what
+/// would serve, and whose model it is.</summary>
+/// <param name="Name">The enhancer's name as a step's key holds it.</param>
+/// <param name="Origin">Whose model it is, or null where it does not say.</param>
+public sealed record EnhancerAnswer(string Name, EnhancerOrigin? Origin);
 
 /// <summary>
 /// Whose model serves a role of an enhance, for a person reading a result: the short word a line and a file name can

@@ -1434,7 +1434,7 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
         {
             if (!_served.TryGetValue((operation, settings), out var served))
             {
-                served = (operation.ServedBy(settings), operation.ServedTag(settings));
+                served = operation.Served(settings);
                 _served[(operation, settings)] = served;
             }
 
