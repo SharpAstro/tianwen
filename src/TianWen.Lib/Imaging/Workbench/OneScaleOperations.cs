@@ -126,6 +126,9 @@ public sealed class DeblurOperation(IImageDeblurrer? deblurrer = null) : JointOp
     public override string ServedBy(DeblurSettings settings) => deblurrer?.Name ?? string.Empty;
 
     /// <inheritdoc/>
+    public override string ServedTag(DeblurSettings settings) => IEnhancerAvailability.TagOf(deblurrer, EnhanceOptions.Default);
+
+    /// <inheritdoc/>
     public override ImmutableArray<string> CommandLine(DeblurSettings settings, IReadOnlyList<string> members, IReadOnlyList<StepOutputs> outputs)
     {
         var line = JointCommandLine.Start("deblur", members, outputs);
@@ -208,6 +211,9 @@ public sealed class DenoiseOperation(IDenoiseEnhancer? denoiser = null) : JointO
 
     /// <summary>The denoiser registered here; empty where there is none.</summary>
     public override string ServedBy(DenoiseSettings settings) => denoiser?.Name ?? string.Empty;
+
+    /// <inheritdoc/>
+    public override string ServedTag(DenoiseSettings settings) => IEnhancerAvailability.TagOf(denoiser, EnhanceOptions.Default);
 
     /// <inheritdoc/>
     public override ImmutableArray<string> CommandLine(DenoiseSettings settings, IReadOnlyList<string> members, IReadOnlyList<StepOutputs> outputs)
@@ -314,6 +320,9 @@ public sealed class DenoiseColourOperation(IDenoiseEnhancer? denoiser = null) : 
 
     /// <summary>The denoiser registered here; empty where there is none.</summary>
     public override string ServedBy(DenoiseSettings settings) => denoiser?.Name ?? string.Empty;
+
+    /// <inheritdoc/>
+    public override string ServedTag(DenoiseSettings settings) => IEnhancerAvailability.TagOf(denoiser, EnhanceOptions.Default);
 
     /// <summary>Where the three planes go: red's as the main result, green's and blue's as the extra ones.</summary>
     public static StepOutputs Outputs(string red, string green, string blue)
@@ -433,6 +442,9 @@ public sealed class RemoveStarsOperation(IStarRemover? starRemover = null, ICele
     /// <summary>The remover registered here and, with core protection on, the catalogue that would answer.</summary>
     public override string ServedBy(RemoveStarsSettings settings)
         => (starRemover?.Name ?? string.Empty) + (settings.ProtectCores ? "; cores by " + CoreCatalogue.Source(settings.Catalogue) : string.Empty);
+
+    /// <inheritdoc/>
+    public override string ServedTag(RemoveStarsSettings settings) => IEnhancerAvailability.TagOf(starRemover, EnhanceOptions.Default);
 
     /// <inheritdoc/>
     public override ImmutableArray<string> CommandLine(RemoveStarsSettings settings, IReadOnlyList<string> members, IReadOnlyList<StepOutputs> outputs)

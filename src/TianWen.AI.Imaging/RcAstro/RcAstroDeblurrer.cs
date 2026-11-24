@@ -23,7 +23,7 @@ namespace TianWen.AI.Imaging.RcAstro
         double sharpenNonStellar = 0.90)
         : RcAstroEnhancerBase(cli, logger), IImageDeblurrer
     {
-        public override string Name => "RC-Astro BlurXTerminator (bxt, full-image)";
+        protected override string ProductName => "RC-Astro BlurXTerminator (bxt, full-image)";
 
         protected override string ProductKey => "bxt";
 

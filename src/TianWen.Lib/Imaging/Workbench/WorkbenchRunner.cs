@@ -67,6 +67,10 @@ public sealed record StepReport(
     /// could not be planned.
     /// </summary>
     public string ServedBy { get; init; } = string.Empty;
+
+    /// <summary>One short word for whose models <see cref="ServedBy"/> names (<see cref="IOperation.ServedTag"/>): rc,
+    /// tw or mix. Empty where no model serves the step, or what serves it does not say whose it is.</summary>
+    public string ServedTag { get; init; } = string.Empty;
 }
 
 /// <summary>One image of a project, as a status or a run found it.</summary>
@@ -958,6 +962,9 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
 
         /// <summary>What serves the step, as its key holds it (<see cref="StepReport.ServedBy"/>).</summary>
         public string ServedBy { get; set; } = string.Empty;
+
+        /// <summary>The short word for whose models serve it (<see cref="StepReport.ServedTag"/>).</summary>
+        public string ServedTag { get; set; } = string.Empty;
     }
 
     private sealed class ImagePlan
@@ -994,6 +1001,7 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                 step is { Node: { } node, Edit.Key: { } recorded } && !string.Equals(recorded, node.Key, StringComparison.Ordinal))
             {
                 ServedBy = step.ServedBy,
+                ServedTag = step.ServedTag,
             })],
             Refusal,
             Image.Digest is { } digest && Key.Length > 0 && !string.Equals(digest, Key, StringComparison.Ordinal));
@@ -1014,7 +1022,7 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
         // What serves an operation under given settings, asked once a plan. For a step a model serves the answer can
         // cost a licence probe (an RC-Astro role names its backend by asking whether its product is licensed), and a
         // plan would otherwise ask it for every step of every image, on a status as on a run.
-        private readonly Dictionary<(IOperation Operation, string Settings), string> _served = [];
+        private readonly Dictionary<(IOperation Operation, string Settings), (string By, string Tag)> _served = [];
 
         public bool Knows(string name) => byName.ContainsKey(name);
 
@@ -1315,8 +1323,7 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                     }
                 }
 
-                step.ServedBy = Served(operation, settings);
-                var runKey = StepKey.OfStep(operation.Description, settings, step.ServedBy, [.. members.Select(static member => member.Key)]);
+                var runKey = StepKey.OfStep(operation.Description, settings, Served(step, operation, settings), [.. members.Select(static member => member.Key)]);
                 var memberKey = StepKey.OfMember(runKey, previous.Key);
                 node = new Node
                 {
@@ -1352,8 +1359,7 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                     }
                 }
 
-                step.ServedBy = Served(operation, settings);
-                var key = StepKey.OfStep(operation.Description, settings, step.ServedBy, [.. taken.Select(static input => input.Key)]);
+                var key = StepKey.OfStep(operation.Description, settings, Served(step, operation, settings), [.. taken.Select(static input => input.Key)]);
                 node = new Node
                 {
                     Label = label,
@@ -1423,15 +1429,17 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                     static result => result.Name, result => store.PathOf(StepKey.OfResult(key, result.Name)), StringComparer.Ordinal),
             };
 
-        private string Served(IOperation operation, string settings)
+        // What serves the step, into its plan: the text its key holds, and the short word for whose models they are.
+        private string Served(StepPlan step, IOperation operation, string settings)
         {
             if (!_served.TryGetValue((operation, settings), out var served))
             {
-                served = operation.ServedBy(settings);
+                served = (operation.ServedBy(settings), operation.ServedTag(settings));
                 _served[(operation, settings)] = served;
             }
 
-            return served;
+            (step.ServedBy, step.ServedTag) = served;
+            return served.By;
         }
 
         private static Node? Refuse(StepPlan step, string why)

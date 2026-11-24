@@ -26,8 +26,16 @@ namespace TianWen.AI.Imaging.RcAstro
     /// </remarks>
     public abstract class RcAstroEnhancerBase(IRcAstroCli cli, ILogger? logger)
     {
-        /// <inheritdoc cref="IImageEnhancer.Name"/>
-        public abstract string Name { get; }
+        /// <summary>
+        /// The product and how it is run here, with the model version a run uses where the CLI says it
+        /// (<see cref="IRcAstroCli.ModelVersion"/>): "RC-Astro NoiseXTerminator (nxt) ML3.1". A workbench step is keyed
+        /// by the name of what serves it, so a newer model is another step and its result is made again; the CLI's
+        /// own version is not in the name. Without a version (an older CLI, a stand-in) it is the product alone.
+        /// </summary>
+        public string Name => cli.ModelVersion(ProductKey) is { Length: > 0 } version ? $"{ProductName} ML{version}" : ProductName;
+
+        /// <summary>The product and how it is run here, without its model version: "RC-Astro NoiseXTerminator (nxt)".</summary>
+        protected abstract string ProductName { get; }
 
         /// <summary>RC-Astro product subcommand key: "bxt" / "sxt" / "nxt".</summary>
         protected abstract string ProductKey { get; }

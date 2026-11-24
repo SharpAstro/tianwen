@@ -40,6 +40,23 @@ namespace TianWen.AI.Imaging.RcAstro
         string? LicenseRefusal(string productKey) => null;
 
         /// <summary>
+        /// The CLI's own version ("2.6.11"), or null where it could not be read: no executable, or a CLI that does not
+        /// describe itself in JSON. Asked once a process (<c>rc-astro --json</c>, which reads what this computer has
+        /// stored and asks no licence server). It is said beside a result and never part of a step's key: two CLI
+        /// versions that run one model gave the same pixels to rounding (2.6.10 and 2.6.11, measured 2026-11-24).
+        /// </summary>
+        string? CliVersion => null;
+
+        /// <summary>
+        /// The model version a run of <paramref name="productKey"/> ("bxt" / "sxt" / "nxt") uses: the newest one
+        /// installed ("5", "3.1"), since no run here names one (<c>--ml-version</c> stays at its default, the latest).
+        /// Null where it could not be read. A licence line says less: "licensed through ML3" covers ML3.1. A new
+        /// model is other pixels, so a role's name carries this (<see cref="RcAstroEnhancerBase.Name"/>) and a
+        /// workbench step is keyed by it.
+        /// </summary>
+        string? ModelVersion(string productKey) => null;
+
+        /// <summary>
         /// Runs <c>rc-astro &lt;productKey&gt; &lt;inputPath&gt; -o &lt;outputPath&gt;</c>
         /// with the shared machine-mode flags (<c>--depth 32F --overwrite --json</c>)
         /// plus <paramref name="extraArgs"/>, streaming progress out of the

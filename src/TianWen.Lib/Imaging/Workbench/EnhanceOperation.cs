@@ -361,10 +361,75 @@ public sealed class EnhanceOperation(SharpenPipeline pipeline, ILogger<EnhanceOp
             return OperationOutcome.Failed("the enhance gave no image");
         }
 
-        OperationOutput.Write(final, outputPath, wcs);
+        final.WriteToFitsFile(outputPath, wcs, HeaderOf(options, program));
         final.Release();
         say?.Invoke($"wrote {outputPath}");
         return OperationOutcome.Done;
+    }
+
+    /// <summary>
+    /// The cards an enhance result carries beside its pixels: <c>SWMODIFY</c>
+    /// (<see cref="SharpenPipeline.SwModifyHeader"/>), and what served each step of the program that made it, so the
+    /// file says it wherever it is copied. One card for each role a step asked (<c>ENHDEBLR</c>, <c>ENHGRAD</c>,
+    /// <c>ENHSTARS</c>, <c>ENHSTELL</c>, <c>ENHDECON</c>, <c>ENHDENOI</c>): the enhancer's name as the step's key holds
+    /// it, cut at the <see cref="MaxCardText"/> characters a FITS string card takes. <c>ENHBY</c> is the one word for
+    /// them all (<see cref="EnhancerOrigin.TagOf"/>: rc, tw or mix), and <c>ENHTOOL</c> the tool that ran RC-Astro's
+    /// models with its version, which is no part of a key. <c>image sharpen</c> and a step write the same cards.
+    /// </summary>
+    public Dictionary<string, (object Value, string Comment)> HeaderOf(EnhanceOptions options, LinearEnhanceProgram program)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(program);
+        var header = SharpenPipeline.SwModifyHeader();
+        var roles = pipeline.Roles(options, program);
+        foreach (var role in roles)
+        {
+            if (role.Asked)
+            {
+                var served = role.Served.Length > MaxCardText ? role.Served[..MaxCardText] : role.Served;
+                header[CardOf(role.Role)] = (served, $"served the {role.Role}");
+            }
+        }
+
+        var asked = roles.Where(static role => role.Asked).Select(static role => role.Origin).ToArray();
+        if (EnhancerOrigin.TagOf(asked) is { Length: > 0 } tag)
+        {
+            // A comment shares the card's 80 characters with the value: this one fits beside a three-letter word.
+            header["ENHBY"] = (tag, "rc (RC-Astro), tw (TianWen) or mix");
+        }
+
+        if (asked.FirstOrDefault(static origin => origin is { Family: EnhancerOrigin.RcAstro, ToolVersion.Length: > 0 }) is { } rcAstro)
+        {
+            header["ENHTOOL"] = ($"rc-astro {rcAstro.ToolVersion}", "the tool that ran RC-Astro's models");
+        }
+
+        return header;
+    }
+
+    /// <summary>The longest text a FITS string card holds here (FITS.Lib takes 70 characters with its two quotes).</summary>
+    internal const int MaxCardText = 68;
+
+    // The card of each role of SharpenPipeline.Roles; eight characters at most.
+    private static string CardOf(string role) => role switch
+    {
+        "deblur" => "ENHDEBLR",
+        "gradient" => "ENHGRAD",
+        "stars" => "ENHSTARS",
+        "stellar" => "ENHSTELL",
+        "deconvolve" => "ENHDECON",
+        "denoise" => "ENHDENOI",
+        _ => throw new ArgumentOutOfRangeException(nameof(role), role, "no card is named for this role"),
+    };
+
+    /// <summary>
+    /// The one word for whose models serve these settings (<see cref="EnhancerOrigin.TagOf"/>: rc, tw or mix; empty
+    /// where no role says), over every step the settings could keep, as <see cref="ServedBy"/> names them.
+    /// </summary>
+    public override string ServedTag(EnhanceSettings settings)
+    {
+        var options = TryOptions(settings, out var made, out _) ? made : EnhanceOptions.Default;
+        return EnhancerOrigin.TagOf(pipeline.Roles(options, Widest(settings, pipeline.DeblurServesEveryInput(options)))
+            .Where(static role => role.Asked).Select(static role => role.Origin));
     }
 
     /// <summary>The input on the unit scale, and which roles serve it under these options. The RC-Astro licence probe

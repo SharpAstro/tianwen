@@ -1491,7 +1491,8 @@ internal sealed partial class ImageSubCommand(
             else if (result.Final is { } finalImage)
             {
                 var dst = EnsureFitsExtension(outputPath ?? DefaultOut(input, "_sharpened"));
-                finalImage.WriteToFitsFile(dst, wcs, SharpenPipeline.SwModifyHeader());
+                // The operation's cards, as a step writes them: SWMODIFY and what served each step of the program.
+                finalImage.WriteToFitsFile(dst, wcs, enhance.HeaderOf(enhanceOptions, program));
                 consoleHost.WriteScrollable($"[sharpen] wrote {dst}");
                 // For dual-stretch: composite is already in stretched [0, 1]
                 // space (per-plate MTF + screen recombine), so MasterPreviewRenderer

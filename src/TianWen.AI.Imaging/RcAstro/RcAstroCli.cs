@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -33,18 +34,27 @@ namespace TianWen.AI.Imaging.RcAstro
         private readonly ConcurrentDictionary<string, byte> _licensed = new();
         private readonly ConcurrentDictionary<string, string> _refusals = new();
         private readonly Func<string, string, LicenseProbe> _probe;
+        // What the CLI says of itself, asked at the first question about a version and kept for the process, as a
+        // granted licence is: a model installed while a host runs is seen at its next start. PublicationOnly, so no
+        // lock is held over a subprocess; two first askers at once each ask and one answer is kept.
+        private readonly Lazy<RcAstroInstall?> _install;
 
         /// <param name="logger">Optional diagnostics logger.</param>
         public RcAstroCli(ILogger<RcAstroCli>? logger = null)
-            : this(LocateExecutable(), RunLicenseProbe, logger)
+            : this(LocateExecutable(), RunLicenseProbe, logger, RunDescribe)
         {
         }
 
-        /// <summary>Test seam: a located executable and the probe that asks it.</summary>
-        internal RcAstroCli(string? executablePath, Func<string, string, LicenseProbe> probe, ILogger<RcAstroCli>? logger = null)
+        /// <summary>Test seam: a located executable, the probe that asks it for a licence, and what it says of
+        /// itself (the text of <c>rc-astro --json</c>, or null; left out, it says nothing).</summary>
+        internal RcAstroCli(string? executablePath, Func<string, string, LicenseProbe> probe, ILogger<RcAstroCli>? logger = null,
+            Func<string, string?>? describe = null)
         {
             _logger = logger;
             _probe = probe;
+            _install = new Lazy<RcAstroInstall?>(
+                () => executablePath is not null && describe?.Invoke(executablePath) is { } json ? ParseInstall(json) : null,
+                LazyThreadSafetyMode.PublicationOnly);
             ExecutablePath = executablePath;
             if (ExecutablePath is not null)
             {
@@ -105,6 +115,73 @@ namespace TianWen.AI.Imaging.RcAstro
             => ExecutablePath is null ? "RC-Astro is not installed"
                 : _refusals.TryGetValue(productKey, out var refusal) ? refusal
                 : null;
+
+        /// <inheritdoc/>
+        public string? CliVersion => _install.Value?.CliVersion;
+
+        /// <inheritdoc/>
+        public string? ModelVersion(string productKey)
+            => _install.Value is { } install && install.ModelVersions.TryGetValue(productKey, out var version) ? version : null;
+
+        /// <summary>What <c>rc-astro --json</c> says of an installation, as far as it is read here: the CLI's version and,
+        /// for each product, the newest model installed.</summary>
+        internal sealed record RcAstroInstall(string? CliVersion, IReadOnlyDictionary<string, string> ModelVersions);
+
+        /// <summary>
+        /// Reads <c>rc-astro --json</c>: <c>cliVersion</c>, and for each of <c>products</c> its <c>key</c> and the
+        /// largest of its <c>mlVersions</c> (the model a run uses when it names none), in the digits the CLI wrote
+        /// ("3.1", "11"). Null for text that is not that document. <b>Nothing else is read and the text is never
+        /// logged</b>: the document also holds the account's email address.
+        /// </summary>
+        internal static RcAstroInstall? ParseInstall(string json)
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(json);
+                var root = document.RootElement;
+                if (root.ValueKind is not JsonValueKind.Object)
+                {
+                    return null;
+                }
+
+                var cliVersion = root.TryGetProperty("cliVersion", out var cli) && cli.ValueKind is JsonValueKind.String ? cli.GetString() : null;
+                var models = new Dictionary<string, string>(StringComparer.Ordinal);
+                if (root.TryGetProperty("products", out var products) && products.ValueKind is JsonValueKind.Array)
+                {
+                    foreach (var product in products.EnumerateArray())
+                    {
+                        if (product.ValueKind is not JsonValueKind.Object
+                            || !product.TryGetProperty("key", out var key) || key.ValueKind is not JsonValueKind.String
+                            || key.GetString() is not { Length: > 0 } productKey
+                            || !product.TryGetProperty("mlVersions", out var versions) || versions.ValueKind is not JsonValueKind.Array)
+                        {
+                            continue;
+                        }
+
+                        // The newest by value, whatever order the CLI lists them in, in the CLI's own digits.
+                        (double Value, string Text)? newest = null;
+                        foreach (var version in versions.EnumerateArray())
+                        {
+                            if (version.ValueKind is JsonValueKind.Number && version.TryGetDouble(out var value) && (newest is null || value > newest.Value.Value))
+                            {
+                                newest = (value, version.GetRawText());
+                            }
+                        }
+
+                        if (newest is { } found)
+                        {
+                            models[productKey] = found.Text;
+                        }
+                    }
+                }
+
+                return cliVersion is null && models.Count == 0 ? null : new RcAstroInstall(cliVersion, models);
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
+        }
 
         /// <inheritdoc/>
         public async Task<RcAstroRunResult> RunAsync(
@@ -310,6 +387,53 @@ namespace TianWen.AI.Imaging.RcAstro
             catch (Exception ex)
             {
                 return new LicenseProbe(false, null, ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// What <c>rc-astro --json</c> prints: the CLI's description of itself (its version, its devices, each
+        /// product's installed models and stored licence). It reads what this computer has stored and asks no licence
+        /// server. Null when it did not run, did not answer in time or failed. The text is handed to
+        /// <see cref="ParseInstall"/> and to nothing else: it holds the account's email address.
+        /// </summary>
+        private static string? RunDescribe(string exePath)
+        {
+            try
+            {
+                var psi = new ProcessStartInfo(exePath)
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                };
+                psi.ArgumentList.Add("--json");
+
+                using var proc = Process.Start(psi);
+                if (proc is null)
+                {
+                    return null;
+                }
+
+                // stderr drains on its own thread and is dropped, so neither pipe can fill while the other is read.
+                proc.ErrorDataReceived += static (_, _) => { };
+                proc.BeginErrorReadLine();
+
+                // A small document; ReadToEnd returns when the stream closes (on exit), so this cannot deadlock.
+                var stdout = proc.StandardOutput.ReadToEnd();
+                if (!proc.WaitForExit(LicenseProbeTimeoutMs))
+                {
+                    try { proc.Kill(entireProcessTree: true); }
+                    catch (InvalidOperationException) { /* it ended between the wait and the kill */ }
+                    return null;
+                }
+
+                return proc.ExitCode == 0 ? stdout : null;
+            }
+            catch (Exception)
+            {
+                // No description is not a fault: the names then carry no version, as before this was asked.
+                return null;
             }
         }
 
