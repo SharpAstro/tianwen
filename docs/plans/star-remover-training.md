@@ -9655,11 +9655,21 @@ nothing is registered, exported or scored for it.
   `gaia_forced.py`, `gaia_deblend.py`). In plain words: the grain did follow the catalogue's faint stars, so the
   first idea was to subtract them from the truth plate where Gaia says they are. Measured, it takes too little, and
   what it does take is not the catalogue's doing.
-  - **The forced subtraction** (`gaia_forced.py`): every missed Gaia star (BP to 21, the positions shifted by the
-    matched detections' median offset of +0.21, -0.18 px) drawn as a round Gaussian of the master's width (FWHM 3.8
-    px), one scale per channel fitted to the cell. The positions hold (the plate's grain against this light: +0.49
-    to +0.71 in the two crowded cells, +0.17 to +0.22 in the nebula cell); the brightness does not (the fitted
-    scale is 2 to 6 % of the one the bright stars give, 0.7 to 1 % with G). Bands, R / G / B, in the plate's 9 px
+  - **The forced subtraction** (`gaia_forced.py`, plus an uncommitted variant, see below): every missed Gaia star
+    (BP to 21, the positions shifted by the matched detections' median offset of +0.21, -0.18 px) drawn as a round
+    Gaussian of the master's width (FWHM 3.8 px). The committed script's model A takes one scale per channel from
+    the median ratio of matched moderate detections' peaks to their catalogue flux, and fits nothing to the plate
+    (its model B is a free non-negative fit). The positions hold (the plate's grain against this light: +0.49
+    to +0.71 in the two crowded cells, +0.17 to +0.22 in the nebula cell); the brightness does not (a scale fitted
+    to the cell comes out 2 to 6 % of the one the bright stars give, 0.7 to 1 % with G).
+    **Which figures the committed code makes:** the stored plate, plate less A and StarXTerminator columns of the
+    table, and model A's scale. **Made by an uncommitted variant, not reproducible from the repo:** the per-cell
+    fitted scale (with and without G), the residue bound columns (and 4.1 / 4.4 / 3.3 below), the refits with only
+    stars over 5 px and 8 px from a detection, and the +0.49 to +0.71 correlations (those are `grain_gaia.py`'s
+    light, not this script's). The variant is not committed because its cache and run are not on the machine that
+    reviewed this; a rerun owes it a script, with its output recorded as for the deblend. The scale and the PSF
+    width are read from the first 4000 matched moderate detections in the Gaia cache's order, which is not known to
+    be spread over the field; the script now prints the extent of that sample. Bands, R / G / B, in the plate's 9 px
     mean sigma, with an upper bound of a residue fix (every pixel within 4 px of a subtracted star of 10 sigma and up
     replaced by the plate's 15 px median):
 
@@ -9685,7 +9695,10 @@ nothing is registered, exported or scored for it.
     | 5,4 | 6.9 / 7.2 / 6.2 | 6.5 / 6.8 / 5.7 | 6.8 / 7.1 / 6.0 | 6.6 / 7.0 / 5.8 | 2.9 / 2.1 / 1.8 |
     | 4,4 | 4.8 / 5.0 / 5.2 | 4.1 / 4.3 / 4.3 | 4.6 / 4.7 / 4.8 | 4.3 / 4.5 / 4.6 | 5.3 / 5.3 / 3.8 |
 
-    Gaia's positions add 0.2 at most over the mirrored points in the crowded cells: the light next to a detected
+    Gaia's positions add 0.2 at most over the mirrored points in the crowded cells, but that is the gap to a null
+    that is itself not empty (43 % of the mirrored points have a Gaia star within 1 px, below): if the mirrored fit
+    catches the catalogue's light at 43 % of its points, the catalogue's own effect is about 0.2 / 0.57, nearer
+    0.35 if it is linear, still a fraction of the 4 to 7 of the bands: the light next to a detected
     star sits round it about evenly, which is the builder's under-fitted wing (the +0.22 sigma ring round 10 to 30
     sigma stars measured for #2449), not companions where the catalogue puts them. And the fit takes more from the
     nebula cell (0.7 to 0.9) than from the crowded ones, from a cell the judge keeps at 5.3 / 5.3 / 3.8. With a free
@@ -10317,7 +10330,7 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     stall rule of R4h's and R4i's registration.
   - **The question, on the models as trained:** R4j's, on the same 205 plants of 20 to 150 sky sigma on the
     Lagoon's bright nebula, read on the build and flags both R4h seeds were read on (`bh-bin14`, PR #2512): **at
-    most 45.0 % left on both seeds** (R4h 67.8 and 70.7; StarXTerminator 42.4).
+    most 45.0 % left on both seeds** (R4h 67.8 and 70.7; StarXTerminator 42.4). R4h's second-seed figures quoted in this registration (70.7 %, 33.3, 87.5, 82.7, 7.3, the 9 and 3 rows) are forward references to PR #2512, open when this was written; the plan on this branch holds R4h's first seed only.
   - **Guards, on each seed:** R4j's, on the same terms and at the same values: the Tarantula's crowded flat at
     least 90.3 and Sagittarius's 96.3; Andromeda's dark flat at least 95 with at most 3 % dug; the Tarantula's dark
     flat at least 91; the glow's green median within 450 on Andromeda and 500 on the Tarantula; M31's nucleus taken
@@ -10339,7 +10352,9 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     differ there); the extra cache's held-out objective beside its training objective at the best step; the best
     step's weights.
   - **Prediction:** both seeds leave 55 to 65 % of the bright plants, a gain of 5 to 15 points on R4h and short of
-    the bar, so "neither"; the dark plants and the crowded rows within two points of R4h; the guards hold. What
+    the bar, so "neither". The kill is both seeds at 60.0 % or over, which is the upper half of that range: a
+    result with both seeds from 60 to 65 is inside the prediction and is a kill, and is to be read as one (R4h's
+    seeds are 67.8 and 70.7, so a gain under about 8 to 10 points on both kills it). The dark plants and the crowded rows within two points of R4h; the guards hold. What
     speaks for more: the stars are real, on real nebula, at five times R4j's dose. What speaks against: only stars
     the builder found count, and on bright nebula its finder works at the nebula's own noise, so the faintest stars
     the row plants sit near its limit there; and a target that is the builder's plate cannot teach the model to do
