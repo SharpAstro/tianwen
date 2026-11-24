@@ -179,7 +179,9 @@ internal sealed class WorkbenchSubCommand(IConsoleHost consoleHost, OperationCat
 
             foreach (var step in image.Steps)
             {
-                consoleHost.WriteScrollable($"[workbench]   {step.Index + 1} {step.Operation}: {Describe(step)}"
+                // The short word for whose models serve the step (rc, tw or mix), where they say: read at a glance,
+                // with the whole of it on the "served by" line below.
+                consoleHost.WriteScrollable($"[workbench]   {step.Index + 1} {step.Operation}{(step.ServedTag.Length > 0 ? $" [{step.ServedTag}]" : string.Empty)}: {Describe(step)}"
                     + (step.Key.Length > 0 ? $" ({StepKey.Short(step.Key)})" : string.Empty)
                     + (step.ChangedSinceLastRun ? ", changed since the last run" : string.Empty)
                     + (step.Output is { } output ? $" -> {output}" : string.Empty));

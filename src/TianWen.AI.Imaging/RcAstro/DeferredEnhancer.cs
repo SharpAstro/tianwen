@@ -102,6 +102,26 @@ namespace TianWen.AI.Imaging.RcAstro
         /// Like <see cref="Name"/> it can cost a licence probe, and only where the backend asked for is Auto.</summary>
         public string NameUnder(EnhanceOptions options) => Resolve(options.Backend)?.Name ?? NoBackend;
 
+        /// <summary>Whose model <paramref name="options"/> choose: RC-Astro's, with its CLI's version, or TianWen's
+        /// own. Null where nothing serves, and for the declined stand-in, which runs no model.</summary>
+        public EnhancerOrigin? OriginUnder(EnhanceOptions options) => AnswerUnder(options)?.Origin;
+
+        /// <summary>The name and the origin of the backend <paramref name="options"/> choose, from ONE resolution: it
+        /// can cost a licence probe, and a refusal can flip between two asks, so the two are never asked apart.</summary>
+        public EnhancerAnswer? AnswerUnder(EnhanceOptions options)
+        {
+            var chosen = Resolve(options.Backend);
+            if (chosen is null)
+            {
+                return new EnhancerAnswer(NoBackend, null);
+            }
+
+            var origin = ReferenceEquals(chosen, _rc) ? new EnhancerOrigin(EnhancerOrigin.RcAstro, cli.CliVersion)
+                : ReferenceEquals(chosen, _inHouse) ? new EnhancerOrigin(EnhancerOrigin.TianWen)
+                : null;
+            return new EnhancerAnswer(chosen.Name, origin);
+        }
+
         private string NoBackend => $"{role} (no backend: RC-Astro '{productKey}' unavailable)";
 
         public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)

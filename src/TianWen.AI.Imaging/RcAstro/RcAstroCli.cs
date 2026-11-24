@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -33,18 +34,46 @@ namespace TianWen.AI.Imaging.RcAstro
         private readonly ConcurrentDictionary<string, byte> _licensed = new();
         private readonly ConcurrentDictionary<string, string> _refusals = new();
         private readonly Func<string, string, LicenseProbe> _probe;
+        // What the CLI says of itself, asked at the first question about a version. A description that parsed is kept
+        // for the process, as a granted licence is: a model installed while a host runs is seen at its next start.
+        // A CLI that answered but not with a description (no --json, a non-zero exit) is settled as none. A failure
+        // that says nothing of the CLI (no answer in time, would not start) is asked again, at most MaxDescribeAsks
+        // times in all, so one busy moment does not give every RC-Astro step a version-less name, and so the legacy
+        // key, for the whole run. No lock is held over a subprocess; two askers at once each ask and one answer is kept.
+        private readonly string? _executablePath;
+        private readonly Func<string, DescribeResult>? _describe;
+        private RcAstroInstall? _install;
+        private int _describeSettled;
+        private int _describeAsks;
+
+        /// <summary>The most times a process asks <c>rc-astro --json</c> while it keeps failing to answer.</summary>
+        internal const int MaxDescribeAsks = 3;
+
+        /// <summary>How long the description's pipes get to reach end-of-file after the CLI has exited.</summary>
+        private const int PipeFlushTimeoutMs = 2000;
 
         /// <param name="logger">Optional diagnostics logger.</param>
         public RcAstroCli(ILogger<RcAstroCli>? logger = null)
-            : this(LocateExecutable(), RunLicenseProbe, logger)
+            : this(LocateExecutable(), RunLicenseProbe, logger, (Func<string, DescribeResult>)RunDescribe)
         {
         }
 
-        /// <summary>Test seam: a located executable and the probe that asks it.</summary>
-        internal RcAstroCli(string? executablePath, Func<string, string, LicenseProbe> probe, ILogger<RcAstroCli>? logger = null)
+        /// <summary>Test seam: a located executable, the probe that asks it for a licence, and what it says of
+        /// itself (the text of <c>rc-astro --json</c>, or null; left out, it says nothing).</summary>
+        internal RcAstroCli(string? executablePath, Func<string, string, LicenseProbe> probe, ILogger<RcAstroCli>? logger = null,
+            Func<string, string?>? describe = null)
+            : this(executablePath, probe, logger, describe is null ? null : path => DescribeResult.Of(describe(path)))
+        {
+        }
+
+        /// <summary>Test seam: as above, with a description that says whether a failure may be asked again.</summary>
+        internal RcAstroCli(string? executablePath, Func<string, string, LicenseProbe> probe, ILogger<RcAstroCli>? logger,
+            Func<string, DescribeResult>? describe)
         {
             _logger = logger;
             _probe = probe;
+            _executablePath = executablePath;
+            _describe = describe;
             ExecutablePath = executablePath;
             if (ExecutablePath is not null)
             {
@@ -105,6 +134,103 @@ namespace TianWen.AI.Imaging.RcAstro
             => ExecutablePath is null ? "RC-Astro is not installed"
                 : _refusals.TryGetValue(productKey, out var refusal) ? refusal
                 : null;
+
+        private RcAstroInstall? Install()
+        {
+            if (Volatile.Read(ref _install) is { } known)
+            {
+                return known;
+            }
+            if (_executablePath is not { } exePath || _describe is null || Volatile.Read(ref _describeSettled) != 0)
+            {
+                return null;
+            }
+
+            var result = _describe(exePath);
+            if (result.Json is { } json && ParseInstall(json) is { } install)
+            {
+                return Interlocked.CompareExchange(ref _install, install, null) ?? install;
+            }
+
+            // An answer that is no description is this CLI's: asking again gives the same. A failure to answer is not.
+            if (!result.Transient || Interlocked.Increment(ref _describeAsks) >= MaxDescribeAsks)
+            {
+                Volatile.Write(ref _describeSettled, 1);
+            }
+            else
+            {
+                _logger?.LogDebug("rc-astro --json gave no description ({Why}); asked again at the next question", result.Why);
+            }
+
+            return null;
+        }
+
+        /// <inheritdoc/>
+        public string? CliVersion => Install()?.CliVersion;
+
+        /// <inheritdoc/>
+        public string? ModelVersion(string productKey)
+            => Install() is { } install && install.ModelVersions.TryGetValue(productKey, out var version) ? version : null;
+
+        /// <summary>What <c>rc-astro --json</c> says of an installation, as far as it is read here: the CLI's version and,
+        /// for each product, the newest model installed.</summary>
+        internal sealed record RcAstroInstall(string? CliVersion, IReadOnlyDictionary<string, string> ModelVersions);
+
+        /// <summary>
+        /// Reads <c>rc-astro --json</c>: <c>cliVersion</c>, and for each of <c>products</c> its <c>key</c> and the
+        /// largest of its <c>mlVersions</c> (the model a run uses when it names none), in the digits the CLI wrote
+        /// ("3.1", "11"). Null for text that is not that document. <b>Nothing else is read and the text is never
+        /// logged</b>: the document also holds the account's email address.
+        /// </summary>
+        internal static RcAstroInstall? ParseInstall(string json)
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(json);
+                var root = document.RootElement;
+                if (root.ValueKind is not JsonValueKind.Object)
+                {
+                    return null;
+                }
+
+                var cliVersion = root.TryGetProperty("cliVersion", out var cli) && cli.ValueKind is JsonValueKind.String ? cli.GetString() : null;
+                var models = new Dictionary<string, string>(StringComparer.Ordinal);
+                if (root.TryGetProperty("products", out var products) && products.ValueKind is JsonValueKind.Array)
+                {
+                    foreach (var product in products.EnumerateArray())
+                    {
+                        if (product.ValueKind is not JsonValueKind.Object
+                            || !product.TryGetProperty("key", out var key) || key.ValueKind is not JsonValueKind.String
+                            || key.GetString() is not { Length: > 0 } productKey
+                            || !product.TryGetProperty("mlVersions", out var versions) || versions.ValueKind is not JsonValueKind.Array)
+                        {
+                            continue;
+                        }
+
+                        // The newest by value, whatever order the CLI lists them in, in the CLI's own digits.
+                        (double Value, string Text)? newest = null;
+                        foreach (var version in versions.EnumerateArray())
+                        {
+                            if (version.ValueKind is JsonValueKind.Number && version.TryGetDouble(out var value) && (newest is null || value > newest.Value.Value))
+                            {
+                                newest = (value, version.GetRawText());
+                            }
+                        }
+
+                        if (newest is { } found)
+                        {
+                            models[productKey] = found.Text;
+                        }
+                    }
+                }
+
+                return cliVersion is null && models.Count == 0 ? null : new RcAstroInstall(cliVersion, models);
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
+        }
 
         /// <inheritdoc/>
         public async Task<RcAstroRunResult> RunAsync(
@@ -311,6 +437,77 @@ namespace TianWen.AI.Imaging.RcAstro
             {
                 return new LicenseProbe(false, null, ex.Message);
             }
+        }
+
+        /// <summary>
+        /// What <c>rc-astro --json</c> prints: the CLI's description of itself (its version, its devices, each
+        /// product's installed models and stored licence). It reads what this computer has stored and asks no licence
+        /// server. Null when it did not run, did not answer in time or failed. The text is handed to
+        /// <see cref="ParseInstall"/> and to nothing else: it holds the account's email address.
+        /// </summary>
+        private static DescribeResult RunDescribe(string exePath)
+        {
+            try
+            {
+                var psi = new ProcessStartInfo(exePath)
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                };
+                psi.ArgumentList.Add("--json");
+
+                using var proc = Process.Start(psi);
+                if (proc is null)
+                {
+                    return DescribeResult.Failed("the process did not start");
+                }
+
+                // Both pipes drain on their own: stdout into a buffer, stderr dropped, so neither can fill while the
+                // wait below runs, and a CLI that hangs with its pipe open is bounded by that wait, not by the read.
+                var stdout = new ConcurrentQueue<string>();
+                proc.OutputDataReceived += (_, e) => { if (e.Data is not null) stdout.Enqueue(e.Data); };
+                proc.ErrorDataReceived += static (_, _) => { };
+                proc.BeginOutputReadLine();
+                proc.BeginErrorReadLine();
+
+                if (!proc.WaitForExit(LicenseProbeTimeoutMs))
+                {
+                    try { proc.Kill(entireProcessTree: true); }
+                    catch (InvalidOperationException) { /* it ended between the wait and the kill */ }
+                    return DescribeResult.Failed($"no answer in {LicenseProbeTimeoutMs / 1000} s");
+                }
+
+                // The parameterless wait flushes the redirected handlers once the timed wait saw the exit, but it also
+                // waits for end-of-file on both pipes: a child that outlived the CLI and holds them would make it wait
+                // with no bound. So the flush is bounded too; past the bound, what was read so far is what the CLI said.
+                if (!Task.Run(proc.WaitForExit).Wait(PipeFlushTimeoutMs))
+                {
+                    _ = Task.Run(() => { try { proc.CancelOutputRead(); proc.CancelErrorRead(); } catch (InvalidOperationException) { } });
+                }
+
+                return proc.ExitCode == 0 ? DescribeResult.Of(string.Join('\n', stdout)) : DescribeResult.None;
+            }
+            catch (Exception ex)
+            {
+                // Not starting is no fault of the names: they then carry no version, as before this was asked.
+                return DescribeResult.Failed(ex.Message);
+            }
+        }
+
+        /// <summary>What asking the CLI to describe itself gave: its text, or why not, and whether asking again may
+        /// answer.</summary>
+        internal readonly record struct DescribeResult(string? Json, bool Transient, string? Why)
+        {
+            /// <summary>The CLI ran and said nothing usable: asking again gives the same.</summary>
+            public static DescribeResult None => new(null, false, null);
+
+            /// <summary>The CLI did not answer (no answer in time, did not start): a later ask may.</summary>
+            public static DescribeResult Failed(string why) => new(null, true, why);
+
+            /// <summary>The text the CLI printed, or none.</summary>
+            public static DescribeResult Of(string? json) => json is null ? None : new(json, false, null);
         }
 
         /// <summary>The last non-blank line of a probe's output, trimmed: the status line, after the banner.</summary>

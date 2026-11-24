@@ -15,7 +15,7 @@ namespace TianWen.AI.Imaging.RcAstro
     public sealed class RcAstroStarRemover(IRcAstroCli cli, ILogger<RcAstroStarRemover>? logger = null)
         : RcAstroEnhancerBase(cli, logger), IStarRemover
     {
-        public override string Name => "RC-Astro StarXTerminator (sxt)";
+        protected override string ProductName => "RC-Astro StarXTerminator (sxt)";
 
         protected override string ProductKey => "sxt";
 

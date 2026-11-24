@@ -136,14 +136,26 @@ public sealed class WorkbenchEnhanceParityTests(ITestOutputHelper output) : IDis
         }
     }
 
-    /// <summary>An RC-Astro CLI that is installed, and licensed or not. Nothing is ever run through it.</summary>
-    private sealed class StandInCli(bool licensed) : IRcAstroCli
+    /// <summary>An RC-Astro CLI that is installed, and licensed or not, with the model and the version of itself it
+    /// says it has, if it says any. Nothing is ever run through it.</summary>
+    private sealed class StandInCli(bool licensed, string? model = null, string? cliVersion = null) : IRcAstroCli
     {
+        /// <summary>How many times the licence was asked: each is a subprocess on a real CLI.</summary>
+        public int Probes { get; set; }
+
         public string? ExecutablePath => "/stand-in/rc-astro";
 
         public bool IsAvailable => true;
 
-        public bool IsLicensed(string productKey) => licensed;
+        public bool IsLicensed(string productKey)
+        {
+            Probes++;
+            return licensed;
+        }
+
+        public string? CliVersion => cliVersion;
+
+        public string? ModelVersion(string productKey) => model;
 
         public Task<RcAstroRunResult> RunAsync(string productKey, string inputPath, string outputPath, IReadOnlyList<string> extraArgs,
             IProgress<RcAstroProgress>? progress = null, CancellationToken cancellationToken = default)
@@ -524,6 +536,148 @@ public sealed class WorkbenchEnhanceParityTests(ITestOutputHelper output) : IDis
         // is what would run.
         Over(licensed: false).ServedBy(new EnhanceSettings()).ShouldContain(N2nDenoiser.ModelFileName);
         Over(licensed: false).ServedBy(new EnhanceSettings { Backend = EnhanceBackend.ForceRcAstro }).ShouldContain("denoise RC-Astro NoiseXTerminator (nxt)");
+    }
+
+    [Fact]
+    public void AnRcAstroStepIsKeyedByItsModelAndNotByTheCliThatRunsItAndSaysWhoseModelsServeIt()
+    {
+        var resolver = new ModelResolver([_folders.Create("no-models-").FullName]);
+        using var inHouse = new N2nDenoiser(resolver);
+        EnhanceOperation Over(string model, string cliVersion, bool licensed = true)
+        {
+            var cli = new StandInCli(licensed, model, cliVersion);
+            return new(new SharpenPipeline(denoiser: new DeferredDenoiser(cli, () => new RcAstroDenoiser(cli), () => inHouse)));
+        }
+
+        var served = Over("3.1", "2.6.11").ServedBy(new EnhanceSettings());
+        served.ShouldContain("denoise RC-Astro NoiseXTerminator (nxt) ML3.1");
+        // A newer model is other pixels, so another key. A newer CLI that runs the same model is not, and is not named.
+        Over("3.2", "2.6.11").ServedBy(new EnhanceSettings()).ShouldNotBe(served);
+        Over("3.1", "2.7.0").ServedBy(new EnhanceSettings()).ShouldBe(served);
+        served.ShouldNotContain("2.6.11");
+
+        // Whose models, in one word: RC-Astro's under Auto where it is licensed, TianWen's own where the step says so
+        // or RC-Astro is not licensed.
+        Over("3.1", "2.6.11").ServedTag(new EnhanceSettings()).ShouldBe("rc");
+        Over("3.1", "2.6.11").ServedTag(new EnhanceSettings { Backend = EnhanceBackend.TianWen }).ShouldBe("tw");
+        Over("3.1", "2.6.11", licensed: false).ServedTag(new EnhanceSettings()).ShouldBe("tw");
+        // Stand-ins say nothing of whose they are, so there is no word.
+        new EnhanceOperation(new SharpenPipeline(denoiser: new Scaling("Test/Denoiser", 1f))).ServedTag(new EnhanceSettings()).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void TheOneWordForWhoseModelsServeIsRcTwMixOrNothing()
+    {
+        var (rc, tw) = (new EnhancerOrigin(EnhancerOrigin.RcAstro, "2.6.11"), new EnhancerOrigin(EnhancerOrigin.TianWen));
+
+        EnhancerOrigin.TagOf([]).ShouldBeEmpty();
+        // A role that does not say whose it is (the gradient corrector, a stand-in) counts for neither.
+        EnhancerOrigin.TagOf([null, null]).ShouldBeEmpty();
+        EnhancerOrigin.TagOf([rc, null, rc]).ShouldBe("rc");
+        EnhancerOrigin.TagOf([tw]).ShouldBe("tw");
+        EnhancerOrigin.TagOf([rc, tw, null]).ShouldBe("mix");
+    }
+
+    [Fact]
+    public void AnEnhanceResultsHeaderSaysWhatServedEachStepWhoseModelsAndTheToolThatRanThem()
+    {
+        var cli = new StandInCli(licensed: true, model: "3.1", cliVersion: "2.6.11");
+        var enhance = new EnhanceOperation(new SharpenPipeline(
+            starRemover: new Scaling("Test/Remover", 0.5f),
+            denoiser: new DeferredDenoiser(cli, () => new RcAstroDenoiser(cli)),
+            gradientCorrector: new ClassicalBackgroundExtractor()));
+        // The split program with no deblurrer, no stellar sharpener and no deconvolver: gradient, stars, denoise.
+        var program = LinearEnhanceProgram.For(new EnhanceCapabilities(
+            Deblur: false, GradientCorrection: true, StarRemoval: true, StellarSharpen: false, Deconvolve: false, Denoise: true));
+
+        var header = enhance.HeaderOf(EnhanceOptions.Default, program);
+
+        header["SWMODIFY"].Value.ShouldBe(SharpenPipeline.SoftwareModifier);
+        header["ENHSTARS"].Value.ShouldBe("Test/Remover");
+        header["ENHDENOI"].Value.ShouldBe("RC-Astro NoiseXTerminator (nxt) ML3.1");
+        header.ShouldContainKey("ENHGRAD");
+        header["ENHBY"].Value.ShouldBe("rc");
+        // The CLI's version is said in the file and is no part of a name or a key.
+        header["ENHTOOL"].Value.ShouldBe("rc-astro 2.6.11");
+        // A role no step of the program asks has no card.
+        header.ShouldNotContainKey("ENHDEBLR");
+        header.ShouldNotContainKey("ENHSTELL");
+        header.ShouldNotContainKey("ENHDECON");
+
+        // A name longer than a FITS string card holds is cut to what it holds, never refused by the writer.
+        var wordy = new EnhanceOperation(new SharpenPipeline(denoiser: new Scaling(new string('n', 90), 1f)));
+        var wholeFrame = LinearEnhanceProgram.For(new EnhanceCapabilities(false, false, false, false, false, Denoise: true));
+        var cut = wordy.HeaderOf(EnhanceOptions.Default, wholeFrame);
+        cut["ENHDENOI"].Value.ShouldBe(new string('n', EnhanceOperation.MaxCardText));
+        // Stand-ins say nothing of whose they are: no word and no tool.
+        cut.ShouldNotContainKey("ENHBY");
+        cut.ShouldNotContainKey("ENHTOOL");
+    }
+
+    [Fact]
+    public void ANameLongerThanACardSurvivesTheRealWriterCutAtItsLimitWithItsQuoteIntact()
+    {
+        var path = Path.Combine(_folders.Create("long-card-").FullName, "out.fits");
+        var wordy = new EnhanceOperation(new SharpenPipeline(denoiser: new Scaling(new string('n', 90), 1f)));
+        var program = LinearEnhanceProgram.For(new EnhanceCapabilities(false, false, false, false, false, Denoise: true));
+        var image = new Image([SyntheticStarFieldRenderer.Render(64, 64, defocusSteps: 0, exposureSeconds: 10, skyBackground: 100, readNoise: 5,
+            starCount: 5, seed: 5, noiseSeed: 1)], BitDepth.Float32, 65535f, 0f, 0f, new ImageMeta());
+
+        image.WriteToFitsFile(path, null, wordy.HeaderOf(EnhanceOptions.Default, program));
+
+        // A header is 80-character cards: the card is read off the file the writer made, not off the dictionary.
+        var bytes = File.ReadAllBytes(path);
+        var cards = Enumerable.Range(0, Math.Min(bytes.Length, 36 * 2880) / 80).Select(i => Encoding.ASCII.GetString(bytes, i * 80, 80)).ToArray();
+        var card = cards.Single(c => c.StartsWith("ENHDENOI=", StringComparison.Ordinal));
+        card.ShouldContain($"'{new string('n', EnhanceOperation.MaxCardText)}'");
+        card.ShouldNotContain(new string('n', EnhanceOperation.MaxCardText + 1));
+        cards.ShouldContain(c => c.StartsWith("SWMODIFY=", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ARefusingRcAstroIsAskedOncePerResolutionAndTheKeyTextAndTheWordAgree()
+    {
+        var resolver = new ModelResolver([_folders.Create("no-models-").FullName]);
+        using var inHouse = new N2nDenoiser(resolver);
+        var cli = new StandInCli(licensed: false, model: "3.1");
+        var denoiser = new DeferredDenoiser(cli, () => new RcAstroDenoiser(cli), () => inHouse);
+
+        // The enhance step: one resolution of its roles, text and word together.
+        var enhance = new EnhanceOperation(new SharpenPipeline(denoiser: denoiser));
+        var (by, tag) = enhance.Served(new EnhanceSettings());
+        // One ask for the one RC-Astro role the settings name, however many words are made of its answer.
+        cli.Probes.ShouldBe(1);
+        by.ShouldContain(N2nDenoiser.ModelFileName);
+        tag.ShouldBe("tw");
+
+        // A one-role step asks once too, and text and word are those of the one answer.
+        var denoise = new DenoiseOperation(denoiser);
+        cli.Probes = 0;
+        var (name, word) = denoise.Served(new DenoiseSettings());
+        cli.Probes.ShouldBe(1);
+        name.ShouldContain(N2nDenoiser.ModelFileName);
+        word.ShouldBe("tw");
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task AStatusSaysWhoseModelsServeAStepInOneWordBesideItsName()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("served-tag-").FullName;
+        var master = WorkbenchFixtures.WriteMaster(folder, "master", WorkbenchFixtures.Master(seed: 1));
+        await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("m", master, WorkbenchFixtures.Edit(DenoiseOperation.Id))), ct);
+        var cli = new StandInCli(licensed: true, model: "3.1");
+        var catalog = new OperationCatalog([new DenoiseOperation(new DeferredDenoiser(cli, () => new RcAstroDenoiser(cli)))]);
+        var said = new List<string>();
+        var host = Substitute.For<IConsoleHost>();
+        host.When(h => h.WriteScrollable(Arg.Any<string>(), Arg.Any<bool>())).Do(call => said.Add(call.Arg<string>()));
+        var workbench = new WorkbenchSubCommand(host, catalog, new WorkbenchRunner(catalog)).Build();
+
+        (await workbench.Parse(["status", folder]).InvokeAsync(cancellationToken: ct)).ShouldBe(0, string.Join(Environment.NewLine, said));
+
+        said.ShouldContain(line => line.Contains("1 denoise [rc]: will run"), string.Join(Environment.NewLine, said));
+        said.ShouldContain("[workbench]     served by: RC-Astro NoiseXTerminator (nxt) ML3.1");
     }
 
     [Fact]

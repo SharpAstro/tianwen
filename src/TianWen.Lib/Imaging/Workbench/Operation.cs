@@ -41,6 +41,19 @@ public interface IOperation
     string ServedBy(string canonicalSettings);
 
     /// <summary>
+    /// One short word for whose models <see cref="ServedBy"/> names, for a line a person reads: <c>rc</c> (RC-Astro),
+    /// <c>tw</c> (TianWen's own) or <c>mix</c> (<see cref="Enhancement.EnhancerOrigin.TagOf"/>). Empty for an operation no
+    /// model serves, and where what serves it does not say whose it is. It is no part of the step's key.
+    /// </summary>
+    string ServedTag(string canonicalSettings) => string.Empty;
+
+    /// <summary>
+    /// <see cref="ServedBy"/> and <see cref="ServedTag"/> from one asking: naming what serves can cost a licence probe,
+    /// so a caller that wants both asks this, and an operation that pays for the answer pays once.
+    /// </summary>
+    (string By, string Tag) Served(string canonicalSettings) => (ServedBy(canonicalSettings), ServedTag(canonicalSettings));
+
+    /// <summary>
     /// The command that does this step from a terminal, program name first (the plan's rule 3): the verb, the inputs in
     /// the order the edit list hands them, the settings and the output.
     /// </summary>
@@ -208,6 +221,12 @@ public abstract class Operation<TSettings> : IOperation
     /// <inheritdoc cref="IOperation.ServedBy"/>
     public virtual string ServedBy(TSettings settings) => string.Empty;
 
+    /// <inheritdoc cref="IOperation.ServedTag"/>
+    public virtual string ServedTag(TSettings settings) => string.Empty;
+
+    /// <inheritdoc cref="IOperation.Served"/>
+    public virtual (string By, string Tag) Served(TSettings settings) => (ServedBy(settings), ServedTag(settings));
+
     /// <inheritdoc cref="IOperation.CommandLine"/>
     public abstract ImmutableArray<string> CommandLine(TSettings settings, IReadOnlyList<string> inputs, string output);
 
@@ -262,6 +281,10 @@ public abstract class Operation<TSettings> : IOperation
             ?? throw new ArgumentException($"'{canonicalSettings}' holds no settings of '{Description.Id}'", nameof(canonicalSettings));
 
     string IOperation.ServedBy(string canonicalSettings) => ServedBy(Parse(canonicalSettings));
+
+    string IOperation.ServedTag(string canonicalSettings) => ServedTag(Parse(canonicalSettings));
+
+    (string By, string Tag) IOperation.Served(string canonicalSettings) => Served(Parse(canonicalSettings));
 
     ImmutableArray<string> IOperation.CommandLine(string canonicalSettings, IReadOnlyList<string> inputs, string output)
         => CommandLine(Parse(canonicalSettings), inputs, output);

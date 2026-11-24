@@ -55,6 +55,29 @@ rc-astro --device-default gpu1    # pin the discrete card; --device-default auto
 A TianWen-side option would only be worth adding alongside an evaluator that can
 rank the adapters, since otherwise it moves the same guess into our code.
 
+### Which model runs, and how TianWen knows
+
+TianWen passes no `--ml-version` either, so a run uses the newest model installed.
+`rc-astro --json` with no product says which that is: the CLI's version and, for
+each product, `mlVersions` (on the laptop, 2026-11-24, CLI 2.6.11: BlurX 5, 4, 2;
+StarX 11; NoiseX 3.1, 2). It reads what the computer has stored and asks no
+licence server. `IRcAstroCli.ModelVersion` reads it: a description that parsed is kept for the process, a failure
+to answer (no answer in time, would not start) is asked again, at most three asks in all, and a CLI that answers
+with something that is no description is not asked again. Each
+RC-Astro role's name carries the version ("RC-Astro NoiseXTerminator (nxt)
+ML3.1"), so a workbench step is keyed by the model that made its result
+([workbench-operations.md](../architecture/workbench-operations.md)).
+
+- **The licence line is not the model.** "Permanently licensed through ML3" is
+  the major version the licence covers; the model that runs under it is ML3.1.
+- **The CLI's version is said beside a result, never in a key.** The same master
+  through CLI 2.6.10 and 2.6.11 came out the same to rounding, so a key that held
+  it would run every RC-Astro step again after each update for nothing.
+- **The document holds the account's email address.** Only the versions are read
+  from it, and its text is never logged (`RcAstroCli.ParseInstall`).
+- A model installed while a host runs is seen at its next start, as a granted
+  licence is remembered for the process.
+
 ## Architecture
 
 Lives in `TianWen.AI.Imaging` (`RcAstro/` folder) so the present+licensed
