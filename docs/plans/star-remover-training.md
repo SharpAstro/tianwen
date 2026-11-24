@@ -10224,6 +10224,124 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     30 Doradus's faint stars 15 to 25 %, so question 1 says the arm's; the innermost ring on 7 to 11 rows; every
     guard held but the field light, which misses by a point as often as not.
   - **Nothing is adopted;** adoption is the owner's.
+- **R4h's second seed, read 2026-11-25 against its registration: R4h holds every guard on both seeds, R4j's two
+  failed guards are the arm's and not the parent's spread, and the one thing the sheets show the two seeds
+  differing on is M31's nucleus as trained.** Scored as registered: both seeds' last steps and best steps in one
+  pass on `bh-bin14`, as trained, with the chain for the rows read through it.
+  - **In plain words.** R4h is the baseline every arm is held against, and it had been trained once. A second
+    training of the same recipe, with another seed, says how far two runs of one recipe stand apart on each row
+    of the scorecard, so that an arm's difference from its parent can be told from that spread. On most rows the
+    two runs read alike. They differ on three: the bright stars' innermost ring (the second run is the better
+    one), the most crowded Gaia cell (5 points), and whether the model as trained takes the core of the Andromeda
+    galaxy for a star (the second run does; the shipped chain puts it back).
+  - **Looked at first** (`r4-look/`: each model's `-look-cores.png` and `-look-fields.png`, the three
+    `r4h1-lagoon-*.png`, the twelve `r4h1-seed*-plants-*.png`, the bright stars' sheets, `r4h1-m31-nucleus.png`).
+    The two seeds look alike on 30 Doradus's core, the Lagoon's core and its close crop, the Tarantula's crowded
+    field and its knots (both smooth the knots StarXTerminator keeps), and on the planted spots, where both leave
+    the faint plants standing. Alcyone stands on both. **M31's nucleus is the difference:** as trained seed 0
+    keeps it and seed 1 takes it, leaving a dim pink patch; through the chain it is back on both, with a faint
+    pink rim left round it on seed 1.
+  - **The training, by the stall rule: not stalled.** Seed 1 halved first at step 52,000, so the ratio has its
+    denominator and the clause registered for a run without one is not used. The median of its held-out windows
+    is 2.09e-5 over the 44 windows from step 30,000 to there and 1.02e-5 over the next 60,000 steps, a ratio of
+    0.49, with 38 new bests after the halving. It halved again at 126,000, 157,500 and 177,000 and stopped itself
+    at 197,000 (best 7.95e-6 at 185,000), no resume. Seed 0 halved first at 28,500, stopped at 223,500 and had
+    its best at 211,500.
+  - **The build: `bh-bin14` gives every carried figure back.** Seed 0's last step re-scored on `bh-bin14` reads,
+    carried from `bh-bin12` / re-scored: 30 Doradus's faint stars 17 / 17 %; the Tarantula field's light 81, 84 /
+    81, 84 %; Gaia BP 17-19 with the level set aside 91.4 / 91.4 and its most crowded cell 82.7 / 82.7 %; bright
+    plants 67.8 / 67.8 % and dark 6.8 / 6.8 %; the Lagoon's 84 real stars 34.5 / 34.5 %; the innermost ring 9 of
+    26 / 9 of 26 with the same nine rows; the nights' gap 47 / 47 points; the peaks 18 of 77 / 18 of 77. Its best
+    step: 9 of 26 / 9 of 26, 46 / 46 points, the Tarantula's crowded flat 91.5 / 91.5, planted 68.3 and 7.3 / 68.3
+    and 7.3 %. So no difference below is the build's.
+  - **Question 1, 30 Doradus's faint stars: the failure is the arm's.** R4h leaves 17 % on seed 0 and 21 % on
+    seed 1 (of 321 stars of 3 to 10 times the local noise). The worse of the two, 21 %, is under 27 %, the first
+    band: both parent seeds hold the guard both R4j seeds fail (31 and 36 %), and R4j's read stands on both seeds
+    with no amendment.
+  - **Question 2, the bright stars' innermost ring: R4j's sentence stands for both its seeds.** The ring is taken
+    under 80 percent of StarXTerminator's take on 9 of 26 rows on seed 0 and on 3 on seed 1 (Antares on two
+    nights and Alcyone on 2022-01-05). The worse of the two, 9, is 11 or fewer, so "both seeds leave the bright
+    Pleiads standing more than their parent does" stands against R4j's 12 and 14. The parent's own two seeds
+    stand six rows apart on this row.
+  - **Question 3, R4h on two seeds: every guard holds on both.**
+
+    | row | seed 0 (`bh-bin14`) | seed 1 | bar | read |
+    |---|---|---|---|---|
+    | Tarantula crowded flat, chain | 91.9 | 90.5 | at least 90.3 | held, seed 1 by 0.2 |
+    | Sagittarius crowded flat, chain | 97.4 | 96.8 | at least 96.3 | held |
+    | Andromeda dark flat and dug, chain | 98.6, 0.5 | 98.2, 0.9 | at least 95, at most 3 | held |
+    | Tarantula dark flat, chain | 95.9 | 95.5 | at least 91 | held |
+    | glow green median on Andromeda, chain | -47.9 | -89.5 | within 450 | held |
+    | glow green median on the Tarantula, chain | -14.7 | -84.5 | within 500 | held |
+    | M31 nucleus, chain | 0.0 % | 0.0 % | under 10 % | held |
+    | purity, chain | 0.9 | 0.9 | at most 1.0 | held |
+    | light taken from the Tarantula field, chain | 81, 84 % | 80, 84 % | at most 83, 84 % | held, the whole frame at its bar on both |
+    | Gaia BP 17-19 with the level set aside, chain | 91.4 | 91.9 | at least 89.7 | held |
+    | light added on each master's nebula, as trained | 0.0 % | 0.0 % | at most 1.0 % | held |
+    | brightest tenth of the Tarantula's peaks standing, as trained | 18 of 77 | 15 of 77 | at least 11 | held |
+    | faint stars left on the Lagoon's core, as trained | 30 % | 25 % | at most 37 % | held |
+    | faint stars left on 30 Doradus, as trained | 17 % | 21 % | at most 27 % | held |
+    | the Lagoon's broad light taken, as trained | 1.91 | 1.70 | at most 2.67 | held |
+    | plants left on dark sky, as trained | 6.8 % | 7.3 % | at most 12.0 % | held |
+
+    No row is the recipe's miss. Where a later registration holds an arm "to R4h's value", the worse of the two
+    seeds is: the Tarantula's crowded flat 90.5, Sagittarius's 96.8, Andromeda's dark flat 98.2 with 0.9 % dug, the
+    Tarantula's dark flat 95.5, the field light 81 and 84 %, Gaia BP 91.4, the peaks 15 of 77, the Lagoon's core
+    30 %, 30 Doradus 21 %, the broad light 1.91, dark plants 7.3 %, bright plants 70.7 %, the innermost ring 9 of
+    26.
+  - **The field light, as registered for R4j's seed 0.** Both R4h seeds read 84 % on the whole frame, at the
+    bar and not over it, so neither misses, the figure is not the exporter's, and R4j seed 0's failure there (86 %)
+    stands as the arm's.
+  - **The seed and the hardware.** Seed 0 trained on a T4 and seed 1 on the GTX 1070, so each difference between
+    the two above is the seed's and the hardware's together, as registered.
+  - **M31's nucleus as trained, the row the guard does not read.** The guard reads the nucleus through the chain
+    (0.0 % on both, core protection hands it back). As trained, the share of the central light taken is -2.1 /
+    4.7 / 5.2 % in red, green and blue on seed 0 and 46.1 / 53.1 / 54.5 % on seed 1 (41.4 / 53.9 / 55.5 % at its
+    best step, where seed 0's best step reads -1.4 / 3.9 / 4.7 %). So one recipe gives a model that keeps the
+    nucleus and a model that removes half of it, and the product is the same only because the chain protects
+    cores. Which of the two a training yields is not known from one seed: a row read as trained on one seed of an
+    arm does not say what the recipe does to a galaxy's core.
+  - **Against the prediction.** "Bright plants left between 60 and 75 %": 70.7, right. "30 Doradus's faint stars
+    15 to 25 %, so question 1 says the arm's": 21, right. "The innermost ring on 7 to 11 rows": 3, wrong, and on
+    the good side. "Every guard held but the field light, which misses by a point as often as not": every guard
+    held, the field light at its bar and not missed.
+  - **Reported, no bar** (seed 0 on `bh-bin14` / seed 1; StarXTerminator in brackets where it has a figure).
+    - **Planted stars of 20 to 150 sky sigma left.** The layer stamp: on the Lagoon's bright nebula 67.8 / 70.7 %
+      (42.4), on dark sky 6.8 / 7.3 % (0.5). `psf`: 60.0 / 64.4 % bright (36.1), 11.7 / 7.2 % dark. `donor`: 63.2 /
+      63.7 % bright (37.4), 11.0 / 12.1 % dark. The pair stands 2.9, 4.4 and 0.5 points apart on bright nebula.
+      R4j's seeds read 72.2 and 64.4 % on the layer stamp, one over both parent seeds and one under both.
+    - **The corrected row on the masters' real stars** (`nebula_stars_row.py`, the magnitude check on): the
+      Lagoon's 84, 34.5 / 33.3 % left (15.5); Andromeda's 1,786, 4.4 / 4.3 %; the Tarantula's 15, none on either.
+      On dark sky: Sagittarius 4.4 / 4.6 %, Andromeda 6.0 / 7.1 %, the Tarantula none.
+    - **The two Pleiades nights** stand up to 47 / 43 points apart.
+    - **Gaia BP 17-19's most crowded cell** (`gaia_bp_by_level.py`, 4,066 stars at 10 to 20 sky sigma of level
+      with 99 or more catalogued stars within 16 px, through the chain): 82.7 / 87.5 % removed (99.2). Five
+      points between two seeds of the parent, where R4j's seeds read 91.7 and 86.8 %: R4j's seed 1 is inside the
+      parent's pair and its seed 0 stands 4.2 points over the better parent seed.
+    - **The two-sided crowded row** (#2404, through the chain): Sagittarius's flat cells 1.56 / 1.56 (the judge
+      1.14), 45.8 / 43.8 % of them under 1.5; its structure cells 0.98 / 1.00 of the judge's. The Tarantula's two
+      flat cells 3.25 / 3.24; its structure cells 1.07 / 1.04, 45.2 / 51.6 % inside the window. Andromeda's
+      structure cells 1.00 / 0.99.
+    - **The best step's weights** (211,500 / 185,000): bright plants left 68.3 / 71.2 %, dark 7.3 / 7.8 %; 30
+      Doradus's faint stars 15 / 24 %; the Lagoon's core 31 / 25 %; the Tarantula's crowded flat through the chain
+      91.5 / 90.4; the field light 80, 83 / 80, 83 %; the peaks 16 / 15 of 77; the innermost ring on 9 / 3 rows,
+      the nights 46 / 45 points apart. They say what the last steps say.
+  - **What it says.** R4h is a baseline on two seeds: no guard fails on either, and the two read within a point
+    and a half of each other on the crowded flats, the dark flats and the faint stars on dark sky, and within
+    0.5 to 4.4 points on the planted test's three stamps. R4j's read needs no amendment: its 30 Doradus failure
+    and its field-light failure are outside the parent's pair, and its inner-ring sentence stands. The one row
+    R4j's read left open was the Tarantula's glow green median through the chain, 253.5 on R4j's seed 0 ("one
+    seed cannot say whether it is the arm's doing"). The parent's seeds read -14.7 and -84.5, 70 apart, and R4j's
+    seed 0 stands 268 over the nearer of them: that is outside the parent's pair, so the parent's spread does not
+    explain it. R4j's seed 1 reads 60.8, 75 over the nearer parent seed, and R4j's own two seeds stand 193 apart,
+    so what the pair shows is that this seed of the arm moved the glow, not by how much the arm does. It held
+    its guard (within 500) and stays a move, not a cost. Three rows
+    move with the seed by amounts a read has leaned on. The bright stars' innermost ring reads 9 and 3 rows of
+    26, where R4i was asked for at least 3 rows fewer than its parent. Gaia's most crowded cell reads 82.7 and
+    87.5 %, where R4j's seed 0 was read 9.0 points over its parent's one seed. M31's nucleus as trained is kept
+    on one seed and half taken on the other. On those three rows a difference from a single parent seed is not
+    yet a difference from the recipe.
+  - **Nothing is adopted;** what follows is the owner's.
 - **Real pairs: an export of real stars with the plate builder as the teacher (2026-11-24). The exporter can
   write them; no arm is registered.** The owner, 2026-11-24, on the rebuilt plates: the plate-pixel recipe, a draft
   and a small check first; and after the check: "yes on the exporter".
