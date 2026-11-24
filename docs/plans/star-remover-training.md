@@ -10116,7 +10116,10 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     the planted test on the layer stamp (planted masters 1, 2 and 3) and on `psf` and `donor`. Every question reads
     that same-build pair. Each figure carried from `bh-bin12` (17 %, 84 %, 91.4, 82.7, 67.8 and 6.8 %, 34.5 %, 9 of
     26, 47 points, 18 of 77) is quoted beside its re-score, and a difference between the two is reported as the
-    build's, never as the recipe's spread.
+    build's, never as the recipe's spread. **Which weights:** the three questions read each seed's last step, as
+    R4h's read did. The best step's weights are reported, no bar, for seed 1, and seed 0's best step is re-scored
+    on `bh-bin14` beside them (`r4h_synth32_s0bestb14`); its carried planted figures, 68.3 and 7.3 %, are
+    `bh-bin12`'s.
   - **Question 1, the 30 Doradus row.** The rule R4j registered for a row R4h misses too applies: that row is the
     exporter's, and the arm is held to R4h's value plus the bar's allowance, here 27 minus R4d's 22 = 5 points. The
     value the allowance is added to is the worse (higher) of R4h's two seeds, which is seed 1's whenever seed 1
@@ -10127,21 +10130,25 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
       seed 1 (36 %) is over it and stands as the arm's failure.
     - **31 % or over:** the bound is 36 % or more, so both R4j seeds hold it and R4j's read is amended on both.
     R4j's kill stands in every band: it fires on the planted row alone.
-  - **Question 2, the bright stars' innermost ring.** If seed 1 reads 11 rows or fewer of 26 under 80 %, R4j's
-    read, which says that R4j leaves the bright Pleiads standing more than its parent does, stands (its sentence:
-    "Both seeds leave the bright Pleiads standing more than their parent does", about R4j's two seeds; R4h's own
-    sentence on the Pleiads is that they are left standing more than R4d leaves them); at 12 or more it is
-    withdrawn.
+  - **Question 2, the bright stars' innermost ring.** R4j's read says of its two seeds, which read 12 and 14 rows
+    of 26 under 80 %: "Both seeds leave the bright Pleiads standing more than their parent does" (R4h's own
+    sentence on the Pleiads is that they are left standing more than R4d leaves them). The count that sentence is
+    read against is the worse (higher) of R4h's two seeds on `bh-bin14`, as in Question 1; seed 0's re-score is
+    part of it and not only reported. At 11 rows or fewer the sentence stands for both R4j seeds. At 12 or 13 it
+    stands for R4j seed 1 alone and is withdrawn for seed 0. At 14 or more it is withdrawn.
   - **Question 3, is R4h a baseline on two seeds.** Every guard of R4h's registration, each row as R4j's table
     reads it. A row seed 1 fails that seed 0 holds is reported as the recipe's spread on that row, and a later
     registration that holds an arm "to R4h's value" takes the worse of the two seeds. The light taken from the
     Tarantula field stands at its bar on seed 0 (84 % against 84), so it is the row most likely to miss.
     That row is also a ground of R4j's kill, and R4j's seed 0 failed it (86 % against 84). Registered now, as
-    Question 1 does for 30 Doradus: a value over 84 % on either seed (seed 1, or seed 0 re-scored on `bh-bin14`) is
-    a miss, the row is then the exporter's, and the arm is held to the worse R4h value plus the bar's allowance
-    (84 minus R4d's 82 = 2 points). A miss means the worse value is 85 or over, so the bound is 87 or more and
-    R4j seed 0's 86 % holds it: its read is amended on this row. With both seeds at 84 % or under the row is held,
-    and R4j seed 0's failure stands as the arm's.
+    Question 1 does for 30 Doradus. The row has two figures, each with its own bar: the densest tenth of cells at
+    most 83 %, the whole frame at most 84 %. A figure over its bar on either seed (seed 1, or seed 0 re-scored on
+    `bh-bin14`) is a miss on that figure; that figure is then the exporter's, and the arm is held on it to the
+    worse R4h value plus the bar's allowance (83 minus R4d's 81 and 84 minus R4d's 82, 2 points each). R4j seed 0
+    failed on the whole frame alone (86 % against 84; its densest tenth, 82 %, held). A miss on the whole frame
+    means the worse value is 85 or over, so the bound is 87 or more and R4j seed 0's 86 % holds it: its read is
+    amended on this row. With both seeds at 84 % or under on the whole frame, R4j seed 0's failure stands as the
+    arm's, whatever the densest tenth reads.
   - **Reported, no bar:** the planted rows beside seed 0's (67.8 and 6.8 % on the layer stamp, 60.0 and 63.2 % on
     `psf` and `donor`); the corrected row on the Lagoon's 84 real stars (34.5 %); the two Pleiades nights' gap
     (47 points); the Tarantula's standing peaks (18 of 77); Gaia BP 17-19 with the level set aside (91.4) and its
