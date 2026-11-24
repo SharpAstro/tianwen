@@ -9650,6 +9650,67 @@ nothing is registered, exported or scored for it.
   catalogue positions, instead of a grain rule. First measure such a forced subtraction on these cells (how much of
   the grain it takes, what it does to the nebula), then register an arm on it. The rebuilt plates need disk: the
   caches of closed arms on the training machine are being LZX-compressed for it (nothing deleted).
+- **The catalogue route, measured on the same session's three cells (2026-11-22 and 2026-11-25): no subtraction at
+  Gaia's positions takes the grain the judge takes, so the catalogue does not go into the truth plates** (#2203;
+  `gaia_forced.py`, `gaia_deblend.py`). In plain words: the grain did follow the catalogue's faint stars, so the
+  first idea was to subtract them from the truth plate where Gaia says they are. Measured, it takes too little, and
+  what it does take is not the catalogue's doing.
+  - **The forced subtraction** (`gaia_forced.py`): every missed Gaia star (BP to 21, the positions shifted by the
+    matched detections' median offset of +0.21, -0.18 px) drawn as a round Gaussian of the master's width (FWHM 3.8
+    px). Its model A takes one scale per channel from the median ratio of matched moderate detections' peaks to
+    their catalogue flux, and fits nothing to the plate; at that scale it is far too bright (the plate less A reads
+    30 to 122 in these units). The script then fits one scale per channel to the cell's band: that is the table's
+    "less the catalogue light" column. The positions hold (the plate's grain against this light, from
+    `grain_gaia.py`: +0.49 to +0.71 in the two crowded cells, +0.17 to +0.22 in the nebula cell); the brightness
+    does not (the fitted scale is 3.8 to 8.2 % of the bright stars' in the crowded cells and 0.9 to 1.4 % in the
+    nebula cell). **Rerun 2026-11-25 from the committed script**, after the first run: that run
+    read its calibration from the first 4,000 matched detections in the cache's order, the script now takes a
+    strided pick (3,524, spread over the whole frame, x 13 to 3,907 and y 12 to 2,277). That calibration is 1.3 to
+    1.6 times lower than the first run's, so the fitted share reads higher (the first run said 2 to 6 %), and the
+    fitted light is the same: every band in the table's first three columns comes back to the printed digit. The
+    residue bound columns (and 4.1 / 4.4 / 3.3 below) are from a variant that is not committed: every pixel within 4
+    px of a subtracted star of 10 sigma and up replaced by the plate's 15 px median. Bands, R / G / B, in the plate's
+    9 px mean sigma:
+
+    | cell | stored plate | less the catalogue light | residue bound, then less the light | StarXTerminator |
+    |---|---|---|---|---|
+    | 1,1 (flat, crowded) | 5.2 / 6.0 / 4.6 | 3.8 / 3.9 / 3.6 | 3.2 / 3.2 / 2.9 | 0.8 / 1.1 / 1.3 |
+    | 5,4 (crowded) | 6.9 / 7.2 / 6.2 | 6.0 / 5.8 / 5.3 | 4.9 / 4.6 / 4.0 | 2.9 / 2.1 / 1.8 |
+    | 4,4 (faint nebula) | 4.8 / 5.0 / 5.2 | 4.7 / 4.9 / 5.1 | 4.4 / 4.1 / 4.0 | 5.3 / 5.3 / 3.8 |
+
+  - **Where that light sits** (`gaia_forced.py --min-sep 5` and `--min-sep 8`, rerun 2026-11-25). Fitted again with
+    only the missed stars more than 5 px from every detection, the scale falls to 0.5 to 1.3 % in cell 1,1 and 0 to
+    2.3 % in cell 5,4, and the bands go back to the stored plate's (1,1: 5.2 / 5.8 / 4.5; 5,4: 6.8 / 7.0 / 6.2);
+    beyond 8 px it is 0 to 1.1 % and the bands are the stored plate's exactly. Every gain came from Gaia stars 2 to
+    5 px from a detected star: close companions and blends a detection's fit sits on. Missed stars clear of any
+    detection carry no grain that can be measured.
+  - **A deblend at those companions** (`gaia_deblend.py --bg median41`, 2026-11-25): each subtracted detection that
+    has missed Gaia stars 2 to 5 px away (617, 937 and 753 in the three cells, with 4,802, 6,522 and 4,983
+    companions) refit on the stored plate in a disc of 8 px: the PSF at the detection with free sign and its x and y
+    derivatives, a non-negative PSF at each companion, the plate's 41 px median as the background. Two nulls: the
+    detection's terms alone, and every companion moved to the point mirrored through the detection.
+
+    | cell | stored plate | deblend | null: the detection's terms | null: mirrored | StarXTerminator |
+    |---|---|---|---|---|---|
+    | 1,1 | 5.2 / 6.0 / 4.6 | 4.6 / 5.4 / 4.0 | 5.0 / 5.8 / 4.4 | 4.6 / 5.5 / 4.1 | 0.8 / 1.1 / 1.3 |
+    | 5,4 | 6.9 / 7.2 / 6.2 | 6.5 / 6.8 / 5.7 | 6.8 / 7.1 / 6.0 | 6.6 / 7.0 / 5.8 | 2.9 / 2.1 / 1.8 |
+    | 4,4 | 4.8 / 5.0 / 5.2 | 4.1 / 4.3 / 4.3 | 4.6 / 4.7 / 4.8 | 4.3 / 4.5 / 4.6 | 5.3 / 5.3 / 3.8 |
+
+    Gaia's positions add 0.2 at most over the mirrored points in the crowded cells, but that is the gap to a null
+    that is itself not empty (43 % of the mirrored points have a Gaia star within 1 px, below): if the mirrored fit
+    catches the catalogue's light at 43 % of its points, the catalogue's own effect is about 0.2 / 0.57, nearer
+    0.35 if it is linear, still a fraction of the 4 to 7 of the bands: the light next to a detected
+    star sits round it about evenly, which is the builder's under-fitted wing (the +0.22 sigma ring round 10 to 30
+    sigma stars measured for #2449), not companions where the catalogue puts them. And the fit takes more from the
+    nebula cell (0.7 to 0.9) than from the crowded ones, from a cell the judge keeps at 5.3 / 5.3 / 3.8. With a free
+    constant in each disc instead of the median, every band comes back unchanged: the constant takes the light at
+    the band's 9 px scale. 43 % of the mirrored points have a Gaia star within 1 px, so that null is not empty sky.
+    The PSF is one round Gaussian where the builder fits a Moffat, and knots, saturated and inpainted stars were not
+    refit (44,765 of 67,576 detections are the kind refit).
+  - **What it leaves.** The rebuilt plates' recipe stays #2378's clip and #2449's dug cores, with no catalogue
+    subtraction and no deblend. What the judge removes in the crowded cells beyond the residue bound is not
+    explained by anything measured here; of what was measured, the builder's wing model is the largest share (the
+    residue bound alone: 1,1 at 4.1 / 4.4 / 3.3).
 - **Faint stars on bright nebula: ours leaves a small remnant where StarXTerminator's plate is clean**
   (`nebula_faint_stars.py`, on the held-out Sagittarius master, whose bright nebula is the Lagoon's core). The owner:
   "'+' stars in lets say lagoon, that are barely brighter than the nebulosity, somehow SXT seems to be able to deal
@@ -10356,6 +10417,93 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     drawn export in a folder of noise pairs), and the black point's check runs for stars exports alone. That is
     older than this export. Read in the code, not run. It is #2510 (in this plan's milestone, linked from here).
   - Refs #2203, #2088.
+- **R4k, pre-registered 2026-11-25 before any export, mask, cache or score of it. One change from R4h: real pairs
+  join the draw, the master's own cells against their stored plates, and their loss counts only where the builder
+  took a star out.** The owner, 2026-11-25, asked whether an arm should train on real pairs: "yes, lets do that".
+  - **In plain words.** Every arm so far learned to remove stars we drew. R4j drew them on real nebula and still
+    left 64 and 72 % of the faint stars planted on the Lagoon's bright nebula, where R4h leaves 68 and 71 % (its two
+    seeds, PR #2512) and StarXTerminator 42. This arm shows the model the telescope's own stars on the backgrounds
+    they were recorded on, with the plate builder's result as the answer, and only at the stars the builder did
+    take out. If drawn stars are what holds the bright-nebula row back, this is where it moves.
+  - **The data.** The real-pairs export above (`--background real`) of the 138 session ids R4h's export read
+    (synth32's session list) LESS every id of an object a scorecard row is read on, so that no real pixel of those
+    objects is in a target: the Lagoon (the three Lagoon-and-Trifid nights and the Lagoon of 2025-05-25 under its
+    three ids, six ids), the Tarantula (two) and the Sagittarius Star Cloud (one). That leaves 129 ids. Plates from
+    the stored store (`starless`), the one R4h's export read and, by the check above, the cleaner of the two at a
+    counted star. The build is main at "Star remover: real pairs, an export of a master's own cells against its
+    starless plate, each with its loss mask (#2203)". One draw a cell; the trainer's own split holds the test
+    sessions' cells out, as for every cache. The masks are the exporter's (`<tile>.keep.f16`), packed by
+    `--prepare-keep`. The cell counts, training and held out, and the share of the draw are written under "Before
+    the launch" from the export itself. By synth32's yield from these sessions (4,840 cells, 4,520 training) they
+    should be about 4,200 training cells of one draw against R4h's 18,080 training tiles, about a fifth of the
+    draw. With a mask that counts about a ninth of a cell (11 % on the Rosette), real stars would be some 2 to 3 %
+    of the pixels a batch's loss averages over, about five times R4j's half a percent.
+  - **The training.** R4j's trainer copy (R4h's copy plus R4g's `--extra-loss-mask`, held equal to R4h's in every
+    other respect before R4j's launch), R4h's cache (`r2-synth32`) and command line, with `--extra-cache r2-real1
+    --extra-loss-mask --schedule-on main` added. Seeds 0 and 1 on the hardware R4h's seeds trained on: seed 0 as a
+    Batch job on a low-priority T4 that removes itself (36 hours at most), seed 1 on the GTX 1070. So a difference
+    from the R4h seed of the same number is not the hardware's. Models `r4k_synth32r1_s0` and `r4k_synth32r1_s1`.
+    The plateau halves and stops on synth32's held-out part alone, as R4h's does.
+  - **Read first:** before the launch, a sheet of real-pair cells from three sessions at 1:1 (input, target,
+    mask); after it, R4j's 1:1 sheets with both seeds, R4h's two and StarXTerminator; then the training by the
+    stall rule of R4h's and R4i's registration.
+  - **The question, on the models as trained:** R4j's, on the same 205 plants of 20 to 150 sky sigma on the
+    Lagoon's bright nebula, read on the build and flags both R4h seeds were read on (`bh-bin14`, PR #2512): **at
+    most 45.0 % left on both seeds** (R4h 67.8 and 70.7; StarXTerminator 42.4). R4h's second-seed figures quoted in this registration (70.7 %, 33.3, 87.5, 7.3 and the 3 row) were forward references to PR #2512, open when this was written; the plan on this branch then held R4h's first seed only (its 82.7 and 9 are first-seed figures, already in this plan).
+  - **Guards, on each seed:** R4j's, on the same terms and at the same values: the Tarantula's crowded flat at
+    least 90.3 and Sagittarius's 96.3; Andromeda's dark flat at least 95 with at most 3 % dug; the Tarantula's dark
+    flat at least 91; the glow's green median within 450 on Andromeda and 500 on the Tarantula; M31's nucleus taken
+    under 10 % through the chain; purity at most 1.0; the light taken from the Tarantula field at most 83 and 84 %;
+    Gaia BP 17-19 with the level set aside at least 89.7; light added on each master's nebula at most 1.0 %; the
+    brightest tenth of the Tarantula's peaks standing on at least 11 of 77; faint stars left on the Lagoon's core
+    at most 37 % and on 30 Doradus at most 27 %; the Lagoon's broad light taken at most 2.67; of the 205 plants on
+    dark sky at most 12.0 % left. A row R4h misses on either seed holds R4k to R4h's worse seed and the bar's
+    allowance. Two of them are this arm's own risk, because the builder is the teacher: the dug share on
+    Andromeda's dark flat (the builder digs under 1 in 100 counted stars, and a model that learns its digs shows
+    them there) and the dark plants (it leaves a percent or two of a star; R4h 6.8 and 7.3).
+  - **Kill:** a guard fails on a seed that trained as the others, or both seeds leave 60.0 % or over of the bright
+    plants. **Cleared:** the question with every guard held on both seeds. Anything else is neither, and the rows go
+    to the owner. A stalled seed is neither killed nor cleared.
+  - **Reported, no bar:** R4h's two seeds beside each of R4k's on every row; the plant read's tables by light, by
+    the spot's own noise and by the nebula's level, and the `psf` and `donor` stamps; the corrected Lagoon row
+    (StarXTerminator 15.5 %, R4h 34.5 and 33.3); Gaia's most crowded Tarantula cell (R4h 82.7 and 87.5 %,
+    StarXTerminator 99.2); the 26 bright-star rows (R4h 9 and 3 under 80 %); M31's nucleus as trained (R4h's seeds
+    differ there); the extra cache's held-out objective beside its training objective at the best step; the best
+    step's weights.
+  - **Prediction:** both seeds leave 55 to 65 % of the bright plants, a gain of 5 to 15 points on R4h and short of
+    the bar, so "neither". The kill is both seeds at 60.0 % or over, which is the upper half of that range: a
+    result with both seeds from 60 to 65 is inside the prediction and is a kill, and is to be read as one (R4h's
+    seeds are 67.8 and 70.7, so a gain under about 8 to 10 points on both kills it). The dark plants and the crowded rows within two points of R4h; the guards hold. What
+    speaks for more: the stars are real, on real nebula, at five times R4j's dose (about ten, see below). What speaks against: only stars
+    the builder found count, and on bright nebula its finder works at the nebula's own noise, so the faintest stars
+    the row plants sit near its limit there; and a target that is the builder's plate cannot teach the model to do
+    better than the builder.
+  - **Before the launch, 2026-11-25, with no upload, completed training run or score of R4k in existence: the data as made.**
+    - **The export** (`bh-bin15`, a Release build of main at "Star remover: real pairs, an export of a master's own
+      cells against its starless plate, each with its loss mask (#2203)"; `--cells 40 --draws 1`, the stored plates):
+      129 ids, 5,160 cells, none skipped or failed, every input equal to the bake's own tile (worst parity 0). Two
+      ids were exported first on their own, one side of a meridian flip and a held-out test session, 40 cells each.
+      15 of the 129 ids are mono sessions that are in neither of R4h's lists (the trainer is 3-channel), as in
+      synth32's export.
+    - **The cache** `r2-real1`, prepared and packed by R4j's trainer copy from R4h's train and validation lists less
+      the dropped objects (105 and 8 sessions): 4,520 cells, 4,200 training and 320 held out, one draw, 4,520 masks.
+      The masks count 24.4 % of the pixels inside the rim, more than the Rosette's 11 % this registration estimated
+      from: by session from 2.3 to 60.2 % (median 23.0), and at a session's median cell 33 to 98 % (median 87) of the
+      light the input holds over the target lies on counted pixels.
+    - **The dose, corrected:** 18.9 % of the training draw by tiles, as estimated; by the pixels a batch's loss
+      averages over, about 5 % (0.189 x 0.244 against 0.811 + 0.189 x 0.244), so about ten times R4j's half a
+      percent where the registration said five.
+    - **Twenty steps of the launch line** on the two caches, R4j's copy, on the GTX 1070: it runs through, and prints
+      4,200 training cells of one draw at 18.9 % of the draw, 320 held-out cells (240 read for the extra objective),
+      the masks from `keep.u8`, and the plateau on the main cache's objective alone. Its line still words the mask as
+      D4's ("the sky near their plate's own sources"), as R4j's did; what it reads are the real-pairs masks. The
+      check's weights were deleted.
+    - **The sheet at 1:1** (`realpair_export_look.py`, every session; looked at: eta Carinae in SII of 2024-03-02, M42
+      in luminance of 2022-12-03, Omega Centauri of 2026-02-20): each target is clean where its input holds stars,
+      the masks sit on the catalogued stars' discs, and the saturated stars and the faint stars the builder never
+      listed are outside them. M42's target keeps a soft disc where a saturated star's halo was, outside the mask,
+      as the rule means it to.
+  - **Nothing is adopted;** adoption is the owner's.
 
 #### The dig floor inside bright nebula: floor4, and what it leaves (2026-11-20)
 
