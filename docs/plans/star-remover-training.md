@@ -9666,10 +9666,14 @@ nothing is registered, exported or scored for it.
     table, and model A's scale. **Made by an uncommitted variant, not reproducible from the repo:** the per-cell
     fitted scale (with and without G), the residue bound columns (and 4.1 / 4.4 / 3.3 below), the refits with only
     stars over 5 px and 8 px from a detection, and the +0.49 to +0.71 correlations (those are `grain_gaia.py`'s
-    light, not this script's). The variant is not committed because its cache and run are not on the machine that
+    light, not this script's). **Open question on the table's second column:** it is the
+    committed script's "plate less A" line (model A at the bright stars' full scale), but this was not rerun on the machine
+    that reviewed it, and it sits uneasily beside a fit that finds only 2 to 6 % of that scale in the plate (a full-scale
+    subtraction might be expected to dig, not to lower the band). A rerun owes confirming which model made that column. The variant is not committed because its cache and run are not on the machine that
     reviewed this; a rerun owes it a script, with its output recorded as for the deblend. The scale and the PSF
     width are read from the first 4000 matched moderate detections in the Gaia cache's order, which is not known to
-    be spread over the field; the script now prints the extent of that sample. Bands, R / G / B, in the plate's 9 px
+    be spread over the field (the recorded figures are from that sample); the script now takes a strided pick of about
+    4000 and prints its extent, so a rerun may move the recorded PSF width and scale. Bands, R / G / B, in the plate's 9 px
     mean sigma, with an upper bound of a residue fix (every pixel within 4 px of a subtracted star of 10 sigma and up
     replaced by the plate's 15 px median):
 
@@ -10330,7 +10334,7 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     stall rule of R4h's and R4i's registration.
   - **The question, on the models as trained:** R4j's, on the same 205 plants of 20 to 150 sky sigma on the
     Lagoon's bright nebula, read on the build and flags both R4h seeds were read on (`bh-bin14`, PR #2512): **at
-    most 45.0 % left on both seeds** (R4h 67.8 and 70.7; StarXTerminator 42.4). R4h's second-seed figures quoted in this registration (70.7 %, 33.3, 87.5, 82.7, 7.3, the 9 and 3 rows) are forward references to PR #2512, open when this was written; the plan on this branch holds R4h's first seed only.
+    most 45.0 % left on both seeds** (R4h 67.8 and 70.7; StarXTerminator 42.4). R4h's second-seed figures quoted in this registration (70.7 %, 33.3, 87.5, 7.3 and the 3 row) were forward references to PR #2512, open when this was written; the plan on this branch then held R4h's first seed only (its 82.7 and 9 are first-seed figures, already in this plan).
   - **Guards, on each seed:** R4j's, on the same terms and at the same values: the Tarantula's crowded flat at
     least 90.3 and Sagittarius's 96.3; Andromeda's dark flat at least 95 with at most 3 % dug; the Tarantula's dark
     flat at least 91; the glow's green median within 450 on Andromeda and 500 on the Tarantula; M31's nucleus taken

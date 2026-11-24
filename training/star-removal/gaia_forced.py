@@ -31,7 +31,7 @@ p.add_argument("--cells", nargs="+", default=["1,1", "5,4", "4,4"])
 p.add_argument("--store", required=True, help="the dataset store (session-masters/, starless/plates/)")
 p.add_argument("--stem", required=True, help="the session master's file stem in the store")
 p.add_argument("--sxt", required=True, help="StarXTerminator's plate of the same master (FITS)")
-p.add_argument("--gaia", required=True, help="the Gaia cache of the field (.npz: ra, dec, mag, as tianwen's cache writes)")
+p.add_argument("--gaia", required=True, help="the Gaia cache of the field (.npz: ra, dec, mag, as training/denoise/gaia_vizier.py fetch_box caches it)")
 p.add_argument("--out", default=".", help="folder for the per-cell .npz")
 a = p.parse_args()
 STEM = a.stem
@@ -67,8 +67,11 @@ print(f"{len(gmag)} Gaia stars on the frame; {found.sum()} matched; median offse
 # The PSF and the scale, from matched moderate isolated detections (significance 20 to 200, not saturated).
 lum = m.mean(axis=0)
 pick = [j for j in np.nonzero(found)[0] if 20 <= dsig[k[j]] <= 200 and not dsat[k[j]]]
-pick = [j for j in pick if 12 <= gx[j] < W - 12 and 12 <= gy[j] < H - 12][:4000]
-# The sample is the first 4000 in the cache's own order; print where it sits so a cache ordered by position shows.
+pick = [j for j in pick if 12 <= gx[j] < W - 12 and 12 <= gy[j] < H - 12]
+# A strided pick down to about 4000, so the PSF width and the scale do not depend on the order the TAP reply gave.
+if len(pick) > 4000:
+    pick = pick[::-(-len(pick) // 4000)]
+# Print where the sample sits.
 if pick:
     print(f"PSF/scale sample: {len(pick)} stars, x {gx[pick].min():.0f} to {gx[pick].max():.0f} (of {W}), y {gy[pick].min():.0f} to {gy[pick].max():.0f} (of {H})")
 yy, xx = np.mgrid[-6:7, -6:7]

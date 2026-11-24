@@ -41,7 +41,7 @@ p.add_argument("--bg", choices=["const", "median41"], default="const",
 p.add_argument("--store", required=True, help="the dataset store (session-masters/, starless/plates/)")
 p.add_argument("--stem", required=True, help="the session master's file stem in the store")
 p.add_argument("--sxt", required=True, help="StarXTerminator's plate of the same master (FITS)")
-p.add_argument("--gaia", required=True, help="the Gaia cache of the field (.npz: ra, dec, mag, as tianwen's cache writes)")
+p.add_argument("--gaia", required=True, help="the Gaia cache of the field (.npz: ra, dec, mag, as training/denoise/gaia_vizier.py fetch_box caches it)")
 p.add_argument("--out", default=".", help="folder for the per-cell .npz")
 a = p.parse_args()
 STEM = a.stem
