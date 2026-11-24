@@ -10163,6 +10163,64 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     30 Doradus's faint stars 15 to 25 %, so question 1 says the arm's; the innermost ring on 7 to 11 rows; every
     guard held but the field light, which misses by a point as often as not.
   - **Nothing is adopted;** adoption is the owner's.
+- **Real pairs: an export of real stars with the plate builder as the teacher (2026-11-24). The exporter can
+  write them; no arm is registered.** The owner, 2026-11-24, on the rebuilt plates: the plate-pixel recipe, a draft
+  and a small check first; and after the check: "yes on the exporter".
+  - **In plain words.** Every arm so far learns from stars we draw. A real pair is the master's own cell as the
+    input, with the stars the telescope recorded, and the same cell of its starless plate as the target, so what
+    the model is shown to take out is a real star and what it is shown to leave is what the plate builder left.
+    The catch is known since R2d: a plate still holds the faint stars its finder never listed, and a target that
+    counts them teaches a remover to keep a faint star. So a real pair is scored only where the builder did take
+    a star out.
+  - **The mask** (`RealPairMask`). A pixel counts in the loss when it lies in the builder's subtracted footprint
+    (the plate's own `_plate.subtracted.fits.gz`), further than two PSF widths from every source the builder found
+    and left in (a knot, a peak it could not fit or found too narrow, a peak merged into a saturated core), and
+    further than 30 px from every saturated star, whose halo the plate keeps. Every other pixel is 0. A star's core
+    lies inside the footprint (checked on one session's masks: the core pixel of 23,414 of its 23,415 subtracted
+    unsaturated stars), so a counted star is counted whole, the pixels the builder filled in included.
+  - **The check before the code** (`realpair_preflight.py`, seven training sessions, the stored plates against
+    the rebuilt ones in `starless-2449`): what truth those pixels hold, at every subtracted unsaturated star, by
+    its significance. The plate's core (mean over a disc of one FWHM less the median of the ring 3 to 5 FWHM out)
+    in the ring's own per-pixel noise, and as a share of the star's own core in the master:
+
+    | band (sigma) | store | core dug (under -1 noise) | residue (over +1 noise) | left of the star, median |
+    |---|---|---|---|---|
+    | 20 to 100 | stored | 0.1 to 0.7 % | 0.7 to 13.3 % | 0.2 to 1.7 % |
+    | 20 to 100 | rebuilt | 0.2 to 0.5 % | 3.4 to 24.5 % | 0.4 to 2.2 % |
+    | 100 to 1,000 | stored | 0.3 to 0.9 % | 1.0 to 2.3 % | 0.0 to 0.1 % |
+    | 100 to 1,000 | rebuilt | 0.3 to 0.9 % | 1.4 to 2.1 % | 0.0 to 0.1 % |
+
+    The ranges are over the seven sessions, 116 to 4,000 stars a band a session. The mask counts 11 to 49 % of a
+    frame. So the truth at a counted star is clean in both stores: the builder digs under 1 in 100, and what it
+    leaves of a star of 20 sigma or more is a percent or two at the median. The rebuilt plates leave residue
+    over the noise at MORE faint stars than the stored ones, not fewer, so real pairs are no test of the rebuild:
+    what an arm on them would test is real stars against drawn ones, with the builder as the teacher.
+  - **The export** (`tianwen dataset degrade --mode stars --background real`, `DatasetDegradationExporter`'s
+    real-pairs half). Nothing is drawn: no star, no background, no noise. A cell's one draw is the master's own
+    cell and its clean tile the plate's, both stretched with the master's parameters, which makes the input the
+    very tile the bake cut from the master (a test holds it to the byte) and the tile a runner cuts at inference.
+    Each tile's noise plane is the master's recorded noise as it is, since that record is what a runner reads off
+    the master. Beside the draw goes its mask (`<tile>.keep.f16`), and the export records the rule
+    (`plate-masks.rule` says `RealStars`), so `plate-masks` writes no other rule's masks beside them and a folder
+    holds real pairs or drawn stars, never both. A cell with no counted pixel inside the rim is not exported.
+    `--draws` is 1 and every option that shapes a drawn star, a background or the noise is refused by name.
+  - **How a trainer reads it:** as R4g's bright cells, with no change to the trainer: `--prepare`, then
+    `--prepare-keep`, then `--extra-cache` and `--extra-loss-mask` beside a main cache of drawn stars. A real pair
+    has one draw a cell where a drawn cell has four, so at equal cells it is a quarter of the tiles.
+  - **Tried on real data, one session** (the Rosette's H-alpha master of 2021-12-31, 40 cells, plates from
+    `starless-2449`): 40 pairs written; the masks count 11.2 % of the pixels inside the rim (6.3 to 19.2 % a
+    cell), and at the median cell 84 % of the light the input holds over the target lies on counted pixels (25 %
+    in the cell with two saturated stars, whose light is set aside). The sheet (`realpair_export_look.py`: input,
+    target, their difference, the mask over the input, three cells at 1:1) shows the stars in the input, none in
+    the target, the mask on the catalogued stars' discs and off the uncatalogued faint ones and the saturated
+    pair; one target shows a shallow dark patch beside a bright star inside the mask, a builder's dig of the kind
+    the table counts. The trainer's `--prepare` reads the export as injected with one filled draw and 80 noise
+    planes, and `--prepare-keep` packs its 40 masks.
+  - **What this is not.** It is no arm and no result: nothing was trained. What an arm would have to settle
+    before any score, in its own registration: the sessions (the 138 training ones; the three held-out masters
+    stay out), the share of real pairs in a batch, which plate store, and bars that include the builder's known
+    faults (it is the teacher, and its digs and residue are in the target). An arm needs the owner's word.
+  - Refs #2203, #2088.
 
 #### The dig floor inside bright nebula: floor4, and what it leaves (2026-11-20)
 

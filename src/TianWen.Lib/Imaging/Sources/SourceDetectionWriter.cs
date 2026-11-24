@@ -110,6 +110,36 @@ public static class SourceDetectionWriter
         return Image.FromChannel(plane, BitDepth.Int8, maxValue: 1f, minValue: 0f);
     }
 
+    /// <summary>
+    /// A stored mask read back (<see cref="MaskToImage"/> through <see cref="WriteMap"/>): set where the map's first plane
+    /// is over a half. Null when the file is missing or does not read as a FITS image.
+    /// </summary>
+    public static BitMatrix? ReadMask(string path)
+    {
+        if (!File.Exists(path) || !Image.TryReadFitsFile(path, out var map))
+        {
+            return null;
+        }
+        try
+        {
+            var (_, width, height) = map.Shape;
+            var plane = map.GetChannelSpan(0);
+            var mask = new BitMatrix(height, width);
+            for (var y = 0; y < height; y++)
+            {
+                for (var x = 0; x < width; x++)
+                {
+                    mask[y, x] = plane[(y * width) + x] > 0.5f;
+                }
+            }
+            return mask;
+        }
+        finally
+        {
+            map.Release();
+        }
+    }
+
     /// <summary>The background interpolated to every pixel, as a float image.</summary>
     public static Image BackgroundToImage(BackgroundMap map)
     {
