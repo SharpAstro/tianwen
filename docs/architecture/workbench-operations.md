@@ -67,7 +67,12 @@ The rules that bite:
   program leaves out on EVERY image: where a deblurrer serves mono and colour alike
   (`SharpenPipeline.DeblurServesEveryInput`) its whole-frame deblur always runs, so the stellar sharpening never
   does and the starless deconvolution only with its blend stated, and a status says `deconvolve left out` as the run
-  does. An in-house enhancer's name carries its model file, so a retrained model is another key. Naming an RC-Astro role asks whether
+  does. An in-house enhancer's name carries its model file, so a retrained model is another key. An RC-Astro
+  role's name carries the model version a run uses, as "RC-Astro NoiseXTerminator (nxt) ML3.1": the newest one
+  installed, read from what the CLI says of itself (`rc-astro --json`, `IRcAstroCli.ModelVersion`) and not from the
+  licence line, whose "licensed through ML3" covers ML3.1. A new model is another key. The CLI's own version is
+  not in the name: 2.6.10 and 2.6.11 gave the same pixels to rounding, and a key that held it would run every
+  RC-Astro step again after each update for nothing; it is said in the result's header. Naming an RC-Astro role asks whether
   its product is licensed, which is a
   subprocess, so **the runner asks what serves once for an operation and its settings in a plan**
   (`WorkbenchServedTests`), on a status as on a run.
@@ -563,6 +568,16 @@ same words: the enhance says which enhancer serves each step of its program and 
 (`EnhanceOperation.ProgramAsync`), and a stack says the strategy that made each master and where it came from, as
 "integrated as BayerDrizzle (chosen for the nominal computer)", "(chosen for this computer)" or "(stated)"
 (`StackOperation.GroupLine`, `GroupResult.Strategy`).
+
+**Whose models served is one word, and the file says it too.** Where the enhancers say whose they are
+(`IEnhancerAvailability.OriginUnder`, which a deferred RC-Astro role answers), a step's line carries `[rc]` (every
+such role is RC-Astro's), `[tw]` (every one is TianWen's own) or `[mix]` after its name (`IOperation.ServedTag`,
+`EnhancerOrigin.TagOf`); the gradient corrector and anything that does not say count for neither. It is no part of
+the key. An enhance result's header carries the same, so the file says it wherever it is copied
+(`EnhanceOperation.HeaderOf`, which `image sharpen` writes too): one card for each role a step asked (`ENHDEBLR`,
+`ENHGRAD`, `ENHSTARS`, `ENHSTELL`, `ENHDECON`, `ENHDENOI`) with the enhancer's name, cut at the 68 characters a FITS
+string card holds; `ENHBY` with the one word; and `ENHTOOL` with the tool that ran RC-Astro's models and its
+version ("rc-astro 2.6.11").
 
 ## Adding an operation
 

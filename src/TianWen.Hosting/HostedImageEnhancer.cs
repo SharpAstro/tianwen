@@ -8,6 +8,7 @@ using TianWen.Lib;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Imaging.Stacking;
+using TianWen.Lib.Imaging.Workbench;
 
 namespace TianWen.Hosting;
 
@@ -130,7 +131,8 @@ internal sealed class HostedImageEnhancer(
 
                 if (result.Final is { } final)
                 {
-                    final.WriteToFitsFile(outputPath, wcs, SharpenPipeline.SwModifyHeader());
+                    // The cards the CLI and the workbench write: SWMODIFY and what served each step of the program.
+                    final.WriteToFitsFile(outputPath, wcs, new EnhanceOperation(pipe).HeaderOf(options, program));
                     ok = true;
                 }
                 else

@@ -147,18 +147,54 @@ public sealed class SharpenPipeline(
     /// <param name="options">The backend, the tuning and the gradient extractor the roles are named under.</param>
     /// <param name="program">The steps that may run: every switch a caller can leave on, whatever serves.</param>
     public string DescribeRoles(EnhanceOptions options, LinearEnhanceProgram program)
+        => Describe(Roles(options, program));
+
+    /// <summary>The words of <paramref name="roles"/> as <see cref="DescribeRoles"/> gives them, from roles already resolved.</summary>
+    public static string Describe(ImmutableArray<EnhanceRole> roles)
+        => string.Join("; ", roles.Select(static role => $"{role.Role} {role.Served}"));
+
+    /// <summary>
+    /// The roles <see cref="DescribeRoles"/> words, one by one and in its order: each with the name of what would
+    /// serve it and whose model that is (<see cref="IEnhancerAvailability.OriginUnder"/>). What a result's header
+    /// cards and a step's short tag are made from, so they say what the key's text says.
+    /// </summary>
+    public ImmutableArray<EnhanceRole> Roles(EnhanceOptions options, LinearEnhanceProgram program)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(program);
         // The stellar sharpening and the starless deconvolution are steps of the split program alone (PlateSteps).
-        return $"deblur {Named(deblurrer, options, program.Deblur)}; gradient {Named(gradientCorrector, options, program.GradientCorrection)}; "
-            + $"stars {Named(starRemover, options, program.SplitStars)}; stellar {Named(stellarSharpener, options, program.SplitStars && program.StellarSharpen)}; "
-            + $"deconvolve {Named(nonStellarDeconvolver, options, program.SplitStars && program.DeconvolveStarless)}; "
-            + $"denoise {Named(denoiser, options, program.Denoise)}";
+        return
+        [
+            RoleOf("deblur", deblurrer, options, program.Deblur),
+            RoleOf("gradient", gradientCorrector, options, program.GradientCorrection),
+            RoleOf("stars", starRemover, options, program.SplitStars),
+            RoleOf("stellar", stellarSharpener, options, program.SplitStars && program.StellarSharpen),
+            RoleOf("deconvolve", nonStellarDeconvolver, options, program.SplitStars && program.DeconvolveStarless),
+            RoleOf("denoise", denoiser, options, program.Denoise),
+        ];
     }
 
-    private static string Named(IImageEnhancer? role, EnhanceOptions options, bool asked)
-        => !asked ? "left out" : role is null ? "none" : (role as IEnhancerAvailability)?.NameUnder(options) ?? role.Name;
+    private static EnhanceRole RoleOf(string word, IImageEnhancer? role, EnhanceOptions options, bool asked)
+    {
+        if (!asked)
+        {
+            return new EnhanceRole(word, EnhanceRole.LeftOut, null);
+        }
+        if (role is null)
+        {
+            return new EnhanceRole(word, "none", null);
+        }
+        if (role is not IEnhancerAvailability availability)
+        {
+            return new EnhanceRole(word, role.Name, null);
+        }
+
+        // One resolution for the name and the origin: a deferred role asks a licence probe to resolve, and the two
+        // must describe the same backend.
+        return availability.AnswerUnder(options) is { } answer
+            ? new EnhanceRole(word, answer.Name, answer.Origin)
+            : new EnhanceRole(word, availability.NameUnder(options) ?? role.Name, availability.OriginUnder(options));
+    }
 
     /// <summary>
     /// Whether a whole-frame deblurrer serves EVERY input under <paramref name="options"/>, mono and colour alike

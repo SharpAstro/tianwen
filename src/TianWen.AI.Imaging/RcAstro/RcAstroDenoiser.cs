@@ -37,7 +37,7 @@ namespace TianWen.AI.Imaging.RcAstro
         int iterations = 1)
         : RcAstroEnhancerBase(cli, logger), IDenoiseEnhancer
     {
-        public override string Name => "RC-Astro NoiseXTerminator (nxt)";
+        protected override string ProductName => "RC-Astro NoiseXTerminator (nxt)";
 
         protected override string ProductKey => "nxt";
 
