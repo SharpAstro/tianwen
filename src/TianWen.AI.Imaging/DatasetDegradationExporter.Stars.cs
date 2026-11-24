@@ -234,8 +234,11 @@ public static partial class DatasetDegradationExporter
                 throw new DirectoryNotFoundException($"no plates folder in the starless-plates store {platesRoot}");
             }
             var psfPath = options.PsfStorePath ?? Path.Combine(options.BakeRoot, "stats", DatasetPsfStore.FileName);
-            var psf = await DatasetPsfStore.ReadAsync(psfPath, logger, cancellationToken);
-            if (psf.Count == 0)
+            // A real pair draws no star and takes its FWHM from the plate's own field profile, so it needs no PSF store.
+            var psf = options.RealPairs
+                ? []
+                : await DatasetPsfStore.ReadAsync(psfPath, logger, cancellationToken);
+            if (!options.RealPairs && psf.Count == 0)
             {
                 throw new FileNotFoundException("the PSF store is empty or missing; the injected stars take each channel's profile from it", psfPath);
             }

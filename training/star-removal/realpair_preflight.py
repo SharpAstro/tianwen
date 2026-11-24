@@ -13,6 +13,10 @@ and the plate builder's subtraction is the truth. This asks what that truth woul
     plate), as a share of the frame.
 Writes <prefix>-<n>.png: for the session's cell with the most counted stars, master / stored plate / rebuilt plate
 / the mask, 256 px at 3x, captioned. Reads only.
+
+The mask shares are close to, not equal to, what the exporter counts: this takes each star's FWHM from channel 0 by the
+Moffat formula and its stamp skips stars near the frame edge, where RealPairMask.Counted uses the luminance FWHM and
+cuts zones at the edge. Read the table as a preflight, not as the exporter's numbers.
 """
 import csv
 import glob

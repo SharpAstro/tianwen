@@ -29,6 +29,9 @@ public static partial class DatasetDegradationExporter
     /// <summary>What a real pair's rows say where a drawn export names its placement and its profile.</summary>
     public const string RealPairsLabel = "Real";
 
+    /// <summary><see cref="Options.SaturatedFraction"/>'s default: a real-pairs export refuses any other value, which it would ignore.</summary>
+    internal const double DefaultSaturatedFraction = 0.25;
+
     /// <summary>
     /// Why <paramref name="options"/> cannot export real pairs, or null when it can or does not ask to
     /// (<see cref="Options.RealPairs"/>). A real pair has one draw and draws nothing, so an option that shapes a drawn star,
@@ -67,6 +70,8 @@ public static partial class DatasetDegradationExporter
             (nameof(Options.SaturatedMeasured), options.SaturatedMeasured),
             (nameof(Options.BrightMeasured), options.BrightMeasured),
             (nameof(Options.HaloOverPlate), options.HaloOverPlate),
+            (nameof(Options.SaturatedFraction), options.SaturatedFraction != DefaultSaturatedFraction),
+            (nameof(Options.PsfStorePath), options.PsfStorePath is not null),
             (nameof(Options.StarBeta), options.StarBeta is not null),
             (nameof(Options.StarBetaDraw), options.StarBetaDraw is not null),
             (nameof(Options.KeptCores), options.KeptCores),
@@ -107,6 +112,26 @@ public static partial class DatasetDegradationExporter
         return realPairs
             ? "the folder already holds rows of drawn stars and this export writes real pairs; one folder holds one rule, so export into an empty folder"
             : "the folder already holds real pairs and this export draws stars; one folder holds one rule, so export into an empty folder";
+    }
+
+    /// <summary>
+    /// Writes the real-pairs record into <paramref name="outDir"/> for a real-pairs export, and removes a stale one for any
+    /// other export: a record in a folder with no rows is what a failed real-pairs run left, and it would refuse a drawn
+    /// export's resume as "already holds real pairs".
+    /// </summary>
+    internal static async Task SyncRealPairsRecordAsync(string outDir, bool realPairs, bool holdsRows, CancellationToken cancellationToken)
+    {
+        var record = Path.Combine(outDir, StarRemovalMasks.RuleFileName);
+        if (realPairs)
+        {
+            // The masks are the export's own (RealPairMask): the record keeps plate-masks from writing another rule's beside them.
+            await File.WriteAllTextAsync(record, nameof(StarRemovalMasks.Rule.RealStars), cancellationToken);
+        }
+        else if (!holdsRows && File.Exists(record)
+            && (await File.ReadAllTextAsync(record, cancellationToken)).Trim() == nameof(StarRemovalMasks.Rule.RealStars))
+        {
+            File.Delete(record);
+        }
     }
 
     private static async Task<SessionResult> ExportRealPairsSessionAsync(

@@ -2491,6 +2491,8 @@ namespace TianWen.Lib.Tests
                 (nameof(DatasetDegradationExporter.Options.SaturatedMeasured), options with { SaturatedMeasured = true }),
                 (nameof(DatasetDegradationExporter.Options.BrightMeasured), options with { BrightMeasured = true }),
                 (nameof(DatasetDegradationExporter.Options.HaloOverPlate), options with { HaloOverPlate = true }),
+                (nameof(DatasetDegradationExporter.Options.SaturatedFraction), options with { SaturatedFraction = 0.5 }),
+                (nameof(DatasetDegradationExporter.Options.PsfStorePath), options with { PsfStorePath = "psf.jsonl" }),
                 (nameof(DatasetDegradationExporter.Options.StarBeta), options with { StarBeta = 3.0 }),
                 (nameof(DatasetDegradationExporter.Options.StarBetaDraw), options with { StarBetaDraw = new StarBetaDraw(0.5, 2.0, 6.0, 1.0) }),
                 (nameof(DatasetDegradationExporter.Options.KeptCores), options with { KeptCores = true }),
@@ -2517,6 +2519,32 @@ namespace TianWen.Lib.Tests
             var result = await DatasetDegradationExporter.RunAsync(options, logger: null, TestContext.Current.CancellationToken);
             result.Failed.ShouldBe(1);
             result.Sessions.ShouldBeEmpty();
+        }
+
+        /// <summary>
+        /// A real pair draws no star, so a real-pairs export needs no PSF store; and a stale real-pairs record in a folder with
+        /// no rows (what a failed run leaves) neither refuses a drawn export nor survives it.
+        /// </summary>
+        [Fact]
+        public async Task ARealPairsExportNeedsNoPsfStoreAndAStaleRecordIsDropped()
+        {
+            var bake = BuildBakeWithHalves();
+            var (platesRoot, _) = await BuildPlatesStoreAsync(bake);
+            File.Delete(Path.Combine(bake, "stats", DatasetPsfStore.FileName));
+            var options = RealPairOptions(bake, Path.Combine(_root, "real-no-psf"), platesRoot);
+            var result = await DatasetDegradationExporter.RunAsync(options, logger: null, TestContext.Current.CancellationToken);
+            result.Failed.ShouldBe(0);
+            ReadDegradationRows(options.OutDir).ShouldNotBeEmpty();
+
+            var stale = Path.Combine(_root, "stale-record");
+            Directory.CreateDirectory(stale);
+            var record = Path.Combine(stale, StarRemovalMasks.RuleFileName);
+            await File.WriteAllTextAsync(record, nameof(StarRemovalMasks.Rule.RealStars), TestContext.Current.CancellationToken);
+            await DatasetDegradationExporter.SyncRealPairsRecordAsync(stale, realPairs: false, holdsRows: false, TestContext.Current.CancellationToken);
+            File.Exists(record).ShouldBeFalse("a record with no rows is stale for a drawn export");
+            await File.WriteAllTextAsync(record, nameof(StarRemovalMasks.Rule.RealStars), TestContext.Current.CancellationToken);
+            await DatasetDegradationExporter.SyncRealPairsRecordAsync(stale, realPairs: false, holdsRows: true, TestContext.Current.CancellationToken);
+            File.Exists(record).ShouldBeTrue("a record beside rows is the folder's rule");
         }
 
         /// <summary>
