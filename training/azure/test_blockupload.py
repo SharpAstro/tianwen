@@ -3,7 +3,7 @@ a try that fails while connecting is not charged to the cap, and the calls outsi
 
     cd training/azure && python -m unittest test_blockupload -v
 """
-import base64, hashlib, os, socket, tempfile, threading, unittest, urllib.error, urllib.parse
+import base64, contextlib, io, hashlib, os, socket, tempfile, threading, unittest, urllib.error, urllib.parse
 import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -183,9 +183,13 @@ class Uploads(unittest.TestCase):
         cap = os.path.join(self.dir.name, "upload-cap-mbps.txt")
         with open(cap, "w", encoding="ascii") as f:
             f.write("4000")
-        self.assertEqual(B.main([path, self.url, self.sas, "--workers", "2", "--block-mib", "1", "--cap-mbps", "8",
-                                 "--cap-file", cap]), 0)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(B.main([path, self.url, self.sas, "--workers", "2", "--block-mib", "1", "--cap-mbps", "8",
+                                     "--cap-file", cap]), 0)
         self.assertEqual(self.blob.committed, data)
+        # the effect, not the speed: the file's 4000 reached the Throttle that main() built
+        self.assertIn(f"cap now 4000 Mb/s (from {cap})", out.getvalue())
 
     def test_the_blob_is_the_file_and_a_worker_keeps_its_connection(self):
         path, data = self.file_of(12)
@@ -432,7 +436,19 @@ class LiveCap(unittest.TestCase):
         self.write("0")
         t = self.throttle(8)
         self.assertEqual(self.starts(t, 3), [0.0, 1.0, 2.0])
-        self.assertEqual(self.said, [])
+        self.assertEqual(len(self.said), 1, "a file that is not taken is said once, not at every look")
+        self.assertIn("0 or less is ignored", self.said[0])
+
+    def test_a_bom_is_accepted_and_an_unreadable_file_is_said(self):
+        with open(self.file, "wb") as f:
+            f.write(b"\xef\xbb\xbf4\r\n")
+        self.assertEqual(B.read_cap(self.file), 4.0)
+        with open(self.file, "wb") as f:
+            f.write("4".encode("utf-16"))
+        said = []
+        self.assertIsNone(B.read_cap(self.file, said.append))
+        self.assertEqual(len(said), 1)
+        self.assertIn("is not read", said[0])
 
     def test_idle_time_earns_nothing(self):
         t = self.throttle(8, cap_file=False)

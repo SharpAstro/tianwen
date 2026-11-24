@@ -59,15 +59,31 @@ def block_id(i):
     return base64.b64encode(f"blk{i:08d}".encode()).decode()
 
 
-def read_cap(path):
+def read_cap(path, say=None):
     """The cap a cap file names, in Mb/s: a number over 0. None when the file is missing, being written, holds no number
-    or holds 0 or less, so the caller keeps the cap it has: a slip in the file never takes the cap off."""
+    or holds 0 or less, so the caller keeps the cap it has: a slip in the file never takes the cap off. utf-8-sig takes
+    plain ASCII and a BOM (an editor's, or Windows PowerShell 5.1 with -Encoding utf8). When the file exists and is not
+    a usable number, say() is told why, so whoever wrote it can see in the log that it was not taken."""
     try:
-        with open(path, encoding="ascii") as f:
-            cap = float(f.read().strip())
-    except (OSError, ValueError, UnicodeDecodeError):
+        with open(path, encoding="utf-8-sig") as f:
+            text = f.read().strip()
+    except FileNotFoundError:
         return None
-    return cap if cap > 0 else None
+    except (OSError, UnicodeDecodeError) as e:
+        if say:
+            say(f"  cap file {path} is not read ({e.__class__.__name__}); write plain ASCII digits, the cap stays")
+        return None
+    try:
+        cap = float(text)
+    except ValueError:
+        if say:
+            say(f"  cap file {path} holds {text[:40]!r}, not a number; the cap stays")
+        return None
+    if cap > 0:
+        return cap
+    if say:
+        say(f"  cap file {path} holds {cap:g}, 0 or less is ignored; the cap stays (write a high number to let go)")
+    return None
 
 
 class Throttle:
@@ -91,15 +107,22 @@ class Throttle:
         self.allowed = 0.0
         self.handed = 0.0
         self.read_at = None
+        self.complained = None
         if cap_file:
             self._look(self.last)
 
     def rate(self):
         return self.cap * 1e6 / 8 if self.cap > 0 else 0.0
 
+    def _complain(self, message):
+        """A file problem is said once per distinct message, not at every look."""
+        if message != self.complained:
+            self.complained = message
+            self.say(message)
+
     def _look(self, now):
         self.read_at = now
-        cap = read_cap(self.cap_file)
+        cap = read_cap(self.cap_file, self._complain)
         if cap is not None and cap != self.cap:
             self.say(f"  cap now {cap:g} Mb/s (from {self.cap_file})")
             self.cap = cap
