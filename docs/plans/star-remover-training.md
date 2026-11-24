@@ -10075,6 +10075,40 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
   - **R4j's seeds on the same split** (through the chain): that cell of 4,066 stars reads 91.7 % on seed 0 and
     86.8 % on seed 1, the bin 94.1 and 91.6 %. Seed 0 stands 9.0 points over R4h there and seed 1 4.1, under half
     of it, where two seeds of one recipe stand 10 to 20 points apart on other rows of this plan.
+- **R4h's second seed, registered 2026-11-24 before any score of it exists. No change from R4h: the baseline on a
+  second seed.** The owner, 2026-11-24, after R4j's read: "start a second seed on 1070".
+  - **Why.** R4h is the baseline and has one seed. R4j's read sets its two seeds against that one: 30 Doradus's
+    faint stars (R4h 17 %, R4j 31 and 36 %, the guard 27), the bright stars' innermost ring (9 of 26 rows under 80 %
+    against 12 and 14), the planted row (67.8 % against 72.2 and 64.4). Whether those differences are the arm's or
+    what two runs of one recipe differ by, one parent seed cannot say. R4h's own read left the same question on
+    the Pleiads ("one seed does not say whether that is the exporter's knot fix or the run").
+  - **The run.** R4h's cache (`r2-synth32`), R4h's frozen trainer copy and R4h's command line as its log printed
+    it, with `--seed 1` and the name `r4h_synth32_s1`, on the development machine's GTX 1070 (R4h ran on a T4; the
+    code and the cache are the same bytes). It was started on 2026-11-24 at 14:41, before this text was pushed and
+    with no score of it in existence; it trains for about half a day.
+  - **Read first:** the 1:1 sheets R4j's read lists, then the training by the stall rule of R4h's registration.
+    A stalled run is reported as one and answers none of the questions below.
+  - **Scored as R4j was:** main's frozen build with `--no-protect-cores --no-fill-digs --keep-overshoot` for the
+    plates as trained, the chain for the rows the table reads through it, the planted test on the layer stamp
+    (seeds 1, 2 and 3) and on `psf` and `donor`.
+  - **Question 1, the 30 Doradus row.** If seed 1 leaves 27 % or under of 30 Doradus's faint stars, both parent
+    seeds hold the guard both of R4j's fail, and the failure is the arm's. If it leaves over 27 %, the failure is
+    inside the parent's spread and R4j's read is amended to say so. R4j's kill stands either way: it fires on the
+    planted row alone.
+  - **Question 2, the bright stars' innermost ring.** If seed 1 reads 11 rows or fewer of 26 under 80 %, "R4j
+    leaves the bright Pleiads standing more than its parent" stands; at 12 or more it is withdrawn.
+  - **Question 3, is R4h a baseline on two seeds.** Every guard of R4h's registration, each row as R4j's table
+    reads it. A row seed 1 fails that seed 0 holds is reported as the recipe's spread on that row, and a later
+    registration that holds an arm "to R4h's value" takes the worse of the two seeds. The light taken from the
+    Tarantula field stands at its bar on seed 0 (84 % against 84), so it is the row most likely to miss.
+  - **Reported, no bar:** the planted rows beside seed 0's (67.8 and 6.8 % on the layer stamp, 60.0 and 63.2 % on
+    `psf` and `donor`); the corrected row on the Lagoon's 84 real stars (34.5 %); the two Pleiades nights' gap
+    (47 points); the Tarantula's standing peaks (18 of 77); Gaia BP 17-19 with the level set aside (91.4) and its
+    most crowded cell (82.7 % of 4,066); the two-sided crowded row; the best step's weights.
+  - **No kill and no clearing:** this is a control's seed. **Prediction:** bright plants left between 60 and 75 %;
+    30 Doradus's faint stars 15 to 25 %, so question 1 says the arm's; the innermost ring on 7 to 11 rows; every
+    guard held but the field light, which misses by a point as often as not.
+  - **Nothing is adopted;** adoption is the owner's.
 
 #### The dig floor inside bright nebula: floor4, and what it leaves (2026-11-20)
 
