@@ -10473,12 +10473,14 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
   - **Prediction:** both seeds leave 55 to 65 % of the bright plants, a gain of 5 to 15 points on R4h and short of
     the bar, so "neither". The kill is both seeds at 60.0 % or over, which is the upper half of that range: a
     result with both seeds from 60 to 65 is inside the prediction and is a kill, and is to be read as one (R4h's
-    seeds are 67.8 and 70.7, so a gain under about 8 to 10 points on both kills it). The dark plants and the crowded rows within two points of R4h; the guards hold. What
-    speaks for more: the stars are real, on real nebula, at five times R4j's dose (about ten, see below). What speaks against: only stars
+    seeds are 67.8 and 70.7, so a gain under about 8 to 10 points on both kills it). The dark plants and the
+    crowded rows within two points of R4h; the guards hold. What speaks for more: the stars are real, on real
+    nebula, at five times R4j's dose (about ten as made, see below). What speaks against: only stars
     the builder found count, and on bright nebula its finder works at the nebula's own noise, so the faintest stars
     the row plants sit near its limit there; and a target that is the builder's plate cannot teach the model to do
     better than the builder.
-  - **Before the launch, 2026-11-25, with no upload, completed training run or score of R4k in existence: the data as made.**
+  - **Before the launch, 2026-11-25, with no score of R4k and no training run beyond the twenty steps below in
+    existence: the data as made.** (The upload of the cache to the Batch store began after this was written.)
     - **The export** (`bh-bin15`, a Release build of main at "Star remover: real pairs, an export of a master's own
       cells against its starless plate, each with its loss mask (#2203)"; `--cells 40 --draws 1`, the stored plates):
       129 ids, 5,160 cells, none skipped or failed, every input equal to the bake's own tile (worst parity 0). Two
