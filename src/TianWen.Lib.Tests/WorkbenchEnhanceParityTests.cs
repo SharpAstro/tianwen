@@ -140,11 +140,18 @@ public sealed class WorkbenchEnhanceParityTests(ITestOutputHelper output) : IDis
     /// says it has, if it says any. Nothing is ever run through it.</summary>
     private sealed class StandInCli(bool licensed, string? model = null, string? cliVersion = null) : IRcAstroCli
     {
+        /// <summary>How many times the licence was asked: each is a subprocess on a real CLI.</summary>
+        public int Probes { get; set; }
+
         public string? ExecutablePath => "/stand-in/rc-astro";
 
         public bool IsAvailable => true;
 
-        public bool IsLicensed(string productKey) => licensed;
+        public bool IsLicensed(string productKey)
+        {
+            Probes++;
+            return licensed;
+        }
 
         public string? CliVersion => cliVersion;
 
@@ -605,6 +612,51 @@ public sealed class WorkbenchEnhanceParityTests(ITestOutputHelper output) : IDis
         // Stand-ins say nothing of whose they are: no word and no tool.
         cut.ShouldNotContainKey("ENHBY");
         cut.ShouldNotContainKey("ENHTOOL");
+    }
+
+    [Fact]
+    public void ANameLongerThanACardSurvivesTheRealWriterCutAtItsLimitWithItsQuoteIntact()
+    {
+        var path = Path.Combine(_folders.Create("long-card-").FullName, "out.fits");
+        var wordy = new EnhanceOperation(new SharpenPipeline(denoiser: new Scaling(new string('n', 90), 1f)));
+        var program = LinearEnhanceProgram.For(new EnhanceCapabilities(false, false, false, false, false, Denoise: true));
+        var image = new Image([SyntheticStarFieldRenderer.Render(64, 64, defocusSteps: 0, exposureSeconds: 10, skyBackground: 100, readNoise: 5,
+            starCount: 5, seed: 5, noiseSeed: 1)], BitDepth.Float32, 65535f, 0f, 0f, new ImageMeta());
+
+        image.WriteToFitsFile(path, null, wordy.HeaderOf(EnhanceOptions.Default, program));
+
+        // A header is 80-character cards: the card is read off the file the writer made, not off the dictionary.
+        var bytes = File.ReadAllBytes(path);
+        var cards = Enumerable.Range(0, Math.Min(bytes.Length, 36 * 2880) / 80).Select(i => Encoding.ASCII.GetString(bytes, i * 80, 80)).ToArray();
+        var card = cards.Single(c => c.StartsWith("ENHDENOI=", StringComparison.Ordinal));
+        card.ShouldContain($"'{new string('n', EnhanceOperation.MaxCardText)}'");
+        card.ShouldNotContain(new string('n', EnhanceOperation.MaxCardText + 1));
+        cards.ShouldContain(c => c.StartsWith("SWMODIFY=", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ARefusingRcAstroIsAskedOncePerResolutionAndTheKeyTextAndTheWordAgree()
+    {
+        var resolver = new ModelResolver([_folders.Create("no-models-").FullName]);
+        using var inHouse = new N2nDenoiser(resolver);
+        var cli = new StandInCli(licensed: false, model: "3.1");
+        var denoiser = new DeferredDenoiser(cli, () => new RcAstroDenoiser(cli), () => inHouse);
+
+        // The enhance step: one resolution of its roles, text and word together.
+        var enhance = new EnhanceOperation(new SharpenPipeline(denoiser: denoiser));
+        var (by, tag) = enhance.Served(new EnhanceSettings());
+        // One ask for the one RC-Astro role the settings name, however many words are made of its answer.
+        cli.Probes.ShouldBe(1);
+        by.ShouldContain(N2nDenoiser.ModelFileName);
+        tag.ShouldBe("tw");
+
+        // A one-role step asks once too, and text and word are those of the one answer.
+        var denoise = new DenoiseOperation(denoiser);
+        cli.Probes = 0;
+        var (name, word) = denoise.Served(new DenoiseSettings());
+        cli.Probes.ShouldBe(1);
+        name.ShouldContain(N2nDenoiser.ModelFileName);
+        word.ShouldBe("tw");
     }
 
     [Fact(Timeout = 60_000)]

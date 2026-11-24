@@ -49,6 +49,9 @@ namespace TianWen.AI.Imaging.RcAstro
         /// <summary>The most times a process asks <c>rc-astro --json</c> while it keeps failing to answer.</summary>
         internal const int MaxDescribeAsks = 3;
 
+        /// <summary>How long the description's pipes get to reach end-of-file after the CLI has exited.</summary>
+        private const int PipeFlushTimeoutMs = 2000;
+
         /// <param name="logger">Optional diagnostics logger.</param>
         public RcAstroCli(ILogger<RcAstroCli>? logger = null)
             : this(LocateExecutable(), RunLicenseProbe, logger, (Func<string, DescribeResult>)RunDescribe)
@@ -476,8 +479,14 @@ namespace TianWen.AI.Imaging.RcAstro
                     return DescribeResult.Failed($"no answer in {LicenseProbeTimeoutMs / 1000} s");
                 }
 
-                // The parameterless wait flushes the redirected handlers once the timed wait saw the exit.
-                proc.WaitForExit();
+                // The parameterless wait flushes the redirected handlers once the timed wait saw the exit, but it also
+                // waits for end-of-file on both pipes: a child that outlived the CLI and holds them would make it wait
+                // with no bound. So the flush is bounded too; past the bound, what was read so far is what the CLI said.
+                if (!Task.Run(proc.WaitForExit).Wait(PipeFlushTimeoutMs))
+                {
+                    _ = Task.Run(() => { try { proc.CancelOutputRead(); proc.CancelErrorRead(); } catch (InvalidOperationException) { } });
+                }
+
                 return proc.ExitCode == 0 ? DescribeResult.Of(string.Join('\n', stdout)) : DescribeResult.None;
             }
             catch (Exception ex)

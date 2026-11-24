@@ -90,6 +90,65 @@ public class RcAstroInstallTests
         silent.CliVersion.ShouldBeNull();
     }
 
+    // A CLI whose description is the scripted answers in turn (the last repeats), counting each ask.
+    private static (RcAstroCli Cli, Func<int> Asked) Scripted(params RcAstroCli.DescribeResult[] answers)
+    {
+        var asked = 0;
+        Func<string, RcAstroCli.DescribeResult> describe = _ => answers[Math.Min(asked++, answers.Length - 1)];
+        return (new RcAstroCli("/fake/rc-astro", Granted, null, describe), () => asked);
+    }
+
+    [Fact]
+    public void ADescriptionThatFailedToAnswerIsAskedAgainUntilItParsesAndThenNeverAgain()
+    {
+        var (cli, asked) = Scripted(RcAstroCli.DescribeResult.Failed("no answer"), RcAstroCli.DescribeResult.Failed("no answer"),
+            RcAstroCli.DescribeResult.Of(Described));
+
+        cli.ModelVersion("nxt").ShouldBeNull();
+        cli.ModelVersion("nxt").ShouldBeNull();
+        cli.ModelVersion("nxt").ShouldBe("3.1");
+        asked().ShouldBe(3);
+
+        cli.ModelVersion("bxt").ShouldBe("5");
+        cli.CliVersion.ShouldBe("2.6.11");
+        asked().ShouldBe(3);
+    }
+
+    [Fact]
+    public void ADescriptionThatNeverAnswersIsAskedAtMostMaxDescribeAsksTimes()
+    {
+        var (cli, asked) = Scripted(RcAstroCli.DescribeResult.Failed("no answer"));
+
+        for (var i = 0; i < RcAstroCli.MaxDescribeAsks + 3; i++)
+        {
+            cli.ModelVersion("nxt").ShouldBeNull();
+            cli.CliVersion.ShouldBeNull();
+        }
+
+        asked().ShouldBe(RcAstroCli.MaxDescribeAsks);
+    }
+
+    [Fact]
+    public void ACliThatAnsweredWithNoDescriptionIsNotAskedAgain()
+    {
+        var (cli, asked) = Scripted(RcAstroCli.DescribeResult.Of("rc-astro: unknown option --json"), RcAstroCli.DescribeResult.Of(Described));
+
+        cli.ModelVersion("nxt").ShouldBeNull();
+        cli.ModelVersion("nxt").ShouldBeNull();
+        asked().ShouldBe(1);
+    }
+
+    [Fact]
+    public void AGoodDescriptionIsAskedOnce()
+    {
+        var (cli, asked) = Scripted(RcAstroCli.DescribeResult.Of(Described));
+
+        cli.ModelVersion("nxt").ShouldBe("3.1");
+        cli.ModelVersion("sxt").ShouldBe("11");
+        cli.CliVersion.ShouldBe("2.6.11");
+        asked().ShouldBe(1);
+    }
+
     [Fact]
     public void AnRcAstroEnhancersNameCarriesItsModelVersionAndNotTheClisOwn()
     {

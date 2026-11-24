@@ -385,15 +385,10 @@ public sealed class EnhanceOperation(SharpenPipeline pipeline, ILogger<EnhanceOp
     /// models with its version, which is no part of a key. <c>image sharpen</c> and a step write the same cards.
     /// </summary>
     public Dictionary<string, (object Value, string Comment)> HeaderOf(EnhanceOptions options, LinearEnhanceProgram program)
-        => HeaderOf(options, program, pipeline.Roles(options, program));
-
-    /// <summary><see cref="HeaderOf(EnhanceOptions, LinearEnhanceProgram)"/> over roles already resolved
-    /// (<see cref="SharpenPipeline.Roles"/>), so a caller that named them for its own line pays no second probe.</summary>
-    public Dictionary<string, (object Value, string Comment)> HeaderOf(
-        EnhanceOptions options, LinearEnhanceProgram program, ImmutableArray<EnhanceRole> roles)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(program);
+        var roles = pipeline.Roles(options, program);
         var header = SharpenPipeline.SwModifyHeader();
         foreach (var role in roles)
         {

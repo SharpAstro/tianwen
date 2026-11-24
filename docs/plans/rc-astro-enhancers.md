@@ -61,7 +61,9 @@ TianWen passes no `--ml-version` either, so a run uses the newest model installe
 `rc-astro --json` with no product says which that is: the CLI's version and, for
 each product, `mlVersions` (on the laptop, 2026-11-24, CLI 2.6.11: BlurX 5, 4, 2;
 StarX 11; NoiseX 3.1, 2). It reads what the computer has stored and asks no
-licence server. `IRcAstroCli.ModelVersion` reads it once a process, and each
+licence server. `IRcAstroCli.ModelVersion` reads it: a description that parsed is kept for the process, a failure
+to answer (no answer in time, would not start) is asked again, at most three asks in all, and a CLI that answers
+with something that is no description is not asked again. Each
 RC-Astro role's name carries the version ("RC-Astro NoiseXTerminator (nxt)
 ML3.1"), so a workbench step is keyed by the model that made its result
 ([workbench-operations.md](../architecture/workbench-operations.md)).

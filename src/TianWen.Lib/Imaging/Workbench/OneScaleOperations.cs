@@ -123,10 +123,17 @@ public sealed class DeblurOperation(IImageDeblurrer? deblurrer = null) : JointOp
         => float.IsFinite(settings.Headroom) && settings.Headroom >= 1f ? null : "headroom is 1 or more";
 
     /// <summary>The deblurrer registered here; empty where there is none.</summary>
-    public override string ServedBy(DeblurSettings settings) => deblurrer?.Name ?? string.Empty;
+    public override string ServedBy(DeblurSettings settings) => Served(settings).By;
 
     /// <inheritdoc/>
-    public override string ServedTag(DeblurSettings settings) => IEnhancerAvailability.TagOf(deblurrer, EnhanceOptions.Default);
+    public override string ServedTag(DeblurSettings settings) => Served(settings).Tag;
+
+    /// <summary>The name and the origin word from one resolution of the role (<see cref="IEnhancerAvailability.ServedOf"/>).</summary>
+    public override (string By, string Tag) Served(DeblurSettings settings)
+    {
+        var (name, tag) = IEnhancerAvailability.ServedOf(deblurrer, EnhanceOptions.Default);
+        return (name, tag);
+    }
 
     /// <inheritdoc/>
     public override ImmutableArray<string> CommandLine(DeblurSettings settings, IReadOnlyList<string> members, IReadOnlyList<StepOutputs> outputs)
@@ -210,10 +217,17 @@ public sealed class DenoiseOperation(IDenoiseEnhancer? denoiser = null) : JointO
         => settings.Strength is null or (>= 0f and <= 1f) ? null : "strength is 0 to 1, or left out for the denoiser's own";
 
     /// <summary>The denoiser registered here; empty where there is none.</summary>
-    public override string ServedBy(DenoiseSettings settings) => denoiser?.Name ?? string.Empty;
+    public override string ServedBy(DenoiseSettings settings) => Served(settings).By;
 
     /// <inheritdoc/>
-    public override string ServedTag(DenoiseSettings settings) => IEnhancerAvailability.TagOf(denoiser, EnhanceOptions.Default);
+    public override string ServedTag(DenoiseSettings settings) => Served(settings).Tag;
+
+    /// <summary>The name and the origin word from one resolution of the role (<see cref="IEnhancerAvailability.ServedOf"/>).</summary>
+    public override (string By, string Tag) Served(DenoiseSettings settings)
+    {
+        var (name, tag) = IEnhancerAvailability.ServedOf(denoiser, EnhanceOptions.Default);
+        return (name, tag);
+    }
 
     /// <inheritdoc/>
     public override ImmutableArray<string> CommandLine(DenoiseSettings settings, IReadOnlyList<string> members, IReadOnlyList<StepOutputs> outputs)
@@ -319,10 +333,17 @@ public sealed class DenoiseColourOperation(IDenoiseEnhancer? denoiser = null) : 
         => settings.Strength is null or (>= 0f and <= 1f) ? null : "strength is 0 to 1, or left out for the denoiser's own";
 
     /// <summary>The denoiser registered here; empty where there is none.</summary>
-    public override string ServedBy(DenoiseSettings settings) => denoiser?.Name ?? string.Empty;
+    public override string ServedBy(DenoiseSettings settings) => Served(settings).By;
 
     /// <inheritdoc/>
-    public override string ServedTag(DenoiseSettings settings) => IEnhancerAvailability.TagOf(denoiser, EnhanceOptions.Default);
+    public override string ServedTag(DenoiseSettings settings) => Served(settings).Tag;
+
+    /// <summary>The name and the origin word from one resolution of the role (<see cref="IEnhancerAvailability.ServedOf"/>).</summary>
+    public override (string By, string Tag) Served(DenoiseSettings settings)
+    {
+        var (name, tag) = IEnhancerAvailability.ServedOf(denoiser, EnhanceOptions.Default);
+        return (name, tag);
+    }
 
     /// <summary>Where the three planes go: red's as the main result, green's and blue's as the extra ones.</summary>
     public static StepOutputs Outputs(string red, string green, string blue)
@@ -440,11 +461,17 @@ public sealed class RemoveStarsOperation(IStarRemover? starRemover = null, ICele
     protected override JsonTypeInfo<RemoveStarsSettings> SettingsInfo => OperationSettingsJsonContext.Default.RemoveStarsSettings;
 
     /// <summary>The remover registered here and, with core protection on, the catalogue that would answer.</summary>
-    public override string ServedBy(RemoveStarsSettings settings)
-        => (starRemover?.Name ?? string.Empty) + (settings.ProtectCores ? "; cores by " + CoreCatalogue.Source(settings.Catalogue) : string.Empty);
+    public override string ServedBy(RemoveStarsSettings settings) => Served(settings).By;
+
+    /// <summary>The name (with the core catalogue) and the origin word from one resolution of the remover (<see cref="IEnhancerAvailability.ServedOf"/>).</summary>
+    public override (string By, string Tag) Served(RemoveStarsSettings settings)
+    {
+        var (name, tag) = IEnhancerAvailability.ServedOf(starRemover, EnhanceOptions.Default);
+        return (name + (settings.ProtectCores ? "; cores by " + CoreCatalogue.Source(settings.Catalogue) : string.Empty), tag);
+    }
 
     /// <inheritdoc/>
-    public override string ServedTag(RemoveStarsSettings settings) => IEnhancerAvailability.TagOf(starRemover, EnhanceOptions.Default);
+    public override string ServedTag(RemoveStarsSettings settings) => Served(settings).Tag;
 
     /// <inheritdoc/>
     public override ImmutableArray<string> CommandLine(RemoveStarsSettings settings, IReadOnlyList<string> members, IReadOnlyList<StepOutputs> outputs)

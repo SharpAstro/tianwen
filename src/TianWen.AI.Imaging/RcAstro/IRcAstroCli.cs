@@ -41,8 +41,9 @@ namespace TianWen.AI.Imaging.RcAstro
 
         /// <summary>
         /// The CLI's own version ("2.6.11"), or null where it could not be read: no executable, or a CLI that does not
-        /// describe itself in JSON. Asked once a process (<c>rc-astro --json</c>, which reads what this computer has
-        /// stored and asks no licence server). It is said beside a result and never part of a step's key: two CLI
+        /// describe itself in JSON. A description that parsed is kept for the process; a failure to answer is
+        /// asked again, at most three asks in all; a CLI that answers without a description is not asked again
+        /// (<c>rc-astro --json</c>, which reads what this computer has stored and asks no licence server). It is said beside a result and never part of a step's key: two CLI
         /// versions that run one model gave the same pixels to rounding (2.6.10 and 2.6.11, measured 2026-11-24).
         /// </summary>
         string? CliVersion => null;

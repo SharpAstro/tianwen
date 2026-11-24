@@ -86,6 +86,26 @@ public interface IEnhancerAvailability
     /// </summary>
     public static string TagOf(IImageEnhancer? role, EnhanceOptions options)
         => EnhancerOrigin.TagOf([(role as IEnhancerAvailability)?.OriginUnder(options)]);
+
+    /// <summary>
+    /// A one-enhancer step's name (as its key holds it) and its origin word from ONE resolution
+    /// (<see cref="AnswerUnder"/>): a deferred RC-Astro role costs a licence probe to resolve and a refusal can flip
+    /// between two asks, so the key text and the word never come from two. Empty name and word for no enhancer.
+    /// </summary>
+    public static (string Name, string Tag) ServedOf(IImageEnhancer? role, EnhanceOptions options)
+    {
+        if (role is null)
+        {
+            return (string.Empty, string.Empty);
+        }
+
+        if (role is IEnhancerAvailability availability && availability.AnswerUnder(options) is { } answer)
+        {
+            return (answer.Name, EnhancerOrigin.TagOf([answer.Origin]));
+        }
+
+        return (role.Name, TagOf(role, options));
+    }
 }
 
 /// <summary>What one resolution of a role answers (<see cref="IEnhancerAvailability.AnswerUnder"/>): the name of what
