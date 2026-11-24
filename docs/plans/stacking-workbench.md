@@ -1,6 +1,6 @@
 # Stacking Workbench: from a folder of frames to a finished picture, in one window
 
-**Status: W0 DECIDED 2026-11-22, W1 PARTIAL (its first leg: the operation contract, the step store, the project and the runner, with three operations), W10 PARTIAL (image crop and the W10 audit are done), the rest NOT STARTED.** A plan the owner decided W0 of (the owner, 2026-10-17: "do we already have a milestone
+**Status: W0 DECIDED 2026-11-22, W1 DONE 2026-11-23 (the operation contract, the step store, the project and the runner, with twenty-three operations; the last leg was #2490), W10 PARTIAL (image crop and the W10 audit are done), the rest NOT STARTED.** A plan the owner decided W0 of (the owner, 2026-10-17: "do we already have a milestone
 for a GUI based stacking app? not just planetary etc", then "yeah lets do that"). Milestone `stacking-workbench`.
 
 **Re-cut 2026-11-19** from a stacker into the processing application: image editing as operations, a non-destructive edit list,
@@ -168,7 +168,7 @@ edit list, the command line shown under a step (rule 3).
 | How it previews | **In the shader** (stretch, white balance, crop: free while dragging), **on a region** (run on the visible part of the image and shown split: denoise, deblur) or **not at all** (a whole-frame fit such as gradient or SPCC, whose answer for a region is a different answer) |
 | Progress and cancel | The engine's own `IProgress`, as rule 6 |
 
-**What the code holds so far** (W1's first leg, #1641; [workbench-operations.md](../architecture/workbench-operations.md)):
+**What the code holds** (W1, done; #1641; [workbench-operations.md](../architecture/workbench-operations.md)):
 the id and version, the settings, the images an operation takes, how its output is kept (stored, derived, or as
 metadata: a finding in the store and no pixels, with the plate solve as the first, #2469), what serves it, its command
 line, and the lines it reports. The preconditions come with the facts (W9), and how it previews with the panel that
@@ -183,8 +183,7 @@ there is no second hierarchy beside them.
 default, read and written through a source-generated JSON context. The records cannot be that as they stand: they are
 immutable and positional, they are one hierarchy that a JSON file could only tell apart by a type tag, and one of them
 (`WhiteBalanceStep`) holds a measured calibration, which is a result and not a setting. So the records stay what they
-are, the pipeline's program in memory, and the enhance operation turns its settings into them in one place when it is
-wrapped. No operation carries a step of its own beside them.
+are, the pipeline's program in memory, and the enhance operation turns its settings into them in one place. No operation carries a step of its own beside them.
 
 **A preview on a region is honest about what it is.** An operation whose thresholds are in noise units of the whole frame, or whose
 model normalises over the whole input, does not give the same pixels on a crop as on the frame. The description says which
@@ -548,7 +547,8 @@ each step's output is bit-identical to its CLI verb's.
 - **The tests** are the three the phase names. The third runs every step's printed command line through the real
   `tianwen image` command and compares the two files to the byte, which holds rule 3 as well as rule 1.
 
-**Still to do in W1**, each a leg of its own with its own issue, and #1641 stays open until the last:
+**The legs after the first**, each with its own issue, all built by 2026-11-23, so W1 is done and #1641 closes with
+them:
 
 1. The other colour steps (#2465). Built: `align`, `continuum`, `add-line`, `luminance`, `lrgb`, `add-stars`,
    `fill-digs`, `protect-cores`, the four that put several masters through one run, `match-psf`, `deblur`, `denoise`
@@ -564,7 +564,7 @@ each step's output is bit-identical to its CLI verb's.
    size and time have not moved is not read again; `--verify-frames` reads them all), there is one `stack` step
    around `tianwen stack` since that is the one verb, each master is a result of it under its group's name, its
    settings are the 24 options that choose which frames are stacked and how they are registered and integrated, and
-   a comet run is a leg of its own (#2489). Built: a folder as an image's original, its key and the index
+   a comet run is not W1: it is its own issue (#2489). Built: a folder as an image's original, its key and the index
    (`FrameDigestIndex`); results named by the run (`IRunNamedOperation`), each in the store under its name with
    the files that belong beside it, the step keeping the list of them; and the `stack` operation
    (`StackOperation`), whose settings the verb builds its own options from. A step judges cloud on the group's own

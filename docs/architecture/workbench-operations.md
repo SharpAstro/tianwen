@@ -572,7 +572,7 @@ that gave no result.
 
 ## Not here yet
 
-Each is a later leg of W1 (#1641) or a later phase, and none is assumed by the code above.
+Each is a later phase (W2 to W9), or the comet run (#2489), which is outside W1, and none is assumed by the code above.
 
 - **Operations.** None of W1's is left to wrap: every colour step of #2465 is here, so is the canonical enhance
   (#2466), so are the planetary steps (#2468: by the owner's call of 2026-11-23 the stack, the compose and the
@@ -582,8 +582,8 @@ Each is a later leg of W1 (#1641) or a later phase, and none is assumed by the c
   against OPAL's maps and not what balances a master; the balance is inside the stack and the compose. A look
   (`planetary look`) is a rendering of the linear master and never a new master, so it goes with how a result is
   shown and exported.
-- **A comet run as a step** (#2489): `--comet`, `--remove-stars` and `--manifest` are a leg of their own by the
-  owner's call of 2026-11-23, and none of them is a setting of `stack`.
+- **A comet run as a step** (#2489): `--comet`, `--remove-stars` and `--manifest` are not W1: they are their own
+  issue, by the owner's call of 2026-11-23, and none of them is a setting of `stack`.
 - **What a stack keeps between its runs.** A `stack` step that runs again builds its calibration masters again, and
   judges cloud without the clear nights a rig keeps. The masters and what each light takes, and the subs' table
   with its gates, are W4's (#1644); a stack re-integrated from its manifest is W5's (#1645).
