@@ -753,8 +753,8 @@ namespace TianWen.AI.Imaging
             if (options.RealPairs)
             {
                 // The masks are the export's own (RealPairMask): the record keeps plate-masks from writing another rule's
-                // beside them, and drawn stars out of the folder (RealPairsFolderRefusal). Written once the context has
-                // opened, so a run that cannot start leaves none.
+                // beside them, and any other export out of the folder (RealPairsFolderRefusal). Written once the context
+                // has opened, so a run that cannot start leaves none.
                 await File.WriteAllTextAsync(Path.Combine(options.OutDir, StarRemovalMasks.RuleFileName), nameof(StarRemovalMasks.Rule.RealStars), cancellationToken);
             }
 
