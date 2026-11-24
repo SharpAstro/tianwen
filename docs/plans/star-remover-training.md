@@ -10089,9 +10089,13 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
   - **Read first:** the 1:1 sheets R4j's read lists, then the training by the stall rule of R4h's registration.
     A stalled run is reported as one and answers none of the questions below. That rule's ratio (median of the
     held-out windows over the 60,000 steps after the first halving, over the median from step 30,000 to it) has no
-    denominator when the first halving comes before step 30,000, as R4h's seed 0's did (28,500). Registered now for
-    seed 1, before any log of it is read: with no denominator, the run is stalled only if it makes no new best after
-    its first halving; the ratio is then reported and not judged.
+    denominator when the first halving comes before step 30,000, as R4h's seed 0's did (28,500). Registered for
+    seed 1: with no denominator, the run is stalled only if it makes no new best after its first halving; the ratio
+    is then reported and not judged. What had been read of seed 1's log when: this clause was pushed on 2026-11-24
+    before 14:55, the log then read to step 600 (one held-out reading, at step 500, no halving). Before the last
+    commits of this section, at 19:36, one more line of it was read, at step 85,500: held-out 9.46e-6, best window
+    9.70e-6 at step 84,000, the rate halved once. The step of that halving was not read, so whether the ratio has
+    a denominator is not known as this is written.
   - **Two GPUs' arithmetic.** Seed 0 of R4h and both R4j seeds trained on T4s (R4j as Batch jobs); seed 1 trains on
     the 1070. As R3y's seed 1 said, the pair's difference also holds the two GPUs' arithmetic. So wherever this
     section reads seed 1's difference as "the parent's spread" or "the recipe's spread", and wherever it amends or
@@ -10118,8 +10122,10 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     26, 47 points, 18 of 77) is quoted beside its re-score, and a difference between the two is reported as the
     build's, never as the recipe's spread. **Which weights:** the three questions read each seed's last step, as
     R4h's read did. The best step's weights are reported, no bar, for seed 1, and seed 0's best step is re-scored
-    on `bh-bin14` beside them (`r4h_synth32_s0bestb14`); its carried planted figures, 68.3 and 7.3 %, are
-    `bh-bin12`'s.
+    on `bh-bin14` beside them (`r4h_synth32_s0bestb14`), through the whole step and the planted test as the last
+    step is, so every best-step row has its same-build pair. The best-step figures R4h's read and R4j's table
+    carry (the innermost ring on 9 of 26 rows, the nights' gap 46 points, the Tarantula's crowded flat 91.5, the
+    planted 68.3 and 7.3 %) are `bh-bin12`'s and are quoted as carried.
   - **Question 1, the 30 Doradus row.** The rule R4j registered for a row R4h misses too applies: that row is the
     exporter's, and the arm is held to R4h's value plus the bar's allowance, here 27 minus R4d's 22 = 5 points. The
     value the allowance is added to is the worse (higher) of R4h's two seeds, which is seed 1's whenever seed 1
