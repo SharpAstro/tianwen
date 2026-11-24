@@ -2547,7 +2547,13 @@ public sealed class StackingPipeline(
             Elapsed: groupSw.Elapsed,
             Spcc: postResult.Spcc,
             Stages: timings.Snapshot(),
-            CompositeFitsPath: compositePath);
+            CompositeFitsPath: compositePath)
+        {
+            // What an unstated strategy resolved to, and by which rule, so a line can say it (the verb's and a step's).
+            Strategy = primary.Strategy,
+            StrategyFrom = primary.Strategy == options.ForcedStrategy ? "stated"
+                : options.NominalProbe ? "chosen for the nominal computer" : "chosen for this computer",
+        };
     }
 
     /// <summary>FITS card on a per-frame starless plate naming the <see cref="StarRemovalMode"/> it was

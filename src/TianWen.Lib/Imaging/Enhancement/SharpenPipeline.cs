@@ -161,6 +161,19 @@ public sealed class SharpenPipeline(
         => !asked ? "left out" : role is null ? "none" : (role as IEnhancerAvailability)?.NameUnder(options) ?? role.Name;
 
     /// <summary>
+    /// Whether a whole-frame deblurrer serves EVERY input under <paramref name="options"/>, mono and colour alike
+    /// (<see cref="IEnhancerAvailability.ServesEvery"/>). Then <see cref="EnhanceCapabilities.Deblur"/> is true for
+    /// any image, and what a live deblurrer leaves out of the program (<see cref="LinearEnhanceProgram.For"/>: the
+    /// stellar sharpening and the starless deconvolution) is left out whatever the image: the one thing about the
+    /// program's shape that can be known before its image is read.
+    /// </summary>
+    public bool DeblurServesEveryInput(EnhanceOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        return IEnhancerAvailability.ServesEvery(deblurrer, options);
+    }
+
+    /// <summary>
     /// The finite-input boundary every enhancer stands behind: interior holes are interpolated from
     /// their neighbours, a canvas ring no crop removed becomes the pipeline's zero ring, and only what
     /// is left after both falls back to the per-channel mean. The same instance comes back when there

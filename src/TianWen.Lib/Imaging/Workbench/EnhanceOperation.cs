@@ -224,20 +224,29 @@ public sealed class EnhanceOperation(SharpenPipeline pipeline, ILogger<EnhanceOp
     /// its settings in a plan, and a caller with many steps should do the same.</para>
     /// </remarks>
     public override string ServedBy(EnhanceSettings settings)
-        => pipeline.DescribeRoles(TryOptions(settings, out var options, out _) ? options : EnhanceOptions.Default, Widest(settings));
+    {
+        var options = TryOptions(settings, out var made, out _) ? made : EnhanceOptions.Default;
+        return pipeline.DescribeRoles(options, Widest(settings, pipeline.DeblurServesEveryInput(options)));
+    }
 
     /// <summary>
     /// Every step these settings could keep, on any image and whatever serves. Which of them runs is the image's and
     /// the enhancers' to say (<see cref="ProgramAsync"/> ANDs each with what serves); which can run at all is the
     /// settings', since a step they switch off is never run. The deblur and the star removal have no switch.
     /// </summary>
-    private static LinearEnhanceProgram Widest(EnhanceSettings settings) => new()
+    /// <param name="settings">The settings.</param>
+    /// <param name="deblurOnEveryInput">True where a deblurrer serves every image
+    /// (<see cref="SharpenPipeline.DeblurServesEveryInput"/>). Its whole-frame deblur then runs whatever the image, so
+    /// the two steps a live deblurrer leaves out (<see cref="ProgramAsync"/>: the stellar sharpening always, the
+    /// starless deconvolution unless its blend is stated) can run on no image and are not named: a status says what a
+    /// run says, and installing or removing a deconvolver that never runs moves no key.</param>
+    private static LinearEnhanceProgram Widest(EnhanceSettings settings, bool deblurOnEveryInput) => new()
     {
         Deblur = true,
         SplitStars = true,
         GradientCorrection = settings.Gradient,
-        StellarSharpen = settings.StellarSharpen,
-        DeconvolveStarless = settings.Deconvolve,
+        StellarSharpen = settings.StellarSharpen && !deblurOnEveryInput,
+        DeconvolveStarless = settings.Deconvolve && (!deblurOnEveryInput || settings.DeconvolveBlend is not null),
         Denoise = settings.Denoise,
     };
 
@@ -444,7 +453,7 @@ public sealed class EnhanceOperation(SharpenPipeline pipeline, ILogger<EnhanceOp
         //  - WhiteBalance multiplies a broadband SPCC balance the input states (a stacked master's WB cards), or the
         //    one the settings give for an input that states none, into the linear data first, as `stack --enhance`
         //    and the viewer apply theirs.
-        return LinearEnhanceProgram.For(capabilities) with
+        var program = LinearEnhanceProgram.For(capabilities) with
         {
             WhiteBalance = whiteBalance,
             // The deblur's blend is left at the step default, as the canonical program has it; deblurSharpen tunes the
@@ -466,6 +475,12 @@ public sealed class EnhanceOperation(SharpenPipeline pipeline, ILogger<EnhanceOp
             // the natural bounded composite: Final = 1 - (1-bg)(1-fg). Split stays in linear (mode controls that).
             RecombineMode = stretchedInPipeline ? RecombineMode.Screen : settings.Mode,
         };
+
+        // What the automatic backends resolved to for THIS image: the enhancer of each role the program asks, "none"
+        // where a role has none and "left out" where no step asks it. The verb and a step both say it, so a result
+        // is never read without knowing whether RC-Astro, GraXpert or an in-house model made it.
+        say?.Invoke($"served by: {pipeline.DescribeRoles(start.Options, program)}; scnr {(program.SplitStars ? program.Scnr.ToString().ToLowerInvariant() : "left out")}");
+        return program;
     }
 
     /// <summary>
