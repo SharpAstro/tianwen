@@ -73,7 +73,8 @@ print(f"{len(gmag)} Gaia stars on the frame; {found.sum()} matched; median offse
 lum = m.mean(axis=0)
 pick = [j for j in np.nonzero(found)[0] if 20 <= dsig[k[j]] <= 200 and not dsat[k[j]]]
 pick = [j for j in pick if 12 <= gx[j] < W - 12 and 12 <= gy[j] < H - 12]
-# A strided pick down to about 4000, so the PSF width and the scale do not depend on the order the TAP reply gave.
+# A strided pick of at most 4000 (2001 to 4000 when there are more), spread over the cache's order rather than its head;
+# the printed count and extent say what it took.
 if len(pick) > 4000:
     pick = pick[::-(-len(pick) // 4000)]
 # Print where the sample sits.
