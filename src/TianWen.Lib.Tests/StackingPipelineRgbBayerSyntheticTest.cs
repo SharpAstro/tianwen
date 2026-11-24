@@ -70,6 +70,9 @@ public class StackingPipelineRgbBayerSyntheticTest(ITestOutputHelper output)
         // the SkipReason check above.
         result.FramesMatched.ShouldBeGreaterThanOrEqualTo(6,
             $"expected at least 6/8 RGGB frames to register; got {result.FramesMatched}");
+        // No strategy was stated and no nominal host asked for, so the pipeline says it chose one for this computer.
+        result.Strategy.ShouldNotBeNull();
+        result.StrategyFrom.ShouldBe("chosen for this computer");
 
         // 2) Master FITS landed on disk + round-trips with a 3-channel
         //    shape. This is the key Bayer assertion: a missed debayer
