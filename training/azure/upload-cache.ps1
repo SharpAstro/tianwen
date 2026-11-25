@@ -8,10 +8,15 @@
 # minutes (conhost --headless, priority 4, IgnoreNew); a pass exits at once when the upload is done or another pass for
 # this -Blob still runs. Writes upload-<blob>.done in the runs folder (common.ps1) once every file is in the container
 # at its size.
+# The cap is live for the big files (2026-11-25, the owner: "when I say we need to throttle it will throttle without
+# stopping too much"): -CapFile, by default upload-cap-mbps.txt in the runs folder, is handed to blockupload.py, which
+# reads it again every 5 s, so writing a new number there throttles the upload or lets it go within seconds. Small files
+# through azcopy keep the cap they started with.
 param(
     [Parameter(Mandatory)] [string]$Source,
     [Parameter(Mandatory)] [string]$Blob,
-    [int]$CapMbps = 0
+    [int]$CapMbps = 0,
+    [string]$CapFile = ''
 )
 . (Join-Path $PSScriptRoot 'common.ps1')
 $tag = 'upload-' + ($Blob.Trim('/') -replace '[/\\]', '-')
@@ -26,11 +31,14 @@ $sas = Get-Sas
 $base = Get-ContainerUrl $Blob
 $env:AZCOPY_CONCURRENCY_VALUE = '8'
 $cap = if ($CapMbps -gt 0) { @('--cap-mbps', "$CapMbps") } else { @() }
+if (-not $CapFile) { $CapFile = Join-Path $RunsDir 'upload-cap-mbps.txt' }
+# Only a capped run is handed the file: an uncapped one (-CapMbps 0) stays uncapped whatever the file says.
+$live = if ($CapMbps -gt 0) { @('--cap-file', $CapFile) } else { @() }
 $files = Get-ChildItem $Source -File | Where-Object { $_.Extension -ne '.pt' } | Sort-Object Length
 foreach ($f in $files) {
     Say "upload $($f.Name) ($([math]::Round($f.Length / 1GB, 2)) GB)$(if ($CapMbps -gt 0) { ", capped at $CapMbps Mb/s" })"
     if ($f.Length -ge 1GB) {
-        & python -I (Join-Path $PSScriptRoot 'blockupload.py') $f.FullName "$base/$($f.Name)" $AzConfig.sasFile --cap-mbps $CapMbps *>> $log
+        & python -I (Join-Path $PSScriptRoot 'blockupload.py') $f.FullName "$base/$($f.Name)" $AzConfig.sasFile --cap-mbps $CapMbps @live *>> $log
     }
     else {
         & $AzCopy copy $f.FullName "$base/$($f.Name)?$sas" --overwrite false @cap --output-level essential *>> $log
