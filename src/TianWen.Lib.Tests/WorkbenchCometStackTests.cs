@@ -376,6 +376,8 @@ public sealed class WorkbenchCometStackTests(ITestOutputHelper output) : IDispos
         var masters = _folders.Create("masters-").FullName;
         var balance = new ColourCalibration(1.25f, 1f, 0.8f, ColourCalibrationSource.SkyBackground);
         var colour = WriteMaster(masters, "master_colour", 3, balance, withManifest: true);
+        // A master with no manifest beside it, as an enhance's image is (master_x_sharpened.fits: the manifest is
+        // written for the master's own path alone), so a balance it states is never reached.
         var bare = WriteMaster(masters, "master_bare", 3, balance, withManifest: false);
         var mono = WriteMaster(masters, "master_mono", 1, balance: null, withManifest: true);
         // A colour master as a workbench step writes it (no render, no enhance): a manifest, and no balance.
@@ -391,7 +393,7 @@ public sealed class WorkbenchCometStackTests(ITestOutputHelper output) : IDispos
         (await Run(new CometStackSettings { InheritWhiteBalance = true }, frames, trackPath, mono)).Message.ShouldContain("states no white balance");
         var refused = (await Run(new CometStackSettings { InheritWhiteBalance = true }, frames, trackPath, stepMade)).Message;
         refused.ShouldContain("states no white balance");
-        refused.ShouldContain("a master a workbench step wrote states none");
+        refused.ShouldContain("a master a workbench step wrote has none of its own");
         var notServed = await Run(new CometStackSettings { RemoveStars = true }, frames, trackPath);
         notServed.Failure.ShouldBe(OperationFailure.NotServed);
         notServed.Message.ShouldContain("no star remover serves");

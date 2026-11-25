@@ -476,13 +476,15 @@ and the composite with `_composite`, each with its sidecars (the verb's `master_
   the run (`--manifest`: the frames, the reference and each frame's star transform), so a starless comet layer shares
   the comet stack's canvas; with `inheritWhiteBalance` its white balance is taken too (`--inherit-wb`), which a
   starless plate cannot solve for itself. One image for both, so a master that is to give the balance must state
-  one (WBRED, WBGREEN, WBBLUE): an original the `stack` verb wrote with a picture (or gave an inherited balance by `--inherit-wb`) does;
-  a master a workbench step wrote does not, since no step renders or solves its master, and it is refused in words
-  (a step-made master still gives the manifest, so `inheritWhiteBalance` is for a verb-written original). The
-  inputs are by place, so a run that follows names its track first and a bare rate cannot follow; a master named
-  where the track goes, one with no manifest beside it, and a balance asked of no master or of one that states none
-  are each refused in words before a frame is read. A master given as an original (a file the verb wrote) is keyed
-  by its bytes, and its manifest is taken as it stands beside it.
+  one (WBRED, WBGREEN, WBBLUE): an original the `stack` verb wrote with a picture or with an inherited balance
+  (`--inherit-wb`) does, and so does the master of a run that itself inherited one. A master a workbench step wrote
+  states no balance of its own, since no step renders or solves its master, so a step-made master that inherited none
+  is refused in words; it still gives the manifest. An enhance's image has no manifest beside it (the stack writes
+  one for its master's own path), so it cannot be followed at all. The inputs are by place, so a run that follows
+  names its track first and a bare rate cannot follow; a master named where the track goes, one with no manifest
+  beside it, and a balance asked of no master or of one that states none are each refused in words before a frame is
+  read. A master given as an original (a file the verb wrote) is keyed by its bytes, and its manifest is taken as it
+  stands beside it.
 - **What serves it is in its key**: where a star remover serves, the star layer SUBTRACTS the body it took out of the
   comet master and the composite adds it back; where none does, the star layer EXCLUDES a disc around the body and
   there is no composite. Different pixels, so the key says which, and the remover's model. It is asked for a mono

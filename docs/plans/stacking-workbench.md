@@ -595,10 +595,10 @@ Horizons while it runs, since a step's key is fixed before it runs and Horizons'
 asks once and writes it; the project holds it as an original, read by its bytes, so the key holds the ephemeris and an
 offline run keeps its star layer. The second: the stars removed from every frame (`removeStars`, the comet layer), and
 **a run that follows another, decided by the owner the same day**: one image after the track, the earlier stack's
-master, whose manifest drives the run and whose white balance it takes where asked (`--manifest`, `--inherit-wb`; only a master that states one gives it, an original
-the verb wrote with a picture, never a master a workbench step wrote). How
-the code does it: [workbench-operations.md](../architecture/workbench-operations.md), "A comet's night stacked on the
-comet".
+master, whose manifest drives the run and whose white balance it takes where asked (`--manifest`, `--inherit-wb`;
+only a master that states one gives it: an original the verb wrote with a picture or with an inherited balance, or
+the master of a run that itself inherited one, since a workbench step's master has none of its own). How the code
+does it: [workbench-operations.md](../architecture/workbench-operations.md), "A comet's night stacked on the comet".
 
 ### W2 The app's shell
 
