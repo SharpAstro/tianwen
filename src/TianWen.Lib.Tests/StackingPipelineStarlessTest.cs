@@ -148,6 +148,8 @@ public class StackingPipelineStarlessTest(ITestOutputHelper output)
         }
 
         results.Count.ShouldBe(1);
+        results[0].SkipReason.ShouldBeNullOrEmpty("the group ran; a skipped group would make the strategy asserts below vacuous");
+        results[0].Strategy.ShouldNotBeNull();
         results[0].Strategy.ShouldNotBe(IntegrationStrategyKind.BayerDrizzle, $"a starless comet layer is never drizzled; skip: '{results[0].SkipReason}'");
         results[0].Strategy.ShouldNotBe(IntegrationStrategyKind.TilePipelinedDrizzle, "a starless comet layer is never tile-drizzled either");
         logger.Messages.ShouldContain(m => m.Contains("[comet] --strategy"), "the dropped override is said");

@@ -43,7 +43,7 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// <para>Auto-picked only at scale: <see cref="Evaluate"/> reports <c>CanRun = true</c> for an RGGB sensor with at
 /// least <see cref="AutoSelectMinFrameCount"/> frames within the RAM budget, so <see cref="IntegrationStrategySelector"/>
 /// may choose it; below that it reports <c>CanRun = false</c>. Layers it cannot build correctly (a comet layer of
-/// per-frame starless plates, a masked or model-subtracted one) exclude it through the pipeline's comet-layer filter.
+/// per-frame starless plates, or a masked one) exclude it through the pipeline's comet-layer filter.
 /// The user override path (<c>--strategy BayerDrizzle</c>) still routes here. The pipeline gates frame count + Bayer
 /// pattern before invoking the strategy, so this class assumes valid inputs.</para>
 /// </summary>
