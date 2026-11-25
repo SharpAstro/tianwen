@@ -67,7 +67,8 @@ public sealed class Comet10PAcceptanceProbe(ITestOutputHelper output)
 
         var reading = CometResidue.MeasureFiles(starLayer, composite, ReachPx);
 
-        output.WriteLine($"10P: {reading}");
+        output.WriteLine($"10P: star layer {reading.StarLayer}; model {reading.Model}; sky sigma {string.Join("/", reading.SkySigma)}; "
+            + $"edge harmonic {string.Join("/", reading.EdgeHarmonic)}; {reading.PixelsRead} px read, {reading.StarCorePixels} masked as star cores");
         reading.StarCorePixels.ShouldBeGreaterThan(0, "premise: the stars inside the coma were found and masked");
         // Run 1's dark streaks read -3.69 (no per-frame removal, a model with trail flux in it); a clean run -0.92.
         reading.StarLayer.LuminanceLow.ShouldBeGreaterThan(-2f, "a dark streak beside the bright stars: the model held trail flux");
