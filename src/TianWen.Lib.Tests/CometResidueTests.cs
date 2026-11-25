@@ -179,15 +179,17 @@ public sealed class CometResidueTests
         var star = StarLayer(seed: 2);
         var composite = WithComa(star);
         // What a drizzled 10P comet layer left: the model held magenta trails (red and blue up, green down), subtracted
-        // from the star layer they left green ones, and the composite carries the magenta back.
-        AddTrails(star, red: -6f, green: 6f, blue: -6f);
-        AddTrails(composite, red: 6f, green: -6f, blue: 6f);
+        // from the star layer they left green ones, and the composite carries the magenta back. Each trail is a colour
+        // with no luminance of its own (green up by twice what red and blue are down), as 10P's were: run 2's star layer
+        // read -0.92 in luminance while its chroma read +4.88.
+        AddTrails(star, red: -3f, green: 6f, blue: -3f);
+        AddTrails(composite, red: 3f, green: -6f, blue: 3f);
 
         var reading = CometResidue.Measure(AsImage(star), AsImage(composite), Body, Drift, Reach);
 
-        reading.StarLayer.ChromaHigh.ShouldBeGreaterThan(8f, "the star layer's green trails");
-        reading.Model.ChromaLow.ShouldBeLessThan(-8f, "the model's magenta trails");
-        reading.StarLayer.LuminanceLow.ShouldBeGreaterThan(-CleanBound, "a colour pair that sums to nothing is no dark streak");
+        reading.StarLayer.ChromaHigh.ShouldBeGreaterThan(6f, "the star layer's green trails: chroma 6 + 3");
+        reading.Model.ChromaLow.ShouldBeLessThan(-8f, "the model's magenta trails: chroma -12 - 6");
+        reading.StarLayer.LuminanceLow.ShouldBeGreaterThan(-CleanBound, "a trail of colour with no luminance is no dark streak");
     }
 
     [Fact]
