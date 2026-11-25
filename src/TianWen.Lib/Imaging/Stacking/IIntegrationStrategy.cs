@@ -49,9 +49,9 @@ public enum IntegrationStrategyKind
     /// as a "drop" with per-channel weighted accumulation. Phase 1 ships
     /// at <c>OutputScale=10</c> (same grid as reference) with
     /// <c>Pixfrac=1.0</c> -- exercises the code path without resolution
-    /// recovery; classical 2x sub-Bayer drizzle is Phase 2. Opt-in only:
-    /// <see cref="IntegrationStrategySelector"/> never picks it without an
-    /// explicit <c>--strategy BayerDrizzle</c> override. See
+    /// recovery; classical 2x sub-Bayer drizzle is Phase 2. Auto-picked
+    /// only at scale (<see cref="DrizzleStrategy.AutoSelectMinFrameCount"/> frames
+    /// or more on an RGGB sensor); <c>--strategy BayerDrizzle</c> forces it. See
     /// <see cref="DrizzleOptions"/>.</summary>
     BayerDrizzle,
 
