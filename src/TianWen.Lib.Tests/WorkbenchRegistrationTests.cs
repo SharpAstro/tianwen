@@ -29,7 +29,7 @@ public sealed class WorkbenchRegistrationTests
 
         catalog.All.Select(static operation => operation.Description.Id).ShouldBe(
         [
-            AddLineOperation.Id, AddStarsOperation.Id, AlignOperation.Id, CombineOperation.Id, ContinuumOperation.Id, CropOperation.Id,
+            AddLineOperation.Id, AddStarsOperation.Id, AlignOperation.Id, CombineOperation.Id, CometStackOperation.Id, ContinuumOperation.Id, CropOperation.Id,
             DeblurOperation.Id, DenoiseOperation.Id, DenoiseColourOperation.Id, EnhanceOperation.Id, FillDigsOperation.Id, GradientOperation.Id,
             LinearFitOperation.Id, LrgbOperation.Id, LuminanceOperation.Id, MatchPsfOperation.Id, PlanetaryComposeOperation.Id,
             PlanetarySharpenOperation.Id, PlanetaryStackOperation.Id, ProtectCoresOperation.Id, RemoveStarsOperation.Id, SolveOperation.Id,

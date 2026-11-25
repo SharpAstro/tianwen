@@ -243,12 +243,21 @@ internal sealed class StackSubCommand(
         };
         var cometOpt = new Option<string?>("--comet")
         {
-            Description = "Comet / moving-target integration: register on the BODY instead of the star field, so the comet integrates sharp and the stars trail. Pass a designation ('10P', 'C/2023 A3') or leave the value empty to read it from the frames' own OBJECT card. The rate is derived by plate-solving the reference frame and asking JPL Horizons for a TOPOCENTRIC track over the session's own span, from the site the frames record in SITELAT/SITELONG/SITEELEV - a geocentric ephemeris is NOT good enough (diurnal parallax moved 10P by 2.7 px across one night, 25x the registration residual). Needs network; use --comet-rate offline.",
+            Description = "Comet / moving-target integration: register on the BODY instead of the star field, so the comet integrates sharp and the stars trail. Pass a designation ('10P', 'C/2023 A3') or leave the value empty to read it from the frames' own OBJECT card. The rate is derived by plate-solving the reference frame and asking JPL Horizons for a TOPOCENTRIC track over the session's own span, from the site the frames record in SITELAT/SITELONG/SITEELEV - a geocentric ephemeris is NOT good enough (diurnal parallax moved 10P by 2.7 px across one night, 25x the registration residual). Needs network; offline, give the track as a file with --comet-track (written by 'tianwen comet track', and it keeps the star layer and the composite), or a bare rate with --comet-rate.",
             Arity = ArgumentArity.ZeroOrOne,
         };
         var cometRateOpt = new Option<string?>("--comet-rate")
         {
-            Description = "Comet integration with an EXPLICIT canvas rate, as 'dx,dy' in pixels per hour of the reference frame's pixel grid (e.g. '-11.2,5.9'). The offline counterpart to --comet, and the override when an ephemeris is wrong; wins over --comet when both are given. Note this is CANVAS pixels per hour, not a sky rate: the star solution has already absorbed dither and field rotation by the time it applies. Carries no POSITION, only a rate, so it cannot drive the companion star layer - use --comet for that.",
+            Description = "Comet integration with an EXPLICIT canvas rate, as 'dx,dy' in pixels per hour of the reference frame's pixel grid (e.g. '-11.2,5.9'). The offline counterpart to --comet, and the override when an ephemeris is wrong; wins over --comet when both are given. Note this is CANVAS pixels per hour, not a sky rate: the star solution has already absorbed dither and field rotation by the time it applies. Carries no POSITION, only a rate, so it cannot drive the companion star layer - use --comet, or --comet-track offline, for that.",
+        };
+        var cometTrackOpt = new Option<string?>("--comet-track")
+        {
+            Description = "Comet integration on a track FILE instead of asking JPL Horizons: the file 'tianwen comet track' writes for these frames "
+                          + "(the body's topocentric positions over the night, from the frames' own site). The reference frame is still plate-solved, to "
+                          + "project the track onto its pixels, so the star layer and the composite are made as with --comet; but no network is asked, "
+                          + "and one file always places the comet the same way, which is why a workbench step takes its comet this way (#2489). "
+                          + "The track names its comet, so it is not given with --comet; --comet-rate wins over it, as over --comet. A track asked from "
+                          + "another site, or that does not cover every frame, skips the group and says why.",
         };
         var noStarLayerOpt = new Option<bool>("--no-star-layer")
         {
@@ -352,7 +361,7 @@ internal sealed class StackSubCommand(
                 qualityRejectSigmaOpt, rejectCloudOpt, rejectLowSigmaOpt, rejectHighSigmaOpt,
                 starRemovalModeOpt, saveCalibratedOpt, saveNormalizedOpt,
                 referenceFrameHintOpt, manifestOpt, removeStarsOpt,
-                cometOpt, cometRateOpt, noStarLayerOpt, noCompositeOpt, cometMaskArcsecOpt,
+                cometOpt, cometRateOpt, cometTrackOpt, noStarLayerOpt, noCompositeOpt, cometMaskArcsecOpt,
                 inheritWbOpt,
                 noBayerDrizzleOpt, noColourAlignOpt, includeIntegrationsOpt, includeMaybeCloudOpt, noClearNightReferencesOpt, nominalHostOpt,
                 enhanceOpt, enhanceBlendOpt, splitPlatesOpt,
@@ -451,6 +460,28 @@ internal sealed class StackSubCommand(
                 cometRate = explicitRate;
             }
 
+            // A comet's track as a file (#2489): read here, so a file that is no track is a usage error before any scan.
+            // It names its own comet, so a designation beside it would be a second answer to one question.
+            TianWen.Lib.Astrometry.Comets.CometTrack? cometTrack = null;
+            if (parseResult.GetValue(cometTrackOpt) is { Length: > 0 } cometTrackPath)
+            {
+                if (cometDesignation is not null)
+                {
+                    consoleHost.WriteError("--comet-track names its own comet: give it or --comet, not both");
+                    return 1;
+                }
+
+                if (!TianWen.Lib.Astrometry.Comets.CometTrack.TryRead(cometTrackPath, out var readTrack, out var trackRefusal))
+                {
+                    consoleHost.WriteError($"--comet-track: {trackRefusal}");
+                    return 1;
+                }
+
+                cometTrack = readTrack;
+                consoleHost.WriteScrollable(
+                    $"[stack] comet track of {readTrack.Designation}: {readTrack.Samples.Length} positions from {readTrack.Samples[0].TimeUtc:u} to {readTrack.Samples[^1].TimeUtc:u}, no network asked");
+            }
+
             // An inherited white balance is read from the DONOR master's own header, so the number
             // never passes through a human. Failing loudly matters here: silently falling back to a
             // fresh SPCC solve would produce a plate calibrated differently from the one it is meant
@@ -541,6 +572,9 @@ internal sealed class StackSubCommand(
                 RemoveStarsPerFrame = parseResult.GetValue(removeStarsOpt),
                 CometRatePxPerHour = cometRate,
                 CometDesignation = cometDesignation,
+                CometTrack = cometTrack,
+                // --no-plate-solve leaves the masters unsolved; a comet run still solves its reference frame below.
+                SolveMaster = !parseResult.GetValue(noPlateSolveOpt),
                 CometStarLayer = !parseResult.GetValue(noStarLayerOpt),
                 CometComposite = !parseResult.GetValue(noCompositeOpt),
                 CometMaskArcsec = parseResult.GetValue(cometMaskArcsecOpt),
@@ -668,7 +702,13 @@ internal sealed class StackSubCommand(
             // instant when the background load has completed and
             // otherwise blocks the minimal necessary window. Skipped
             // entirely under --no-plate-solve.
-            if (!skipPlateSolve)
+            // A comet run placed by a track or a designation solves its REFERENCE frame against the catalogue whether or
+            // not the masters are solved (StackingOptions.SolveMaster), so it is handed the catalogue under
+            // --no-plate-solve too. Before, the catalogue's absence was the only switch, and --no-plate-solve --comet
+            // derived no rate and skipped every group.
+            var cometSolvesReference = options.CometTrack is not null || options.CometDesignation is not null;
+            var handCatalogue = !skipPlateSolve || cometSolvesReference;
+            if (handCatalogue)
             {
                 _ = catalogDb.InitDBAsync(waitForTycho2BulkLoad: true, cancellationToken: ct);
             }
@@ -676,7 +716,7 @@ internal sealed class StackSubCommand(
             var pipeline = new StackingPipeline(
                 options,
                 pipelineLogger,
-                catalogDb: skipPlateSolve ? null : catalogDb,
+                catalogDb: handCatalogue ? catalogDb : null,
                 progress: progress,
                 sharpenPipeline: options.Enhance ? sharpenPipeline : null,
                 // Per-step enhance progress (deblur / denoise can run for minutes) -- only

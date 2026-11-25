@@ -64,6 +64,10 @@ public static class WorkbenchServiceCollectionExtensions
         services.AddSingleton<IOperation, PlanetarySharpenOperation>();
         // The stack of a set of frames: a folder is the image's original, and each group's master a result of the step.
         services.AddSingleton<IOperation, StackOperation>();
+        // A comet's night stacked on the comet: the frames' folder, and the comet's track as a file. The catalogue its
+        // reference frame is solved against and the star remover of its star layer are the host's where it registered
+        // them; one without a catalogue still has the step, which says so when it runs with a track.
+        services.AddSingleton<IOperation, CometStackOperation>();
         services.TryAddSingleton<OperationCatalog>();
         services.TryAddSingleton<WorkbenchRunner>();
         return services;

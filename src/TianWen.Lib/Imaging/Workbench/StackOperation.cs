@@ -21,9 +21,9 @@ namespace TianWen.Lib.Imaging.Workbench;
 /// <remarks>
 /// What <c>tianwen stack</c> does besides is no setting here. A plate solve is a step of its own
 /// (<see cref="SolveOperation"/>), an enhance is one too, and a picture of a master is how a result is shown. A comet
-/// run (<c>--comet</c>, <c>--remove-stars</c>, <c>--manifest</c>) is not W1: it is its own issue (#2489).
+/// run is an operation of its own (<see cref="CometStackOperation"/>, #2489), whose settings are these and its own.
 /// </remarks>
-public sealed record StackSettings
+public record StackSettings
 {
     // The record the verb's options default to, so a default is said once.
     private static readonly StackingOptions Defaults = new(string.Empty, string.Empty);
@@ -136,8 +136,14 @@ public sealed class StackOperation(ILogger<StackingPipeline>? logger = null) : R
 
     /// <inheritdoc/>
     public override OperationDescription Description { get; } = new(
-        Id, Version: 1, Title: "Stack", Verb: "stack", OperationOutputKind.Stored, ExtraInputs: [],
-        Settings:
+        Id, Version: 1, Title: "Stack", Verb: "stack", OperationOutputKind.Stored, ExtraInputs: [], Settings: SettingsListed)
+    {
+        NamedByRun = true,
+        TakesFrameSet = true,
+    };
+
+    /// <summary>The settings of <see cref="StackSettings"/> as a listing shows them; the comet stack lists these first.</summary>
+    internal static ImmutableArray<OperationSetting> SettingsListed { get; } =
         [
             new OperationSetting("groupFilter", "Stack only the groups whose name holds this; left out, every group."),
             new OperationSetting("groupExclude", "Leave out the groups whose name holds this; left out, none."),
@@ -169,17 +175,17 @@ public sealed class StackOperation(ILogger<StackingPipeline>? logger = null) : R
             new OperationSetting("drizzlePixfrac", "A drizzle drop's size, 0 to 1."),
             new OperationSetting("drizzleMinFrames", "The least matched frames a drizzle runs on."),
             new OperationSetting("bayerDrizzle", "Let the stack choose a drizzle where the frames allow one."),
-        ])
-    {
-        NamedByRun = true,
-        TakesFrameSet = true,
-    };
+        ];
 
     /// <inheritdoc/>
     protected override JsonTypeInfo<StackSettings> SettingsInfo => OperationSettingsJsonContext.Default.StackSettings;
 
     /// <inheritdoc/>
-    public override string? Refusal(StackSettings settings)
+    public override string? Refusal(StackSettings settings) => RefusalOf(settings);
+
+    /// <summary>Why <paramref name="settings"/> cannot be run, in words; null when they can. The comet stack refuses
+    /// its share of its settings by this too.</summary>
+    public static string? RefusalOf(StackSettings settings)
     {
         ArgumentNullException.ThrowIfNull(settings);
         // Each thing is said one way: a filter that filters nothing is left out, not written empty.
@@ -315,6 +321,8 @@ public sealed class StackOperation(ILogger<StackingPipeline>? logger = null) : R
             ClearNightReferences = false,
             // The strategy by the frames alone, never by this computer's free memory.
             NominalProbe = true,
+            // No master is solved: a solve is a step of its own (the line's --no-plate-solve).
+            SolveMaster = false,
         };
     }
 
@@ -360,11 +368,19 @@ public sealed class StackOperation(ILogger<StackingPipeline>? logger = null) : R
 
     /// <inheritdoc/>
     public override ImmutableArray<string> CommandLine(StackSettings settings, IReadOnlyList<string> inputs, string output)
+        => LineOf(settings, inputs[0], output).ToImmutable();
+
+    /// <summary>
+    /// The <c>tianwen stack</c> line that stacks <paramref name="frames"/> into <paramref name="output"/> as
+    /// <paramref name="settings"/> say: the step's own, and the start of the comet stack's, which adds its options after.
+    /// </summary>
+    public static ImmutableArray<string>.Builder LineOf(StackSettings settings, string frames, string output)
     {
+        ArgumentNullException.ThrowIfNull(settings);
         var line = ImmutableArray.CreateBuilder<string>();
         // No plate solve (a solve is a step of its own), no picture, never this computer's clear nights and never
         // this computer's free memory in the choice of a strategy.
-        line.AddRange(StepCommandLine.Program, "stack", inputs[0], "--output", output, "--no-plate-solve", "--output-format", "none",
+        line.AddRange(StepCommandLine.Program, "stack", frames, "--output", output, "--no-plate-solve", "--output-format", "none",
             "--no-clear-night-references", "--nominal-host");
 
         // A setting is on the line wherever it is not the verb's own default, so the line replays what the step ran.
@@ -488,11 +504,11 @@ public sealed class StackOperation(ILogger<StackingPipeline>? logger = null) : R
             line.Add("--no-bayer-drizzle");
         }
 
-        return line.ToImmutable();
+        return line;
     }
 
     // An option's value as a word: an enum's name or a switch's state, in lower case as a person types it.
-    private static string Word<T>(T value)
+    internal static string Word<T>(T value)
         where T : struct
         => value.ToString()?.ToLowerInvariant() ?? string.Empty;
 
@@ -550,7 +566,7 @@ public sealed class StackOperation(ILogger<StackingPipeline>? logger = null) : R
     }
 
     // What belongs beside a master and is found by its name: its map sidecars and its manifest, where the run wrote them.
-    private static ImmutableArray<string> BesideOf(string master)
+    internal static ImmutableArray<string> BesideOf(string master)
     {
         var beside = ImmutableArray.CreateBuilder<string>();
         beside.AddRange(IntegrationFitsWriter.ExistingSidecarsOf(master));
@@ -564,7 +580,7 @@ public sealed class StackOperation(ILogger<StackingPipeline>? logger = null) : R
 
     // The scan's summary alone, said where it is reported: the one report that comes once and from the run's own
     // flow. A frame's and a strip's ticks come from many threads, and a step's lines are no place for them.
-    private sealed class ScanReports(Action<string> say) : IProgress<StackingProgress>
+    internal sealed class ScanReports(Action<string> say) : IProgress<StackingProgress>
     {
         public void Report(StackingProgress value)
         {

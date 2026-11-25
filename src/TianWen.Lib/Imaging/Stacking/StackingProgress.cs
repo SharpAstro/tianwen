@@ -53,6 +53,11 @@ public sealed record GroupResult(
     /// <summary>The integration strategy that made the master; null for a group skipped before one was picked.</summary>
     public IntegrationStrategyKind? Strategy { get; init; }
 
+    /// <summary>Absolute path to <c>master_&lt;slug&gt;_stars.fits</c>, the star layer a comet run writes beside its
+    /// comet-aligned master (the same frames registered on the stars, the body taken out); null where none was written.
+    /// A workbench step names it a result of its own (#2489).</summary>
+    public string? StarLayerFitsPath { get; init; }
+
     /// <summary>Where <see cref="Strategy"/> came from, in words a line can carry: <c>stated</c> (<c>--strategy</c>),
     /// <c>chosen for this computer</c>, or <c>chosen for the nominal computer</c>
     /// (<see cref="StackingOptions.NominalProbe"/>). Empty where there is no strategy.</summary>
