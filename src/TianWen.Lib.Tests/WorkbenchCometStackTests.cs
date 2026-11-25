@@ -386,15 +386,17 @@ public sealed class WorkbenchCometStackTests(ITestOutputHelper output) : IDispos
         refused.Message.ShouldContain("states no white balance");
 
         // Its run followed an original that stated a balance, with inheritWhiteBalance: the four cards
-        // MasterPostProcessor.StampColourCalibrationAsync writes on the master, with the donor's source kept.
-        var donor = new ColourCalibration(1.31f, 1f, 0.77f, ColourCalibrationSource.Spcc);
+        // MasterPostProcessor.StampColourCalibrationAsync writes on the master, with the donor's source kept. The source
+        // is the sky background's (SKYBG), since a master with no WBSOURCE card reads as SPCC (ColourCalibration.FromCard)
+        // and so could not show the card was written.
+        var donor = new ColourCalibration(1.31f, 1f, 0.77f, ColourCalibrationSource.SkyBackground);
         await FitsHeaderEditor.SetStringCardAsync(layer, "WBSOURCE", ColourCalibration.CardOf(donor.Source), overwriteExisting: true, apply: true, cancellationToken: ct);
         await FitsHeaderEditor.SetNumericCardAsync(layer, "WBRED", donor.R, overwriteExisting: true, apply: true, cancellationToken: ct);
         await FitsHeaderEditor.SetNumericCardAsync(layer, "WBGREEN", donor.G, overwriteExisting: true, apply: true, cancellationToken: ct);
         await FitsHeaderEditor.SetNumericCardAsync(layer, "WBBLUE", donor.B, overwriteExisting: true, apply: true, cancellationToken: ct);
         Image.TryReadFitsHeader(layer, out var header).ShouldBeTrue();
         var stated = header.Meta.ColourCalibration.ShouldNotBeNull("premise: the master states the balance its run inherited");
-        stated.Source.ShouldBe(ColourCalibrationSource.Spcc);
+        stated.Source.ShouldBe(ColourCalibrationSource.SkyBackground);
         stated.R.ShouldBe(donor.R, 1e-6f);
         stated.G.ShouldBe(donor.G, 1e-6f);
         stated.B.ShouldBe(donor.B, 1e-6f);
