@@ -155,6 +155,33 @@ un-maximises my window"**, a window-management bug with no visible connection to
 that caused it. The compound state needs no special case: a window minimised FROM maximised comes back
 maximised.
 
+## Who the app is: one id per app
+
+**Each app claims one reverse-DNS id before its first window, and outside the Store package the same string
+goes to Windows and to SDL.** `DesktopAppIdentity` (TianWen.UI.Shared) holds both apps' ids and names: `com.sharpastro.tianwen.gui`
+("TianWen") and `com.sharpastro.tianwen.fits` ("Astro Photo Viewer"). Each `Program.cs` calls AppShell's
+`AppIdentity.Claim(id, name)` after the single-instance gate (a launch that hands off and exits names nothing)
+and passes `SdlMetadataFor(startMenuShortcut == StartMenuShortcut.Packaged)` to `SdlVulkanWindow.Create`.
+
+- **On Windows** `Claim` gives the process that app id (AppUserModelID) and keeps a Start menu shortcut of
+  that name carrying it, which is where the shell finds the name and icon: taskbar grouping, Start search,
+  the media flyout. Without it Windows knows the app by its executable's file name. It must run before the
+  first window: a window takes its process's app id when it is created.
+- **Inside the Store package it does nothing** (AppShell 1.5, `StartMenuShortcut.Packaged`): the manifest
+  names Astro Photo Viewer already, and an id of our own would split its windows from the package's tile.
+  So the zip build and the Store build make the same call. SDL is told the same: `SdlMetadataFor(packaged)`
+  leaves the identifier null when `Claim` answered `Packaged`, so there is no second id in the Store build.
+  A `Foreign` or `Failed` answer is logged at Warning (the app then shows as an unknown app).
+- **Why one string for both.** SDL hands the identifier to Wayland (`app_id`), X11 (`WM_CLASS`) and macOS,
+  and in the SDL releases that have desktop notifications it registers a Windows toast under it. If the
+  Windows app id were a different string, a toast (#2507) would group apart from the app's windows.
+- **The packaging repeats it**: the macOS bundles' `CFBundleIdentifier` and `CFBundleName`, and the Store
+  manifest's display name for the viewer. `DesktopAppIdentityTests` holds them together. A rename is one
+  edit there and one in the packaging, never one alone.
+- **A development build** run from `bin` gets the shortcut too, the first time when there is none; AppShell
+  keeps a shortcut that points at a copy still on disk and repoints one whose target is gone, so an
+  installed copy keeps it.
+
 ## Where the pieces live, and why
 
 **Three layers, and the arguments are the point:**
