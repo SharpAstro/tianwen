@@ -208,13 +208,14 @@ public sealed class WorkbenchCometStackTests(ITestOutputHelper output) : IDispos
         public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default) => Task.FromResult(input);
     }
 
-    // A small night (three of StackingCloudEmptiedGroupTest's lights: 51 N, 0 E, 2026-12-21 from midnight) and a track
-    // of 10P asked from the given latitude, every ten minutes from 23:50 to 00:20, in a project of their own.
+    // A small night (four of StackingCloudEmptiedGroupTest's lights: 51 N, 0 E, 2026-12-21 from midnight; four, since the
+    // stack drops a group of fewer as a ghost sub-group, MinSubGroupFrames) and a track of 10P asked from the given
+    // latitude, every ten minutes from 23:50 to 00:20, in a project of their own.
     private async Task<(string Project, string Track)> SmallNightAsync(string name, float trackLatitude, CancellationToken ct)
     {
         var frames = Path.Combine(_folders.Create($"{name}-night-").FullName, "2026-12-21");
         Directory.CreateDirectory(frames);
-        StackingCloudEmptiedGroupTest.WriteFrames(frames, FrameType.Light, skyBackground: 100.0, count: 3);
+        StackingCloudEmptiedGroupTest.WriteFrames(frames, FrameType.Light, skyBackground: 100.0, count: 4);
         var trackPath = Path.Combine(_folders.Create($"{name}-track-").FullName, "10P.json");
         var start = new DateTimeOffset(2026, 12, 20, 23, 50, 0, TimeSpan.Zero);
         await new CometTrack(CometTrack.CurrentSchemaVersion, CometTrack.Horizons, "10P", trackLatitude, 0f, 0,
