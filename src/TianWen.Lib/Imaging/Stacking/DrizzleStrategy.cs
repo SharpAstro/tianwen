@@ -40,11 +40,12 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// pixel and coverage is robust at moderate frame counts (60+ recommended
 /// for clean R/B fills under typical sub-pixel dither).</para>
 ///
-/// <para>Opt-in only: <see cref="Evaluate"/> reports <c>CanRun = false</c>
-/// to keep <see cref="IntegrationStrategySelector"/> from auto-picking it.
-/// The user override path (<c>--strategy BayerDrizzle</c>) still routes
-/// here. The pipeline gates frame count + Bayer pattern before invoking
-/// the strategy, so this class assumes valid inputs.</para>
+/// <para>Auto-picked only at scale: <see cref="Evaluate"/> reports <c>CanRun = true</c> for an RGGB sensor with at
+/// least <see cref="AutoSelectMinFrameCount"/> frames within the RAM budget, so <see cref="IntegrationStrategySelector"/>
+/// may choose it; below that it reports <c>CanRun = false</c>. Layers it cannot build correctly (a comet layer of
+/// per-frame starless plates, a masked or model-subtracted one) exclude it through the pipeline's comet-layer filter.
+/// The user override path (<c>--strategy BayerDrizzle</c>) still routes here. The pipeline gates frame count + Bayer
+/// pattern before invoking the strategy, so this class assumes valid inputs.</para>
 /// </summary>
 public sealed class DrizzleStrategy : IIntegrationStrategy
 {

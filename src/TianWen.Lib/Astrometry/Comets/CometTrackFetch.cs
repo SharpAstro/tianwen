@@ -30,7 +30,7 @@ public static class CometTrackFetch
 {
     /// <summary>
     /// The Horizons request for the lights a stack of <paramref name="framesFolder"/> takes, with how many there are;
-    /// the refusal in words in place of a request where there is none to make: no light, lights of more than one comet
+    /// the refusal in words in place of a request where there is none to make: no such folder, no light, lights of more than one comet
     /// with none named, lights from more than one site, or a site or a designation the frames do not give.
     /// </summary>
     /// <param name="framesFolder">The night's folder; read recursively, headers only, as the stack scans it.</param>
@@ -41,14 +41,14 @@ public static class CometTrackFetch
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrEmpty(framesFolder);
-        // A frame named as a suspected cloud is a light of the night a stack may be asked to keep
-        // (--include-maybe-cloud), so the window covers it; an integration a stack would only keep when asked
-        // (--include-integrations) is no exposure of this night's and is left out.
         if (!Directory.Exists(framesFolder))
         {
             return (default, 0, $"there is no folder {framesFolder}");
         }
 
+        // A frame named as a suspected cloud is a light of the night a stack may be asked to keep
+        // (--include-maybe-cloud), so the window covers it; an integration a stack would only keep when asked
+        // (--include-integrations) is no exposure of this night's and is left out.
         var scan = await StackingPipeline.ScanFramesAsync(framesFolder, outputDir: null, includeIntegrations: false,
             includeSuspectedCloud: true, cancellationToken);
         return RequestFor(framesFolder, designation, scan.Frames.Where(static frame => frame.FrameType is FrameType.Light));
