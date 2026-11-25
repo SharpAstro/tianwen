@@ -220,6 +220,10 @@ public sealed class CometTrackTests : IDisposable
         var empty = _folders.Create("empty-").FullName;
         (await CometTrackFetch.RequestForAsync(empty, designation: null, ct)).Refusal.ShouldNotBeNull().ShouldContain("there is no light");
 
+        // A folder that does not exist is a refusal in words too, never a DirectoryNotFoundException.
+        var missing = Path.Combine(empty, "not-there");
+        (await CometTrackFetch.RequestForAsync(missing, designation: null, ct)).Refusal.ShouldNotBeNull().ShouldContain("there is no folder");
+
         // The antimeridian: lights at 179.99 E and 179.99 W are one site, as a stack's own check says (SameSite).
         var dateline = _folders.Create("dateline-").FullName;
         WriteLight(Path.Combine(dateline, "a.fits"), Night, "10P", longitude: 179.99f);

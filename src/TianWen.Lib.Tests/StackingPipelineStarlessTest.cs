@@ -148,6 +148,7 @@ public class StackingPipelineStarlessTest(ITestOutputHelper output)
         results.Count.ShouldBe(1, "expected a single integrated light group");
         var result = results[0];
         result.SkipReason.ShouldBeEmpty($"group should not have skipped: '{result.SkipReason}'");
+        result.Strategy.ShouldBe(IntegrationStrategyKind.BayerDrizzle, "a sidereal --remove-stars run has no trail residue to avoid, so a forced drizzle stays forced");
 
         // 1) Every frame reached the remover, and reached it in [0, 1]. The synthetic lights are
         //    Int16 with samples up to ~4096 ADU, so an unscaled hand-off records a max in the

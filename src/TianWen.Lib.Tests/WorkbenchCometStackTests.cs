@@ -579,6 +579,12 @@ public sealed class WorkbenchCometStackTests(ITestOutputHelper output) : IDispos
 
         var chainedLayer = Path.Combine(chained, StepStore.FolderName, StepStore.FileNameOf(StepKey.OfResult(chainStep.Key, group)));
         ShouldBeTheSameFile(chainedLayer, Path.Combine(chainInto, $"master_{group}.fits"), $"the starless comet layer of '{group}' that follows the stored master");
+
+        // A starless comet layer is never drizzled: a drizzle clips each sample once and keeps the star remover's trail residue.
+        var layerHeader = HeaderOf(chainedLayer);
+        layerHeader.ShouldContain("STRATEGY=", customMessage: "the layer's master states the strategy that built it");
+        layerHeader.ShouldNotContain($"STRATEGY= '{IntegrationStrategyKind.BayerDrizzle}", customMessage: "a starless comet layer is never Bayer-drizzled");
+        layerHeader.ShouldNotContain($"STRATEGY= '{IntegrationStrategyKind.TilePipelinedDrizzle}", customMessage: "a starless comet layer is never tile-drizzled");
     }
 
     // The ASCII header blocks of a FITS file, up to and with its END card.

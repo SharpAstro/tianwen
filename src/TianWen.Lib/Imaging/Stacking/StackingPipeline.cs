@@ -1939,8 +1939,9 @@ public sealed class StackingPipeline(
             // sigma-clipped one, and it came back as the coloured ring round the coma in the composite.
             var preferredStrategy = options.ForcedStrategy;
             // useStarless only says "the starless plate where there is one": every primary layer passes it, a sidereal
-            // stack's too, so the plates exist only under RemoveStarsPerFrame.
-            var starless = useStarless && options.RemoveStarsPerFrame;
+            // stack's too, so the plates exist only under RemoveStarsPerFrame. Only a comet-aligned grid is a comet layer:
+            // a sidereal stack with --remove-stars keeps every strategy (no drift, so no trail residue on the grid).
+            var starless = useStarless && options.RemoveStarsPerFrame && cometRate is not null;
             if (CometLayerExclusions(masked: layerMask is not null, modelled: layerModel is not null, starless) is { Count: > 0 } excluded)
             {
                 pool = (pool ?? IntegrationStrategySelector.DefaultStrategies())

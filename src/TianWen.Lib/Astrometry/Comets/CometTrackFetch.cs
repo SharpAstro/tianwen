@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -43,6 +44,11 @@ public static class CometTrackFetch
         // A frame named as a suspected cloud is a light of the night a stack may be asked to keep
         // (--include-maybe-cloud), so the window covers it; an integration a stack would only keep when asked
         // (--include-integrations) is no exposure of this night's and is left out.
+        if (!Directory.Exists(framesFolder))
+        {
+            return (default, 0, $"there is no folder {framesFolder}");
+        }
+
         var scan = await StackingPipeline.ScanFramesAsync(framesFolder, outputDir: null, includeIntegrations: false,
             includeSuspectedCloud: true, cancellationToken);
         return RequestFor(framesFolder, designation, scan.Frames.Where(static frame => frame.FrameType is FrameType.Light));
