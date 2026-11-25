@@ -22,6 +22,7 @@ using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Imaging.Stacking;
 using TianWen.Lib.Imaging.Workbench;
@@ -359,6 +360,60 @@ public sealed class WorkbenchCometStackTests(ITestOutputHelper output) : IDispos
             .ShouldBe(CometStackOperation.OptionsOf(settings, frames, into, track: null, StackManifest.PathFor(followed), balance));
         options.InheritedWhiteBalance.ShouldBe(balance);
         options.RemoveStarsPerFrame.ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// The chain: a master a comet-stack step wrote states no balance of its own, so a run that follows it with
+    /// inheritWhiteBalance is refused; once its own run inherited one, its master carries the cards the post-processing
+    /// stamps for an inherited balance (WBSOURCE, WBRED, WBGREEN, WBBLUE, with the donor's source, render or no render:
+    /// <c>InheritedWhiteBalanceStampTests</c>), and the run that follows it takes that balance.
+    /// </summary>
+    [Fact]
+    public async Task AMasterWhoseRunInheritedABalanceGivesItToTheRunThatFollowsIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var frames = _folders.Create("frames-").FullName;
+        var into = Path.Combine(_folders.Create("into-").FullName, "masters");
+        var trackPath = Path.Combine(_folders.Create("track-").FullName, "10P.json");
+        await AnyTrack().WriteAsync(trackPath, ct);
+        // A colour master as a comet-stack step writes it (no render, no enhance): a manifest beside it, and no balance.
+        var layer = WriteMaster(_folders.Create("masters-").FullName, "master_10P", 3, balance: null, withManifest: true);
+        var operation = new CometStackOperation(catalogDb: Substitute.For<ICelestialObjectDB>());
+        var settings = new CometStackSettings { InheritWhiteBalance = true, StarLayer = false };
+
+        var refused = (await operation.RunIntoAsync(settings, [.. new[] { frames, trackPath, layer }.Select(OperationInput.FromFile)],
+            _folders.Create("refused-").FullName, null, ct)).Outcome;
+        refused.Message.ShouldContain("states no white balance");
+
+        // Its run followed an original that stated a balance, with inheritWhiteBalance: the four cards
+        // MasterPostProcessor.StampColourCalibrationAsync writes on the master, with the donor's source kept.
+        var donor = new ColourCalibration(1.31f, 1f, 0.77f, ColourCalibrationSource.Spcc);
+        await FitsHeaderEditor.SetStringCardAsync(layer, "WBSOURCE", ColourCalibration.CardOf(donor.Source), overwriteExisting: true, apply: true, cancellationToken: ct);
+        await FitsHeaderEditor.SetNumericCardAsync(layer, "WBRED", donor.R, overwriteExisting: true, apply: true, cancellationToken: ct);
+        await FitsHeaderEditor.SetNumericCardAsync(layer, "WBGREEN", donor.G, overwriteExisting: true, apply: true, cancellationToken: ct);
+        await FitsHeaderEditor.SetNumericCardAsync(layer, "WBBLUE", donor.B, overwriteExisting: true, apply: true, cancellationToken: ct);
+        Image.TryReadFitsHeader(layer, out var header).ShouldBeTrue();
+        var stated = header.Meta.ColourCalibration.ShouldNotBeNull("premise: the master states the balance its run inherited");
+        stated.Source.ShouldBe(ColourCalibrationSource.Spcc);
+        stated.R.ShouldBe(donor.R, 1e-6f);
+        stated.G.ShouldBe(donor.G, 1e-6f);
+        stated.B.ShouldBe(donor.B, 1e-6f);
+
+        var line = operation.CommandLine(settings, [frames, trackPath, layer], into).ToArray();
+
+        output.WriteLine(StepCommandLine.Display(line));
+        line.ShouldContain("--inherit-wb");
+        line.ShouldContain(layer);
+        StackingOptions? resolved = null;
+        var said = new ConcurrentQueue<string>();
+        var verb = Verb(said, new PipelineLog(output), Substitute.For<ICelestialObjectDB>(), Substitute.For<IExternal>(), options =>
+        {
+            resolved = options;
+            return 0;
+        });
+
+        (await verb.Parse(line[2..]).InvokeAsync(cancellationToken: ct)).ShouldBe(0, string.Join(Environment.NewLine, said));
+        resolved.ShouldNotBeNull().InheritedWhiteBalance.ShouldBe(stated);
     }
 
     /// <summary>
