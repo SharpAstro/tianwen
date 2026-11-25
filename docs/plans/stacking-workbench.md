@@ -596,7 +596,7 @@ asks once and writes it; the project holds it as an original, read by its bytes,
 offline run keeps its star layer. The second: the stars removed from every frame (`removeStars`, the comet layer), and
 **a run that follows another, decided by the owner the same day**: one image after the track, the earlier stack's
 master, whose manifest drives the run and whose white balance it takes where asked (`--manifest`, `--inherit-wb`; only a master that states one gives it, an original
-the verb wrote with a picture or an enhance's image, never a master a workbench step wrote). How
+the verb wrote with a picture, never a master a workbench step wrote). How
 the code does it: [workbench-operations.md](../architecture/workbench-operations.md), "A comet's night stacked on the
 comet".
 

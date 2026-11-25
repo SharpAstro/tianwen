@@ -417,7 +417,7 @@ public sealed class WorkbenchCometStackTests(ITestOutputHelper output) : IDispos
     /// </summary>
     // Heavy by measurement: 57.5 s on Linux and 68.6 s on Windows in its first CI run (#2517), two stacks of six 9 Mpx
     // frames, each with its star layer, and a plate solve of the reference in each; 1 min 52 s and 2 min 3 s in the
-    // heavy run. The comet layer that follows (#2489's second leg) adds two more stacks, each frame's stars removed.
+    // heavy run. The comet layer that follows (#2489's second leg) adds the stored master's stack and the follower's, each frame's stars removed, and the verb's run of the follower.
     [Fact(Timeout = 600_000)]
     [Trait("Category", "Heavy")]
     public async Task TheCometStepsMastersAreTheFilesTianwenStackWritesOnTheTrack()
@@ -483,45 +483,14 @@ public sealed class WorkbenchCometStackTests(ITestOutputHelper output) : IDispos
 
         // The comet layer that follows the comet master (#2489's second leg): each frame's stars removed (by a stand-in
         // that hands back a copy of its input), the run driven by the master's manifest, so it shares its frames and its
-        // reference. The master is the verb's file, with the manifest the verb wrote beside it: a master given as an
-        // original; the one from the store is followed below.
-        var verbMaster = Path.Combine(into, $"master_{group}.fits");
-        File.Exists(StackManifest.PathFor(verbMaster)).ShouldBeTrue("premise: the verb wrote the master's manifest beside it");
-        var layered = _folders.Create("comet-layer-").FullName;
-        await WorkbenchProjectFile.WriteAsync(layered, WorkbenchFixtures.Project(
-            WorkbenchFixtures.Picture("starless", frames, WorkbenchFixtures.Edit(CometStackOperation.Id,
-                new JsonObject { ["removeStars"] = true, ["starLayer"] = false }, "track", "comet")),
-            WorkbenchFixtures.Picture("track", trackPath),
-            WorkbenchFixtures.Picture("comet", verbMaster)), ct);
+        // reference. A master given as an original follows by the same StackManifest.PathFor, which the fast tests hold
+        // with hand-written masters; here the master is the first step's stored result, so it is the store's companion
+        // manifest that is found.
         var remover = new StandInRemover("Stand-in remover");
         var layerRunner = new WorkbenchRunner(new OperationCatalog([new CometStackOperation(log, db, remover)]));
 
-        var layerReport = await layerRunner.RunAsync(layered, new WorkbenchRunOptions { Say = output.WriteLine }, ct);
-
-        var layerStep = Of(layerReport, "starless").Steps[0];
-        layerStep.State.ShouldBe(StepState.Ran, Said(layerReport));
-        layerStep.ServedBy.ShouldBe("each frame's stars removed by Stand-in remover (mosaic)");
-        StepResultsList.TryRead(layerStep.Output.ShouldNotBeNull(), out var layerNames).ShouldBeTrue();
-        layerNames.ToArray().ShouldBe([group], "the comet layer alone: no star layer was asked for");
-        var starless = Path.Combine(layered, StepStore.FolderName, StepStore.FileNameOf(StepKey.OfResult(layerStep.Key, group)));
-        HeaderOf(starless).ShouldContain("ALIGNMNT= 'Comet");
-
-        var layerLine = layerStep.CommandLine.ToArray();
-        layerLine.ShouldContain("--remove-stars");
-        layerLine.ShouldContain(StackManifest.PathFor(verbMaster), "the line names the manifest of the master it follows");
-        var layerInto = Path.Combine(_folders.Create("verb-layer-").FullName, "output");
-        layerLine[4] = layerInto;
-        var layerSaid = new ConcurrentQueue<string>();
-        var layerVerb = Verb(layerSaid, log, db, new FakeExternal(output, root: _folders.Create("memory-layer-")), remover: remover);
-        output.WriteLine(StepCommandLine.Display(layerLine));
-
-        (await layerVerb.Parse(layerLine[2..]).InvokeAsync(cancellationToken: ct)).ShouldBe(0, string.Join(Environment.NewLine, layerSaid));
-
-        ShouldBeTheSameFile(starless, Path.Combine(layerInto, $"master_{group}.fits"), $"the starless comet layer of '{group}'");
-
-        // The same follow, the master being the first step's stored result: a picture that starts from the night step's
-        // result `group`, so it is the stored master's companion manifest (the store keeps it beside each master under
-        // the result's name) that StackManifest.PathFor finds. The night step makes no star layer, so its key does not
+        // A picture that starts from the night step's result `group`, so it is the stored master's companion manifest (the
+        // store keeps it beside each master under the result's name) that StackManifest.PathFor finds. The night step makes no star layer, so its key does not
         // hang on the remover and the extra stack is cheap.
         var chained = _folders.Create("comet-chain-").FullName;
         await WorkbenchProjectFile.WriteAsync(chained, WorkbenchFixtures.Project(
