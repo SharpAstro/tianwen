@@ -251,6 +251,17 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public RectF32? TakePointerMoveChanged(out bool unstated)
         {
+            // The tab on show catches up with where the pointer is now (IPointerMoveChange.SettlePointer), and what that
+            // changed is stated with what the moves did: this is asked from the redraw check, so right before every frame.
+            if (_chrome.ActiveTab is IPointerMoveChange settling)
+            {
+                settling.SettlePointer();
+                if (settling.TakePointerMoveChanged() is { } settled)
+                {
+                    _pointerMoveChanged = _pointerMoveChanged is { } held ? Union(held, settled) : settled;
+                }
+            }
+
             var changed = _pointerMoveChanged;
             unstated = _pointerMoveUnstated;
             _pointerMoveChanged = null;

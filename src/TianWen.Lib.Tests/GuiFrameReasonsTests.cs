@@ -79,17 +79,40 @@ public class GuiFrameReasonsTests
     public void AnIdleTabAsksForAFrameAtItsOwnInterval(GuiTab tab, double seconds)
         => GuiTimeCadence.Interval(tab, runGoingOn: false, previewCapturing: false, slewInFlight: false).TotalSeconds.ShouldBe(seconds);
 
-    // Half a pixel of drift at the sidereal rate: 60 degrees down 800 px is 270 arcseconds a pixel, 9 s.
+    // A pixel of drift at the sidereal rate: 60 degrees down 800 px is 270 arcseconds a pixel, 18 s. Never under a
+    // second (a field of a degree) nor over a minute (the whole sky in a small window), and a second with no view yet.
     [Theory]
-    [InlineData(60.0, 800f, 8.98)]
-    [InlineData(60.0, 1600f, 4.49)]
-    [InlineData(90.0, 480f, 22.44)]
+    [InlineData(60.0, 800f, 17.95)]
+    [InlineData(60.0, 1600f, 8.98)]
+    [InlineData(90.0, 480f, 44.88)]
     [InlineData(1.0, 800f, 1.0)]
     [InlineData(180.0, 200f, 60.0)]
     [InlineData(60.0, 0f, 1.0)]
     [InlineData(0.0, 800f, 1.0)]
-    public void TheAtlasIsDrawnWhenItsSkyHasMovedHalfAPixel(double fieldOfViewDeg, float heightPx, double seconds)
+    public void TheAtlasIsDrawnWhenItsSkyHasMovedAPixel(double fieldOfViewDeg, float heightPx, double seconds)
         => GuiTimeCadence.SkyDrift(fieldOfViewDeg, heightPx).TotalSeconds.ShouldBe(seconds, 0.01);
+
+    // A focused field's caret flips every 530 ms on the app clock. A host that leaves its redraw check unasked while
+    // nothing is owed must be asked again by the flip, on the arithmetic the blink itself uses.
+    [Theory]
+    [InlineData(0L, 530)]
+    [InlineData(100L, 430)]
+    [InlineData(529L, 1)]
+    [InlineData(530L, 530)]
+    [InlineData(1_000L, 60)]
+    public void TheCaretsNextFlipIsATimedNeed(long nowMs, int untilMs)
+    {
+        const long ticksPerSecond = 10_000_000;
+        var now = nowMs * ticksPerSecond / 1000;
+
+        var until = GuiTimeCadence.UntilCaretFlips(now, ticksPerSecond);
+
+        until.ShouldBe(TimeSpan.FromMilliseconds(untilMs));
+        // The phase really is another one then, and not a millisecond sooner.
+        var then = now + (long)(until.TotalSeconds * ticksPerSecond);
+        DIR.Lib.CaretBlink.PhaseAt(then, ticksPerSecond).ShouldBe(DIR.Lib.CaretBlink.PhaseAt(now, ticksPerSecond) + 1);
+        DIR.Lib.CaretBlink.PhaseAt(then - (ticksPerSecond / 1000), ticksPerSecond).ShouldBe(DIR.Lib.CaretBlink.PhaseAt(now, ticksPerSecond));
+    }
 
     [Fact]
     public void TheAtlassIntervalIsTheOneItsViewAsksFor()

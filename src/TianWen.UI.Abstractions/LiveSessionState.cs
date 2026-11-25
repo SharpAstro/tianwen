@@ -495,15 +495,34 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public DropdownMenuState<LiveSessionMode> ModeDropdown { get; } = new();
 
-        /// <summary>Needs redraw flag, set from thread-pool callbacks and consumed
-        /// by the render loop. Backed by <see cref="Interlocked.Exchange(ref int, int)"/>
-        /// so a concurrent set-true cannot be silently overwritten by the post-frame clear.</summary>
-        private int _needsRedraw = 1;
+        /// <summary>Needs redraw flag, set from thread-pool callbacks and consumed by the render loop. A
+        /// <see cref="RedrawFlag"/>: the host's clear after a frame (the setter's false) does not take a raise that a
+        /// callback landed while that frame was being drawn. An interlocked exchange stood here for that purpose and
+        /// could not serve it: the clear's exchange overwrote such a raise as surely as a plain write.</summary>
         public bool NeedsRedraw
         {
-            get => Volatile.Read(ref _needsRedraw) != 0;
-            set => Interlocked.Exchange(ref _needsRedraw, value ? 1 : 0);
+            get => _redraw.IsRaised;
+            set
+            {
+                if (value)
+                {
+                    _redraw.Raise();
+                }
+                else
+                {
+                    _redraw.ClearAfterFrame();
+                }
+            }
         }
+
+        private readonly RedrawFlag _redraw = new RedrawFlag(raised: true);
+
+        /// <summary>Called as a frame starts to draw, on the thread that draws it (<see cref="RedrawFlag.BeginDraw"/>).</summary>
+        public void BeginDraw() => _redraw.BeginDraw();
+
+        /// <summary>The host's clear after a frame that repainted everything; true when a raise the draw itself made was
+        /// dropped by it (<see cref="RedrawFlag.ClearAfterFrame"/>).</summary>
+        public bool ClearRedrawAfterFrame() => _redraw.ClearAfterFrame();
 
         /// <summary>Whether the abort confirmation strip is showing.</summary>
         public bool ShowAbortConfirm { get; set; }

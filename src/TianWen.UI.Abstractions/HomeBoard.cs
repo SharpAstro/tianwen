@@ -285,8 +285,7 @@ namespace TianWen.UI.Abstractions
             var cards = ImmutableArray.CreateBuilder<RigCard>(rigs.Bindings.Length + 1);
             cards.Add(LocalCard(contexts.Local, appState, now, isViewed: active.IsLocal));
 
-            foreach (var binding in rigs.Bindings.Sort(static (a, b) =>
-                         string.Compare(a.Alias, b.Alias, StringComparison.CurrentCultureIgnoreCase)))
+            foreach (var binding in BoardOrder(rigs))
             {
                 // This computer's own node, bound as a rig before its view became the local one: its card is the first.
                 if (appState.IsThisComputersNode(binding.NodeId))
@@ -294,11 +293,7 @@ namespace TianWen.UI.Abstractions
                     continue;
                 }
 
-                // Matched on node id, never on the alias: two rigs may announce the same name, and a
-                // renamed rig keeps its binding.
-                var isViewed = !active.IsLocal
-                    && string.Equals(active.NodeId, binding.NodeId, StringComparison.OrdinalIgnoreCase);
-
+                var isViewed = IsViewed(active, binding);
                 cards.Add(rigs.Find(binding.BindingId) is { } connection
                     ? RemoteCard(connection, now, isViewed)
                     : OfflineCard(binding, now, isViewed));
@@ -306,6 +301,49 @@ namespace TianWen.UI.Abstractions
 
             return cards.ToImmutable();
         }
+
+        /// <summary>
+        /// The profile the card on show names (its <see cref="RigCard.Subtitle"/>), without building the board: the window title
+        /// shows it on every tab, while the board is built only where it is drawn (<c>AppSignalHandler.PollPreviewTelemetry</c>).
+        /// The same bindings, in the same order, matched by the same rule and labelled by the same expressions as
+        /// <see cref="BuildCards"/>, so the title and the card cannot disagree about what a rig runs.
+        /// </summary>
+        public static string? ViewedProfile(ViewContexts contexts, RemoteRigRegistry rigs, GuiAppState appState)
+        {
+            var active = contexts.Active;
+            if (active.IsLocal)
+            {
+                return LocalProfile(appState);
+            }
+
+            foreach (var binding in BoardOrder(rigs))
+            {
+                if (!appState.IsThisComputersNode(binding.NodeId) && IsViewed(active, binding))
+                {
+                    // A rig with no connection this run is an offline card, which names no profile.
+                    return rigs.Find(binding.BindingId)?.ProfileName;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// The bound rigs in the order the board lists them: by name rather than binding order, because binding order is load
+        /// order and a board whose cards moved between runs would make the wrong rig the one you click by muscle memory.
+        /// </summary>
+        private static ImmutableArray<RemoteRigBinding> BoardOrder(RemoteRigRegistry rigs) =>
+            rigs.Bindings.Sort(static (a, b) => string.Compare(a.Alias, b.Alias, StringComparison.CurrentCultureIgnoreCase));
+
+        /// <summary>
+        /// Whether <paramref name="binding"/> is the rig on show. Matched on node id, never on the alias: two rigs may announce
+        /// the same name, and a renamed rig keeps its binding.
+        /// </summary>
+        private static bool IsViewed(ViewContext active, RemoteRigBinding binding) =>
+            !active.IsLocal && string.Equals(active.NodeId, binding.NodeId, StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>This computer's card's profile: the app's active profile, which is its node's.</summary>
+        private static string? LocalProfile(GuiAppState appState) => appState.ActiveProfile?.DisplayName;
 
         /// <summary>
         /// What a card says of the run on a view, read off the view's <see cref="LiveSessionState"/>: ONE rule for this
@@ -347,7 +385,7 @@ namespace TianWen.UI.Abstractions
                 Title = local.DisplayName,
                 IsOnline = node is not null,
                 Status = node is null ? appState.WaitingForLocalNode : card.Status,
-                Subtitle = appState.ActiveProfile?.DisplayName,
+                Subtitle = LocalProfile(appState),
                 IsLocal = true,
                 Devices = LocalDeviceLink(appState),
                 IsViewed = isViewed,

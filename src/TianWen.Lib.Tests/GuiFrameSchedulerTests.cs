@@ -54,7 +54,8 @@ public class GuiFrameSchedulerTests
         return (full, narrow);
     }
 
-    // THE guard. Ten seconds with nothing happening: one settling frame after the first, then the clock alone.
+    // THE guard. Ten seconds with nothing happening: the clock alone. A settling frame used to follow the window's first
+    // frame, as it followed every full frame, whether anything had been lost to that frame's clear or not.
     [Theory]
     [InlineData(GuiTab.Home)]
     [InlineData(GuiTab.Equipment)]
@@ -67,15 +68,15 @@ public class GuiFrameSchedulerTests
 
         var (full, narrow) = Run(frames, 10, 10_000, tab);
 
-        full.ShouldBe(1, "the one settling frame after the window's first");
-        narrow.ShouldBe(9, "nine clock ticks, the tenth second's coinciding with the settling frame");
+        full.ShouldBe(0, "nothing was dropped, so nothing is owed a settling frame");
+        narrow.ShouldBe(10, "ten clock ticks");
     }
 
     [Fact]
     public void AClockFrameRepaintsTheClocksRectangle()
     {
         var frames = Drawn();
-        Run(frames, 10, 1_500, GuiTab.Home);   // past the settling frame
+        Run(frames, 10, 1_500, GuiTab.Home);
 
         frames.Check(2_100, Idle()).ShouldBeTrue();
         var damage = frames.BeginFrame(flagged: false, shuttingDown: false, GuiTab.Home, Clock);
@@ -84,16 +85,47 @@ public class GuiFrameSchedulerTests
         frames.FrameIsNarrow.ShouldBeTrue("so the host clears no redraw flag after it");
     }
 
-    // A change is drawn at once, in full, and once more a second later; the second asks for no third.
+    // A change is drawn at once, in full, and that is all of it.
     [Fact]
-    public void AChangeIsOneFullFrameAndOneSettlingFrame()
+    public void AChangeIsOneFullFrame()
     {
         var frames = Drawn();
         Run(frames, 10, 3_000, GuiTab.Home);
 
         var (full, _) = Run(frames, 3_010, 9_000, GuiTab.Home, now => Idle() with { Changed = now == 3_500 });
 
-        full.ShouldBe(2);
+        full.ShouldBe(1);
+    }
+
+    // The settling frame is owed to a raise that was LOST: one the frame's own draw made and the host's clear dropped
+    // (RedrawFlag.ClearAfterFrame). It is drawn a second later, and what its own clear drops buys no other, or a tab
+    // that raises in every draw would be drawn every second for ever.
+    [Fact]
+    public void AFullFrameThatDroppedARaiseIsFollowedByOneSettlingFrame()
+    {
+        var frames = Drawn();
+        Run(frames, 10, 3_000, GuiTab.Home);
+
+        // The change's frame at 3.5 s reports its dropped raise at the next check; so does the settling frame, at 4.52 s.
+        var (full, _) = Run(frames, 3_010, 9_000, GuiTab.Home,
+            now => Idle() with { Changed = now == 3_500, RaiseDropped = now is 3_510 or 4_520 });
+
+        full.ShouldBe(2, "the change, and one settling frame a second after it");
+        frames.Causes.Settling.ShouldBe(1);
+    }
+
+    // A full frame drawn for a cause of its own draws what the dropped raise asked for: no settling frame beside it.
+    [Fact]
+    public void ACausedFrameTakesThePlaceOfTheSettlingFrame()
+    {
+        var frames = Drawn();
+        Run(frames, 10, 3_000, GuiTab.Home);
+
+        var (full, _) = Run(frames, 3_010, 9_000, GuiTab.Home,
+            now => Idle() with { Changed = now is 3_500 or 4_000, RaiseDropped = now == 3_510 });
+
+        full.ShouldBe(2, "the two changes");
+        frames.Causes.Settling.ShouldBe(0);
     }
 
     // A flag a background writer set between the check and the frame: the frame is about to be followed by the flags'
@@ -157,8 +189,7 @@ public class GuiFrameSchedulerTests
     }
 
     // THE guard for the atlas (llvmpipe at 1200x800 sat at 15 % of a core, a Raspberry Pi 3B the same): a view whose
-    // sky takes 18 s to move half a pixel is drawn every 18 s (and once more a second later, the settling frame every
-    // caused frame is owed), and the clock ticks in its own rectangle between.
+    // sky takes 18 s to move a pixel is drawn every 18 s, and the clock ticks in its own rectangle between.
     [Fact]
     public void AWideAtlasIsDrawnWhenItsSkyHasMoved()
     {
@@ -167,8 +198,8 @@ public class GuiFrameSchedulerTests
 
         var (full, narrow) = Run(frames, 10, 60_000, GuiTab.SkyMap, _ => idle);
 
-        full.ShouldBeInRange(6, 8, "the first frame's settling frame, then a frame and its settling frame each 18 s");
-        narrow.ShouldBeInRange(52, 54, "every other second is the clock alone");
+        full.ShouldBeInRange(3, 4, "a frame each 18 s");
+        narrow.ShouldBeInRange(56, 57, "every other second is the clock alone");
     }
 
     // The sky's frame is drawn ON the clock's tick: a change in the middle of a second used to leave the two half a
@@ -187,18 +218,26 @@ public class GuiFrameSchedulerTests
     }
 
     /// <summary>Runs the idle atlas for a minute on a renderer whose full frame costs <paramref name="costMs"/> of processor.</summary>
-    private static int FullFramesInAMinute(int costMs, TimeSpan? skyDrift = null, bool runGoingOn = false)
+    /// <param name="dropsARaise">Every full frame's own draw raises a redraw flag that its clear drops, so each is owed
+    /// a settling frame.</param>
+    private static int FullFramesInAMinute(int costMs, TimeSpan? skyDrift = null, bool runGoingOn = false, bool dropsARaise = false)
     {
         var frames = Drawn(GuiTab.SkyMap);
         var cpu = TimeSpan.Zero;
         var full = 0;
+        var dropped = false;
         for (long now = 10; now <= 60_000; now += 10)
         {
-            var inputs = Idle(GuiTab.SkyMap) with { SkyDrift = skyDrift, RunGoingOn = runGoingOn, ProcessCpu = cpu + TimeSpan.FromMilliseconds(1) };
+            var inputs = Idle(GuiTab.SkyMap) with
+            {
+                SkyDrift = skyDrift, RunGoingOn = runGoingOn, ProcessCpu = cpu + TimeSpan.FromMilliseconds(1), RaiseDropped = dropped,
+            };
+            dropped = false;
             if (frames.Check(now, inputs) && frames.BeginFrame(flagged: false, shuttingDown: false, GuiTab.SkyMap, Clock).Count == 0)
             {
                 full++;
                 cpu += TimeSpan.FromMilliseconds(costMs);
+                dropped = dropsARaise;
             }
         }
 
@@ -210,16 +249,21 @@ public class GuiFrameSchedulerTests
     public void AFastRendererKeepsTheContentsInterval()
         => FullFramesInAMinute(costMs: 2).ShouldBeInRange(58, 61);
 
-    // One that costs 150 ms (llvmpipe, the atlas at 1200x800) is held to a twentieth of a core: a frame and its
-    // settling frame each 6 s.
+    // One that costs 150 ms (llvmpipe, the atlas at 1200x800) is held to a twentieth of a core: a frame each 3 s.
     [Fact]
     public void ASlowRendererIsHeldToItsShareOfACore()
         => FullFramesInAMinute(costMs: 150).ShouldBeInRange(19, 23);
 
+    // Where each of its frames is followed by a settling frame, the two are counted to the interval: the same share of
+    // a core, a frame and its settling frame each 6 s.
+    [Fact]
+    public void ASlowRendererWhoseFramesAreEachFollowedByASettlingFramePaysForBoth()
+        => FullFramesInAMinute(costMs: 150, dropsARaise: true).ShouldBeInRange(19, 25);
+
     // However slow, an interval is not stretched past ten seconds for cost alone.
     [Fact]
     public void CostNeverSlowsAnIntervalPastItsBound()
-        => FullFramesInAMinute(costMs: 2_000).ShouldBeInRange(11, 13);
+        => FullFramesInAMinute(costMs: 2_000).ShouldBeInRange(6, 8);
 
     // A run's progress is time-driven too, and paced the same way.
     [Fact]
@@ -232,7 +276,7 @@ public class GuiFrameSchedulerTests
     // An interval already slower than what cost asks for is left alone.
     [Fact]
     public void CostDoesNotShortenASlowInterval()
-        => FullFramesInAMinute(costMs: 150, skyDrift: TimeSpan.FromSeconds(18)).ShouldBeInRange(6, 8);
+        => FullFramesInAMinute(costMs: 150, skyDrift: TimeSpan.FromSeconds(18)).ShouldBeInRange(3, 4);
 
     [Fact]
     public void ARunsProgressIsDrawnTwiceASecond()
@@ -295,35 +339,68 @@ public class GuiFrameSchedulerTests
         frames.BeginFrame(flagged: false, shuttingDown: false, GuiTab.Planner, Clock).ShouldBeEmpty();
     }
 
-    // The loop draws moves at most thirty times a second and drops the ones between. What a dropped move changed is
-    // drawn anyway, a thirtieth of a second on, or the follower would rest where the pointer was.
+    // A change stated with no frame armed for it (the tab's settle, the pointer come to rest; a move an older loop
+    // dropped) is asked for AT ONCE, or the follower would rest where the pointer was. It used to wait a thirtieth of a
+    // second, a second rate limit beside the loop's own, and the two beat against each other: the atlas's highlight
+    // drew two frames 14 ms apart and then none for 65 (2026-11-25).
     [Fact]
-    public void AMoveTheLoopDidNotArmIsDrawnAnyway()
+    public void AStatedChangeNoFrameIsArmedForIsAskedForAtOnce()
     {
         var frames = Drawn(GuiTab.Planner);
         Run(frames, 10, 1_500, GuiTab.Planner);
 
-        frames.Check(1_600, Idle(GuiTab.Planner) with { PointerMoveChanged = Crosshair }).ShouldBeFalse("the loop armed nothing");
-        frames.Check(1_620, Idle(GuiTab.Planner)).ShouldBeFalse();
-        frames.Check(1_640, Idle(GuiTab.Planner)).ShouldBeTrue("a thirtieth of a second after the move");
+        frames.Check(1_600, Idle(GuiTab.Planner) with { PointerMoveChanged = Crosshair }).ShouldBeTrue("the loop armed nothing, so the check asks");
         frames.BeginFrame(flagged: false, shuttingDown: false, GuiTab.Planner, Clock).ShouldBe([Crosshair]);
 
-        frames.Check(1_700, Idle(GuiTab.Planner)).ShouldBeFalse("drawn once");
+        frames.Check(1_620, Idle(GuiTab.Planner)).ShouldBeFalse("drawn once");
+    }
+
+    // A frame the check asked for is commonly held for pacing past the next check, which then finds a frame owed. Owed
+    // to nothing but the check's own answer, it is still narrowed to what that answer was for: it used to read as a cause
+    // of the loop's and be drawn in full, which under a moving pointer was nearly every clock tick.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AFrameTheCheckAskedForStaysNarrowWhilePacingHoldsIt(bool clock)
+    {
+        var frames = Drawn(GuiTab.Planner);
+        Run(frames, 10, 1_500, GuiTab.Planner);
+
+        var at = clock ? 2_000 : 1_600;
+        var asked = clock ? Idle(GuiTab.Planner) : Idle(GuiTab.Planner) with { PointerMoveChanged = Crosshair };
+        frames.Check(at, asked).ShouldBeTrue();
+
+        // Held: the next check finds the frame it armed still owed, and nothing else behind it.
+        var held = Idle(GuiTab.Planner) with { RedrawPending = true, PendingForCheckAndMovesAlone = true };
+        frames.Check(at + 10, held).ShouldBeTrue("still owed");
+        frames.BeginFrame(flagged: false, shuttingDown: false, GuiTab.Planner, Clock).ShouldBe([clock ? Clock : Crosshair]);
+    }
+
+    // The same held frame with a cause of the loop's behind it as well (an expose) is one the check cannot narrow.
+    [Fact]
+    public void AHeldFrameWithACauseOfTheLoopsBehindItIsFull()
+    {
+        var frames = Drawn(GuiTab.Planner);
+        Run(frames, 10, 1_500, GuiTab.Planner);
+
+        frames.Check(1_600, Idle(GuiTab.Planner) with { PointerMoveChanged = Crosshair }).ShouldBeTrue();
+        frames.Check(1_610, Idle(GuiTab.Planner) with { RedrawPending = true }).ShouldBeTrue();
+        frames.BeginFrame(flagged: false, shuttingDown: false, GuiTab.Planner, Clock).ShouldBeEmpty();
     }
 
     [Fact]
-    public void WhatAnUnarmedMoveChangedIsKeptForTheNextFrame()
+    public void WhatWasStatedBeforeAHeldFrameIsDrawnWithWhatIsStatedAfter()
     {
         var frames = Drawn(GuiTab.Planner);
         Run(frames, 10, 1_500, GuiTab.Planner);
         var second = new RectF32(470f, 100f, 60f, 500f);
 
-        frames.Check(1_600, Idle(GuiTab.Planner) with { PointerMoveChanged = Crosshair }).ShouldBeFalse();
-        var armed = Idle(GuiTab.Planner) with { RedrawPending = true, PendingForPointerMoveAlone = true, PointerMoveChanged = second };
-        frames.Check(1_610, armed).ShouldBeTrue();
+        frames.Check(1_600, Idle(GuiTab.Planner) with { PointerMoveChanged = Crosshair }).ShouldBeTrue();
+        var held = Idle(GuiTab.Planner) with { RedrawPending = true, PendingForCheckAndMovesAlone = true, PointerMoveChanged = second };
+        frames.Check(1_610, held).ShouldBeTrue();
 
         frames.BeginFrame(flagged: false, shuttingDown: false, GuiTab.Planner, Clock).ShouldBe([Crosshair, second]);
-        frames.Check(1_650, Idle(GuiTab.Planner)).ShouldBeFalse("nothing is left to trail");
+        frames.Check(1_650, Idle(GuiTab.Planner)).ShouldBeFalse("nothing is left to draw");
     }
 
     // A move something took without saying what it changed (a hover highlight) beside one that said: the frame is full,
@@ -339,6 +416,56 @@ public class GuiFrameSchedulerTests
         frames.Check(1_610, armed).ShouldBeTrue();
 
         frames.BeginFrame(flagged: false, shuttingDown: false, GuiTab.Planner, Clock).ShouldBeEmpty();
+    }
+
+    // An idle window is left alone until the clock could owe it something: the check was asked every 16 ms whatever was
+    // due, sixty wakes a second of the render thread for an answer that was "no" every time (2026-11-25). The next
+    // thing, by the clock alone, is the clock's own tick.
+    [Fact]
+    public void AnIdleWindowsNextNeedIsTheClocksTick()
+    {
+        var frames = Drawn();
+        Run(frames, 10, 2_000, GuiTab.Home);   // the last tick at 2 s
+
+        frames.Check(2_300, Idle()).ShouldBeFalse();
+        frames.NextTimedNeed(2_300, Idle()).ShouldBe(TimeSpan.FromMilliseconds(700));
+
+        // Already due: nothing to wait for.
+        frames.NextTimedNeed(3_050, Idle()).ShouldBe(TimeSpan.Zero);
+    }
+
+    // A run's progress is drawn twice a second, sooner than the tick; the atlas's drift, a second or slower, rides the tick.
+    [Fact]
+    public void AFasterTimeDrivenFrameIsTheNextNeed()
+    {
+        var frames = Drawn();
+        Run(frames, 10, 2_000, GuiTab.Home, _ => Idle() with { RunGoingOn = true });   // a progress frame at 2 s
+
+        var running = Idle() with { RunGoingOn = true };
+        frames.Check(2_100, running).ShouldBeFalse();
+        frames.NextTimedNeed(2_100, running).ShouldBe(TimeSpan.FromMilliseconds(400));
+
+        var atlas = Drawn(GuiTab.SkyMap);
+        var wide = Idle(GuiTab.SkyMap) with { SkyDrift = TimeSpan.FromSeconds(18) };
+        Run(atlas, 10, 2_000, GuiTab.SkyMap, _ => wide);
+        atlas.Check(2_100, wide).ShouldBeFalse();
+        atlas.NextTimedNeed(2_100, wide).ShouldBe(TimeSpan.FromMilliseconds(900), "the tick, which the 18 s frame is drawn on when its turn comes");
+    }
+
+    // A settling frame owed in under the tick's time is the next need.
+    [Fact]
+    public void ASettlingFrameIsANeedOfItsOwn()
+    {
+        var frames = Drawn();
+        Run(frames, 10, 3_000, GuiTab.Home);
+        frames.Check(3_500, Idle() with { Changed = true }).ShouldBeTrue();
+        frames.BeginFrame(flagged: false, shuttingDown: false, GuiTab.Home, Clock).ShouldBeEmpty();
+        frames.Check(3_510, Idle() with { RaiseDropped = true }).ShouldBeFalse();
+        frames.Check(4_000, Idle()).ShouldBeTrue("the clock at four seconds");
+        frames.BeginFrame(flagged: false, shuttingDown: false, GuiTab.Home, Clock).ShouldBe([Clock]);
+
+        // The settling frame is due at 4.51 s, before the tick at 5 s.
+        frames.NextTimedNeed(4_010, Idle()).ShouldBe(TimeSpan.FromMilliseconds(500));
     }
 
     [Fact]

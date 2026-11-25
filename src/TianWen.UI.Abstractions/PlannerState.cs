@@ -204,8 +204,32 @@ public class PlannerState : PersistableState<SavePlannerSessionSignal>
     /// </summary>
     public DateTimeOffset? PlanningDate { get; set; }
 
-    /// <summary>Whether the display needs a redraw.</summary>
-    public bool NeedsRedraw { get; set; }
+    /// <summary>Whether the display needs a redraw. A <see cref="RedrawFlag"/>: the host's clear after a frame (the
+    /// setter's false) does not take a raise that landed on another thread while that frame was drawn.</summary>
+    public bool NeedsRedraw
+    {
+        get => _redraw.IsRaised;
+        set
+        {
+            if (value)
+            {
+                _redraw.Raise();
+            }
+            else
+            {
+                _redraw.ClearAfterFrame();
+            }
+        }
+    }
+
+    private readonly RedrawFlag _redraw = new RedrawFlag();
+
+    /// <summary>Called as a frame starts to draw, on the thread that draws it (<see cref="RedrawFlag.BeginDraw"/>).</summary>
+    public void BeginDraw() => _redraw.BeginDraw();
+
+    /// <summary>The host's clear after a frame that repainted everything; true when a raise the draw itself made was
+    /// dropped by it (<see cref="RedrawFlag.ClearAfterFrame"/>).</summary>
+    public bool ClearRedrawAfterFrame() => _redraw.ClearAfterFrame();
 
     /// <summary>Whether the target list needs recomputation (date changed, etc.).</summary>
     public bool NeedsRecompute { get; set; }

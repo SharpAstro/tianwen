@@ -13,10 +13,10 @@ using Xunit;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// A grid label is not drawn where the layer palette covers it. The palette floats against the right
-/// edge, where the grid's edge-anchored labels land on almost every pan, and at rest it recedes to
-/// 40 percent, so a label under it was read through its rows: "15h" across "Objects" on the deployed
-/// atlas, 2026-09-17.
+/// Where a grid label is not drawn: under the layer palette, and under the ground. The palette floats
+/// against the right edge, where the grid's edge-anchored labels land on almost every pan, and at rest
+/// it recedes to 40 percent, so a label under it was read through its rows: "15h" across "Objects" on
+/// the deployed atlas, 2026-09-17.
 /// </summary>
 [Collection("Astrometry")]
 public sealed partial class SkyMapGridLabelPaletteTests
@@ -123,5 +123,55 @@ public sealed partial class SkyMapGridLabelPaletteTests
         renderer.Texts.Clear();
         tab.Render(state, content, time);
         GridLabels(renderer).ShouldContain(l => l.Text == target.Text && Overlaps(l, palette));
+    }
+
+    /// <summary>
+    /// <b>A grid label goes into the ground with its line.</b> The grid is hidden under the ground, and its labels were not:
+    /// a "-30°" printed on the brown with no line to name (the owner's atlas, 2026-11-25). Centred on the nadir, every
+    /// place a grid line meets the edge of a 60° view is under the ground, so the labels are all or nothing. The control is
+    /// the same view with the ground off, which labels its lines.
+    /// </summary>
+    [Fact]
+    public async Task AGridLabelUnderTheGroundIsNotDrawn()
+    {
+        var db = await SharedCatalogDB.InitAsync(TestContext.Current.CancellationToken);
+
+        const int w = 900, h = 900;
+        using var renderer = new TextCapturingRenderer(w, h);
+        var tab = new GridTestSkyMapTab(renderer) { FontPath = FontResolver.ResolveSystemFont() };
+        var state = new PlannerState
+        {
+            ObjectDb = db,
+            SiteLatitude = 48.0,
+            SiteLongitude = 11.0,
+            SiteTimeZone = TimeSpan.FromHours(1),
+            PlanningDate = new DateTimeOffset(2026, 9, 17, 23, 0, 0, TimeSpan.FromHours(2)),
+        };
+        var time = new FakeTimeProviderWrapper(state.PlanningDate.Value);
+        var content = new RectF32(0, 0, w, h);
+
+        // The first render homes the view; then point it at the nadir, the antipode of the zenith (RA = LST, Dec = latitude).
+        tab.Render(state, content, time);
+        var site = SiteContext.Create(state.SiteLatitude, state.SiteLongitude, state.PlanningDate.Value);
+        tab.State.Mode = SkyMapMode.Horizon;
+        tab.State.CenterRA = (site.LST + 12.0) % 24.0;
+        tab.State.CenterDec = -state.SiteLatitude;
+        tab.State.FieldOfViewDeg = 60.0;
+        tab.State.ShowGrid = true;
+        tab.State.ShowLayerPalette = false;
+
+        tab.State.ShowHorizon = false;
+        renderer.Texts.Clear();
+        tab.Render(state, content, time);
+        var control = GridLabels(renderer);
+        control.ShouldNotBeEmpty("without the ground the grid's lines are labelled where they meet the edge");
+
+        tab.State.ShowHorizon = true;
+        renderer.Texts.Clear();
+        tab.Render(state, content, time);
+        var drawn = GridLabels(renderer);
+        drawn.ShouldBeEmpty(
+            "every grid line meets the edge of this view under the ground, so none may be labelled; drawn: "
+            + string.Join(", ", drawn.Select(l => $"{l.Text}@({l.X},{l.Y})")));
     }
 }

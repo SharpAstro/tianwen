@@ -41,23 +41,35 @@ namespace TianWen.UI.Abstractions
         private static readonly TimeSpan HoverEphemerisStaleAfter = TimeSpan.FromMinutes(1);
 
         /// <summary>
-        /// The least time between two resolves while no frame is pending. The bound on the resolve rate
-        /// once an unchanged answer stopped asking for a frame (see <see cref="TrackHoverPointer"/>):
-        /// half a 60 Hz frame, so the highlight still follows a moving pointer within a frame, and at
-        /// most 125 resolves a second however fast the mouse reports, which at the worst measured
-        /// resolve (157 us, below) is 2 percent of one core.
+        /// The least time between two resolves a MOVE asks for (see <see cref="TrackHoverPointer"/>): half a
+        /// 60 Hz frame, so the highlight follows a moving pointer within a frame, and at most 125 resolves a
+        /// second however fast the mouse reports, which at the worst measured resolve (157 us, below) is
+        /// 2 percent of one core. A move inside the interval is not lost: where the pointer is stays on
+        /// record, and <see cref="SettlePointer"/> resolves it.
         /// </summary>
         private static readonly TimeSpan HoverResolveMinInterval = TimeSpan.FromMilliseconds(8);
 
+        // Where the pointer was at the last RESOLVE; NaN before the first and after the wash is retired.
         private float _hoverPointerX = float.NaN;
         private float _hoverPointerY = float.NaN;
+
+        // Where the pointer IS, from the last move the map was given; NaN when the wash is retired (a press, a
+        // drag). Apart from the resolved position by more than the slop, a resolve is owed: SettlePointer's.
+        private float _hoverLatestX = float.NaN;
+        private float _hoverLatestY = float.NaN;
 
         // When the last resolve ran, on the app clock; 0 before the first. See HoverResolveMinInterval.
         private long _hoverResolveTimestamp;
 
-        // At most one resolve per PAINTED frame while a frame is pending, and at most one per
-        // HoverResolveMinInterval otherwise: together, the bound that makes hover affordable at a
-        // deep zoom. Measured by SkyMapHoverResolveBenchmarks (Release, win-arm64; an earlier figure
+        // A move resolves at most once per HoverResolveMinInterval, and the host's redraw check settles what
+        // that left owed (SettlePointer), which the loop asks right before every frame: so a frame shows the
+        // object under the pointer as it is when the frame is drawn, and a pointer that comes to rest is
+        // resolved where it rests. It used to be one resolve per PAINTED frame, the moves in between DROPPED:
+        // the frame then showed where the pointer had been a frame or more earlier, and a pointer that stopped
+        // inside that window left the wash on an object it was no longer over until it moved again (2026-11-25).
+        //
+        // What a resolve costs, the bound that makes hover affordable at a deep zoom. Measured by
+        // SkyMapHoverResolveBenchmarks (Release, win-arm64; an earlier figure
         // quoted here came from a Debug test run and was about 5x pessimistic):
         //
         //              over an object   over bare star field   (2026-09-20)       (before 2026-09-20)
@@ -98,9 +110,6 @@ namespace TianWen.UI.Abstractions
         // The throttle cannot be replaced by making the hover search cheaper than the click's,
         // because the highlight agreeing with the click is the entire point of the feature. The
         // click pays the same cost and always has -- once per press, where nobody can see it.
-        //
-        // True from a resolve that CHANGED the answer, and so asked for a frame, until that frame paints.
-        private bool _hoverFramePending;
 
         // The view the current HoverTarget was resolved against. Compared at draw time rather than
         // cleared at every call site that moves the view: a zoom, a pan, a scrub, a mode flip and a
@@ -173,8 +182,15 @@ namespace TianWen.UI.Abstractions
         /// <param name="retestForMovedView">The draw's re-test of a target the view moved (sidereal
         /// drift in Horizon mode, a zoom): exempt from the clock bound, which would otherwise leave a
         /// stale target standing, and already bounded by the slop the drift has to add up to.</param>
-        private void TrackHoverPointer(float x, float y, bool retestForMovedView = false)
+        /// <param name="settle">The redraw check's settle (<see cref="SettlePointer"/>): exempt from the
+        /// clock bound too, since it is asked at most once a refresh and is what resolves a move the bound
+        /// passed over.</param>
+        private void TrackHoverPointer(float x, float y, bool retestForMovedView = false, bool settle = false)
         {
+            // On record before any bound below, so a move that resolves nothing is still where the pointer is.
+            _hoverLatestX = x;
+            _hoverLatestY = y;
+
             // Within the slop of the last resolve, the answer cannot have changed enough to matter.
             if (!float.IsNaN(_hoverPointerX)
                 && MathF.Abs(x - _hoverPointerX) < HoverResolveSlopPx * DpiScale
@@ -183,16 +199,9 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            // A changed answer is already on its way to the screen. Nothing can SHOW a second answer
-            // before that paint, so the moves in between are free -- see _hoverFramePending.
-            if (_hoverFramePending)
-            {
-                return;
-            }
-
-            // And with nothing pending, no faster than the clock bound, since a resolve that finds the
-            // same answer no longer schedules the paint that used to be its throttle.
-            if (!retestForMovedView && _timeProvider is { } clock && _hoverResolveTimestamp != 0
+            // A move, no faster than the clock bound: the mouse reports far above frame rate. The position stays
+            // owed, and the settle before the next frame resolves it.
+            if (!retestForMovedView && !settle && _timeProvider is { } clock && _hoverResolveTimestamp != 0
                 && clock.GetElapsedTime(_hoverResolveTimestamp) < HoverResolveMinInterval)
             {
                 return;
@@ -236,8 +245,8 @@ namespace TianWen.UI.Abstractions
             // the atlas then repainted the whole map -- Milky Way, horizon fill, grids, some twenty
             // thousand stars, overlays and labels -- at display rate, which held the Adreno X1-85 at
             // up to 70 percent for a hover that changed nothing on screen (2026-09-23). It was done
-            // because the per-frame budget above was released only by a paint, so a resolve that
-            // scheduled none would have been the last one; the clock bound is what releases it now.
+            // because the resolve budget was then released only by a paint, so a resolve that
+            // scheduled none would have been the last one; the clock bound is what bounds it now.
             if (IsSameHoverObject(State.HoverTarget, resolved))
             {
                 // The same object: refresh its record (a later instant, a moved view).
@@ -248,6 +257,24 @@ namespace TianWen.UI.Abstractions
             ShowHover(resolved, State.FieldOfViewDeg, _lastViewingTime, screenX, screenY, duringDraw: retestForMovedView);
         }
 
+        /// <summary>
+        /// Resolves where the pointer IS when a move left that owed (the clock bound in
+        /// <see cref="TrackHoverPointer"/>), and states what it changed as a move's resolve does. The host asks it from
+        /// its redraw check, which the loop asks right before every frame and about once a refresh between frames: so the
+        /// frame shows the object under the pointer as of that frame, and the last move of a gesture is resolved within a
+        /// refresh of it whether or not another move follows.
+        /// </summary>
+        public void SettlePointer()
+        {
+            // Nothing on record: no move yet, or the wash is retired (a press, a drag).
+            if (float.IsNaN(_hoverLatestX))
+            {
+                return;
+            }
+
+            TrackHoverPointer(_hoverLatestX, _hoverLatestY, settle: true);
+        }
+
         /// <summary>Puts a changed answer on screen, and asks for the frame that shows it.</summary>
         /// <param name="duringDraw">The draw's own re-test of a moved view: the frame being drawn has its region
         /// already, so the change asks for a whole one.</param>
@@ -256,7 +283,6 @@ namespace TianWen.UI.Abstractions
         {
             SetDisplayedHover(target, fov, viewTime, screenX, screenY);
             HoverFrameRequests++;
-            _hoverFramePending = true;
             if (!duringDraw && HostRepaintsStatedMoves)
             {
                 StateHoverChange(target, screenX, screenY);
@@ -294,8 +320,7 @@ namespace TianWen.UI.Abstractions
             };
             if (changed is not { } extent)
             {
-                // Nothing to paint, so no paint will come to re-open the resolve budget.
-                _hoverFramePending = false;
+                // Nothing to paint: onto an object whose wash is withheld, from bare sky.
                 return;
             }
 
@@ -357,6 +382,9 @@ namespace TianWen.UI.Abstractions
         {
             _hoverPointerX = float.NaN;
             _hoverPointerY = float.NaN;
+            // And nothing owed: the settle must not put back, at where the pointer last hovered, the wash a press retired.
+            _hoverLatestX = float.NaN;
+            _hoverLatestY = float.NaN;
             if (State.HoverTarget is not null)
             {
                 State.HoverTarget = null;
@@ -372,9 +400,8 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private void DrawHoverSpot(RectF32 contentRect, double pixelsPerRadian, float cx, float cy)
         {
-            // Released FIRST, before every early return: this runs once per frame whether or not
-            // there is anything to draw, and it is what re-opens the one-resolve-per-frame budget.
-            _hoverFramePending = false;
+            // Reset FIRST, before every early return: this runs once per frame whether or not there is
+            // anything to draw, and a frame that paints no wash leaves none to take off.
             _hoverDrawnBounds = null;
 
             if (State.HoverTarget is not { } hover)
@@ -406,8 +433,9 @@ namespace TianWen.UI.Abstractions
                 && (_lastViewingTime - _hoverViewTime).Duration() > HoverEphemerisStaleAfter;
             if (viewMoved || ephemerisStale)
             {
-                var px = _hoverPointerX;
-                var py = _hoverPointerY;
+                // Re-tested where the pointer IS, which a move the clock bound passed over left ahead of the last resolve.
+                var px = float.IsNaN(_hoverLatestX) ? _hoverPointerX : _hoverLatestX;
+                var py = float.IsNaN(_hoverLatestX) ? _hoverPointerY : _hoverLatestY;
                 _hoverPointerX = float.NaN;
                 _hoverPointerY = float.NaN;
                 if (float.IsNaN(px))

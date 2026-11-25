@@ -458,20 +458,48 @@ public static class OverlayEngine
     public static readonly RGBAColor32 PinnedMarkerColor = new(0xFF, 0x70, 0x30, 0xFF);
 
     /// <summary>
-    /// The alpha an overlay marker or label draws at: 0.35 when it is below the horizon and the
-    /// caller dims those, times <paramref name="fovAlpha"/> unless it is pinned.
+    /// The alpha an overlay marker or label draws at: 0 under the ground (below the horizon while the
+    /// caller draws the ground, <paramref name="clipBelowHorizon"/>), else <paramref name="fovAlpha"/>
+    /// unless it is pinned. A caller skips a marker at 0 rather than drawing it unseen.
     /// </summary>
     /// <remarks>
-    /// A pinned target is exempt from the wide-FOV fade but NOT from horizon dimming, which is the
+    /// A pinned target is exempt from the wide-FOV fade but NOT from the ground, which is the
     /// half that kept getting restated slightly differently: the rule appears once per marker kind
     /// per surface (ellipse instances, crosses, labels; desktop and browser), and a landmark that
-    /// fades with zoom on one of them stops being a landmark.
+    /// fades with zoom on one of them stops being a landmark. The ground is opaque (the owner,
+    /// 2026-11-25: you cannot see through it); it used to dim such a marker to 0.35.
     /// </remarks>
     public static float MarkerAlpha(
-        bool isPinned, double ra, double dec, bool dimBelowHorizon, SiteContext site, float fovAlpha)
+        bool isPinned, double ra, double dec, bool clipBelowHorizon, SiteContext site, float fovAlpha)
     {
-        var alpha = dimBelowHorizon && !site.IsAboveHorizon(ra, dec) ? 0.35f : 1f;
-        return isPinned ? alpha : alpha * fovAlpha;
+        if (clipBelowHorizon && !site.IsAboveHorizon(ra, dec))
+        {
+            return 0f;
+        }
+        return isPinned ? 1f : fovAlpha;
+    }
+
+    /// <summary>
+    /// Drops the projected items under the ground (below the horizon while <paramref name="clipBelowHorizon"/>), so no
+    /// label is placed, drawn or made clickable for an object nobody can see; in place, without a per-frame closure.
+    /// </summary>
+    public static void RemoveUnderTheGround(List<OverlayItem> items, bool clipBelowHorizon, SiteContext site)
+    {
+        if (!clipBelowHorizon)
+        {
+            return;
+        }
+
+        var kept = 0;
+        for (var i = 0; i < items.Count; i++)
+        {
+            var item = items[i];
+            if (site.IsAboveHorizon(item.RA, item.Dec))
+            {
+                items[kept++] = item;
+            }
+        }
+        items.RemoveRange(kept, items.Count - kept);
     }
 
     /// <summary>
@@ -1132,7 +1160,8 @@ public static class OverlayEngine
         ICelestialObjectDB db,
         IReadOnlySet<CatalogIndex>? pinnedCatalogIndices,
         List<OverlayCandidate> output,
-        bool pinnedOnly = false)
+        bool pinnedOnly = false,
+        OverlayGatherScratch? reuse = null)
     {
         // NOTE: this walk is the heavy Phase A pass (60-170ms in dense regions / pole-in-view).
         // It takes the view matrix + FOV by value rather than reading a live SkyMapState so it
@@ -1286,7 +1315,11 @@ public static class OverlayEngine
         }
 
         var grid = db.DeepSkyCoordinateGrid;
-        var seen = new HashSet<CatalogIndex>();
+        // The set of what the walk has met and the list of what it kept are the caller's to lend (OverlayGatherScratch):
+        // made new, they and the walk of each cell through the collection's interface were 4 of the 5 MB that four
+        // gathers of a pan allocated (traced 2026-11-25), and a pan runs several gathers a second.
+        var seen = reuse?.Seen ?? new HashSet<CatalogIndex>();
+        seen.Clear();
 
         // Pin recognition, resolved ONCE for the pinned set instead of per scanned object.
         //
@@ -1328,7 +1361,8 @@ public static class OverlayEngine
         // Scratch list used so the magnitude sort happens before label/priority
         // construction -- keeps output in brightest-first order without sorting
         // OverlayCandidate (which owns a big reference-typed payload).
-        var scratch = new List<(CatalogIndex CatIdx, CelestialObject Obj, bool IsPinned)>();
+        var scratch = reuse?.Found ?? new List<(CatalogIndex CatIdx, CelestialObject Obj, bool IsPinned)>();
+        scratch.Clear();
 
         for (var dec = Math.Floor(minDec); dec <= maxDec; dec += decStep)
         {
@@ -1339,7 +1373,9 @@ public static class OverlayEngine
                 if (queryRA < 0.0) queryRA += 24.0;
                 if (queryRA >= 24.0) queryRA -= 24.0;
 
-                foreach (var catIdx in grid[queryRA, dec])
+                // EnumerateCell, not the cell's collection: walked through the interface, each cell's array costs an
+                // enumerator, and a gather walks thousands of cells.
+                foreach (var catIdx in grid.EnumerateCell(queryRA, dec))
                 {
                     if (!seen.Add(catIdx))
                     {
@@ -1477,7 +1513,7 @@ public static class OverlayEngine
 
         foreach (var (catIdx, obj, isPinned) in scratch)
         {
-            AppendCandidate(db, catIdx, obj, isPinned, labelZoom, output);
+            AppendCandidate(db, catIdx, obj, isPinned, labelZoom, output, reuse);
         }
     }
 
@@ -1488,6 +1524,13 @@ public static class OverlayEngine
     /// </summary>
     private static float LabelZoomFor(double fieldOfViewDeg)
         => (float)Math.Clamp(10.0 / Math.Max(fieldOfViewDeg, 0.5), 0.25, 2.0);
+
+    // Which of BuildOverlayLabel's three forms a label zoom asks for: the name alone, the name and the designation, or all
+    // of it. Two zooms of one tier make the same label, so the tier, not the zoom, is what a kept candidate is keyed on.
+    private static int LabelTier(float zoom) => zoom <= 0.5f ? 0 : zoom < 1.0f ? 1 : 2;
+
+    // What a pin adds to a label's priority (see AppendCandidate).
+    private const float PinnedLabelPriorityBoost = 100f;
 
     /// <summary>
     /// The pinned set closed over cross-catalog aliases, so a per-object pin test is two hash
@@ -1580,8 +1623,25 @@ public static class OverlayEngine
     /// </summary>
     private static void AppendCandidate(
         ICelestialObjectDB db, CatalogIndex catIdx, CelestialObject obj, bool isPinned,
-        float labelZoom, List<OverlayCandidate> output)
+        float labelZoom, List<OverlayCandidate> output, OverlayGatherScratch? reuse = null)
     {
+        // The candidate an earlier gather made for this object at this tier, with this gather's pin (OverlayGatherScratch.Made).
+        var tier = LabelTier(labelZoom);
+        if (reuse is not null)
+        {
+            if (!ReferenceEquals(reuse.MadeFrom, db) || reuse.Made.Count >= OverlayGatherScratch.MadeLimit)
+            {
+                reuse.Made.Clear();
+                reuse.MadeFrom = db;
+            }
+
+            if (reuse.Made.TryGetValue((catIdx, tier), out var made))
+            {
+                output.Add(isPinned ? made with { IsPinned = true, LabelPriority = made.LabelPriority + PinnedLabelPriorityBoost } : made);
+                return;
+            }
+        }
+
         OverlayCandidateMarker marker;
         var shapeKnown = db.TryGetShape(catIdx, out var shape);
         var hasShape = shapeKnown
@@ -1619,10 +1679,9 @@ public static class OverlayEngine
         // dropped by collision avoidance. The +100 puts them well above any
         // natural ComputeLabelPriority score (~20 max for a bright named DSO).
         var priority = ComputeLabelPriority(obj, catIdx, db);
-        if (isPinned) priority += 100f;
 
         var (ux, uy, uz) = SkyMapState.RaDecToUnitVec(obj.RA, obj.Dec);
-        output.Add(new OverlayCandidate
+        var candidate = new OverlayCandidate
         {
             CatalogIndex = catIdx,
             ObjectType = obj.ObjectType,
@@ -1632,12 +1691,14 @@ public static class OverlayEngine
             Color = color,
             Marker = marker,
             LabelLines = lines,
-            IsPinned = isPinned,
+            IsPinned = false,
             LabelPriority = priority,
             LabelSlotHint = (int)((ulong)catIdx & 3),
             ScreenSizeFilterArcmin = sizeFilterArcmin,
             HasPicture = HasVerifiedPicture(db, catIdx),
-        });
+        };
+        reuse?.Made.TryAdd((catIdx, tier), candidate);
+        output.Add(isPinned ? candidate with { IsPinned = true, LabelPriority = priority + PinnedLabelPriorityBoost } : candidate);
     }
 
     /// <summary>
@@ -1645,12 +1706,16 @@ public static class OverlayEngine
     /// using the current view matrix + dpi. Cheap (no grid walk, no allocation of label lines
     /// or priority scores) -- intended to run every frame even during active drag-pan.
     /// </summary>
+    /// <param name="reuse">The items an earlier projection of THESE candidates made, by candidate index, or null. An
+    /// item found there is moved (<see cref="OverlayItem.MoveTo"/>) and one made here is put there, so a pan makes
+    /// no item after its first frame. The caller empties it when the candidate list changes.</param>
     public static void ProjectSkyMapCandidatesInto(
         IReadOnlyList<OverlayCandidate> candidates,
         SkyMapState state,
         RectF32 contentRect,
         float dpiScale,
-        List<OverlayItem> output)
+        List<OverlayItem> output,
+        OverlayItem?[]? reuse = null)
     {
         output.Clear();
 
@@ -1665,9 +1730,64 @@ public static class OverlayEngine
         var cyView = contentRect.Y + contentRect.Height * 0.5f;
         var arcminToPixels = (float)(ppr * Math.PI / (180.0 * 60.0));
 
+        // Most candidates are off screen: the gather covers the cells around the view so that a pan inside them needs
+        // no second gather, about four candidates for each one on show. Each was taken through the whole projection
+        // (two sines and cosines, the matrix, the cull) to be dropped at its end, which was most of what a frame of a
+        // pan cost with the Objects layer on (2.2 ms of 4.4 for 2,242 candidates, 2026-11-25). The candidate's unit
+        // vector is in hand, so how far it is from the view's centre is one dot product with the view's forward row,
+        // and a candidate further than the corner of the view plus its margin is dropped on that alone. The stereographic
+        // radius r of a point at angle t from the centre is 2 ppr tan(t/2), and tan^2(t/2) = (1 - cos t)/(1 + cos t), so
+        // "r is within R" is "cos t is at least (1 - q)/(1 + q)" with q = (R / 2 ppr)^2: no trigonometry for a candidate.
+        // The test is of the circle AROUND the rectangle the exact cull below keeps, a little wider for the vector's
+        // single precision, so it drops nothing that cull would have kept. That rectangle is the view grown by the
+        // margin on every side, so the circle reaches ITS corner: the view's own half diagonal plus the margin falls
+        // short of it, and dropped the objects in the corners of the margin (SkyMapOverlayProjectionCullTests).
+        var forwardX = -viewMatrix.M31;
+        var forwardY = -viewMatrix.M32;
+        var forwardZ = -viewMatrix.M33;
+        var halfWidth = 0.5 * contentRect.Width;
+        var halfHeight = 0.5 * contentRect.Height;
+        var twoPpr = 2.0 * ppr;
+        const float conePrecision = 1e-4f;
+        static float LeastCosine(double halfWidth, double halfHeight, double margin, double twoPpr)
+        {
+            var w = halfWidth + margin;
+            var h = halfHeight + margin;
+            var q = (w * w + h * h) / (twoPpr * twoPpr);
+            return (float)((1.0 - q) / (1.0 + q));
+        }
+        var leastCosine = LeastCosine(halfWidth, halfHeight, 100.0, twoPpr) - conePrecision;
+
+        // The candidates in place where the list is one (a candidate is a hundred bytes: read by reference, not copied
+        // out through the interface for each).
+        var inPlace = candidates switch
+        {
+            List<OverlayCandidate> list => System.Runtime.InteropServices.CollectionsMarshal.AsSpan(list),
+            OverlayCandidate[] array => array,
+            _ => default(ReadOnlySpan<OverlayCandidate>),
+        };
+        var readInPlace = inPlace.Length == candidates.Count;
+        OverlayCandidate copied = default;
+
         for (var candIndex = 0; candIndex < candidates.Count; candIndex++)
         {
-            var cand = candidates[candIndex];
+            if (!readInPlace)
+            {
+                copied = candidates[candIndex];
+            }
+            ref readonly var cand = ref readInPlace ? ref inPlace[candIndex] : ref copied;
+
+            var cosine = forwardX * cand.UnitVec.X + forwardY * cand.UnitVec.Y + forwardZ * cand.UnitVec.Z;
+            if (cosine < leastCosine)
+            {
+                // A large shape reaches the view from further out: asked again with its own margin.
+                if (cand.Marker is not OverlayCandidateMarker.Ellipse far
+                    || far.SemiMajArcmin * arcminToPixels + 50f <= 100f
+                    || cosine < LeastCosine(halfWidth, halfHeight, far.SemiMajArcmin * arcminToPixels + 50.0, twoPpr) - conePrecision)
+                {
+                    continue;
+                }
+            }
 
             // The exact half of the dark-nebula on-screen-size rule. The gather admits a superset
             // (see OverlayCandidate.ScreenSizeFilterArcmin), so the decision for THIS field of
@@ -1679,11 +1799,23 @@ public static class OverlayEngine
                 continue;
             }
 
-            if (!SkyMapProjection.ProjectWithMatrix(cand.RA, cand.Dec, viewMatrix, ppr,
-                    cxView, cyView, out var screenX, out var screenY))
+            // SkyMapProjection.ProjectWithMatrix, from the unit vector the candidate carries rather than from its RA and
+            // Dec: the gather made that vector from them with the same call (SkyMapState.RaDecToUnitVec), so the place is
+            // the same to the bit, without two sines and cosines a candidate on every frame of a pan.
+            var ux = cand.UnitVec.X;
+            var uy = cand.UnitVec.Y;
+            var uz = cand.UnitVec.Z;
+            var camX = viewMatrix.M11 * ux + viewMatrix.M12 * uy + viewMatrix.M13 * uz;
+            var camY = viewMatrix.M21 * ux + viewMatrix.M22 * uy + viewMatrix.M23 * uz;
+            var cosD = -(viewMatrix.M31 * ux + viewMatrix.M32 * uy + viewMatrix.M33 * uz);
+            if (cosD <= -0.99f)
             {
                 continue;
             }
+
+            var k = 2.0 / (1.0 + cosD);
+            var screenX = cxView + (float)(camX * k * ppr);
+            var screenY = cyView - (float)(camY * k * ppr);
 
             // Off-screen cull with generous margin -- for large shapes the centre
             // may be far outside the viewport while the body still overlaps, so
@@ -1724,7 +1856,16 @@ public static class OverlayEngine
                     continue;
             }
 
-            output.Add(new OverlayItem
+            // The item made for this candidate by an earlier frame is the same object at another place: moved, not
+            // made again (OverlayItem.MoveTo).
+            if (reuse is not null && candIndex < reuse.Length && reuse[candIndex] is { } kept)
+            {
+                kept.MoveTo(screenX, screenY, marker);
+                output.Add(kept);
+                continue;
+            }
+
+            var item = new OverlayItem
             {
                 Index = cand.CatalogIndex,
                 ScreenX = screenX,
@@ -1740,7 +1881,12 @@ public static class OverlayEngine
                 StableSortKey = (ulong)cand.CatalogIndex,
                 CandidateIndex = candIndex,
                 HasPicture = cand.HasPicture,
-            });
+            };
+            if (reuse is not null && candIndex < reuse.Length)
+            {
+                reuse[candIndex] = item;
+            }
+            output.Add(item);
         }
     }
 

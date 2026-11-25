@@ -111,8 +111,8 @@ zoomed out.
 
 ## The site question, which blocks less than it looks like
 
-The site is needed for exactly one family of layers: the horizon, the Alt/Az grid, the below-horizon
-dimming and the alt/az readouts. Equatorial mode with the horizon off is a complete, coherent atlas
+The site is needed for exactly one family of layers: the horizon and its ground, the Alt/Az grid and
+the alt/az readouts. Equatorial mode with the horizon off is a complete, coherent atlas
 with no site whatsoever, which is also what the link's own doc comment argues -- a link
 *"deliberately carries NO SITE"* because only the horizon overlays are site-dependent and those
 should be the recipient's own. **So the resolution chain below is a nicety, never a prerequisite,
@@ -900,6 +900,35 @@ locking the release scope was *"as long as we track everything we skipped in a p
   toggles into one button reclaims two slots and costs a click for two layers that are currently one.
   The keys stay either way.
 
+## The ground (2026-11-25)
+
+**You cannot look through the ground.** While the horizon layer is drawn and the site is known, the ground
+is OPAQUE (it was a brown wash at 45 to 88 percent, with everything under it dimmed to 35 percent and
+still clickable), and what is under it is not there:
+
+- the stars and the Milky Way are culled or covered; the RA/Dec grid, the Alt/Az grid, the meridian and
+  the ecliptic stop at the horizon, and a grid label whose line meets the edge of the view under the
+  ground is not drawn;
+- constellation names, planets, comets, shower radiants, catalogue objects and planned targets under it
+  are not drawn, and **answer neither the hover nor the click**. The resolver asks each OBJECT, never
+  the pointer: an object just above the horizon is drawn whole, the half of its marker that hangs
+  below the line included, and a pointer there is on it;
+- **constellation boundaries and figures are the one exception**, traced on the ground at 35 percent of
+  their alpha, and the horizon line and the mount's sensor outline are drawn whole.
+
+What a line layer keeps below the horizon is one factor per layer, `SkyMapGpuGeometry.BelowHorizon`
+(`Hidden`, `Faint`, `Whole`): a push constant on the Vulkan line pipeline, a pipeline of its own per
+factor on WebGL, whose custom pipelines take one colour per draw and nothing more. The fill is skipped
+altogether in a view wholly above the horizon (`SkyMapState.ViewReachesBelowHorizon`), where its
+full-window pass would discard every pixel it shades. There is no ground in a backdrop view (the
+orrery's stars at infinity).
+
+A line whose segment has one end culled near the view's antipode is not dropped by the clipper: it was
+drawn as a stray line from its other end towards the culled vertex's out-of-volume position, straight
+across the view, one level dark and unnoticed until a test held the grid to drawing NOTHING on the
+ground (`SkyMapHorizonCullGpuTests`). `skymap_line.vert` marks a culled vertex (`vProjected`) and the
+fragment stage discards the segment.
+
 ## Hover highlight: rules in full (moved from CLAUDE.md)
 
 **A hover highlight and the click MUST come from one resolver, or they will disagree.**
@@ -917,10 +946,16 @@ HIGHLIGHT, not hover selection: the click still selects (`docs/plans/in-app-sky-
   travel, never through a declared region). **Drawn FIRST of the annotation layers**, which is
   what makes a pointer resting over the search modal or the layer palette harmless with none of them
   claiming the pointer: the sky behind resolves, the wash paints under the panel covering it.
-- **Only a CHANGED answer asks for a frame** (another object, or onto or off one), and resolves are
-  bounded by the pending frame or, with none pending, by `HoverResolveMinInterval` (8 ms) on the app
-  clock. Every resolve used to ask for one, so every pointer move repainted the whole atlas at
-  display rate and a hover that changed nothing held the Adreno at up to 70 percent (2026-09-23).
+- **Only a CHANGED answer asks for a frame** (another object, or onto or off one), and a MOVE resolves
+  at most once per `HoverResolveMinInterval` (8 ms) on the app clock, a frame on its way or not. **No
+  move is dropped**: where the pointer IS stays on record, and the host's redraw check settles what the
+  bound left owed (`IPointerMoveChange.SettlePointer`), which the loop asks right before every frame. So
+  a frame shows the object under the pointer as of that frame, and a pointer come to rest is resolved
+  where it rests. Until 2026-11-25 a changed answer held every later move back until its frame had
+  painted and the held moves were discarded: the highlight was 13 updates a second and could rest on an
+  object the pointer had left (`docs/plans/damage-based-repaint.md`, "The frames were cheap and the
+  schedule was not"). Every resolve used to ask for a frame, so every pointer move repainted the whole
+  atlas at display rate and a hover that changed nothing held the Adreno at up to 70 percent (2026-09-23).
   Assert with `HoverFrameRequests`, never `NeedsRedraw`, which a render sets for reasons of its own.
   **A crowded field is settled by the RESOLVER, never by delaying the answer** (2026-09-28). An object
   CONTAINS the pointer when the pointer is on what is drawn for it: within `MarkerHitRadiusPx` (12 px) of

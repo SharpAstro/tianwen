@@ -15,6 +15,26 @@ using TianWen.UI.Abstractions.Overlays;
 namespace TianWen.UI.Abstractions
 {
     /// <summary>
+    /// The atlas's cost by part, in milliseconds: its map draw (with the instant, the site and the ephemerides before
+    /// it) and each layer drawn on it. Cumulative as <see cref="SkyMapTab{TSurface}.LayerCosts"/> gives it; the
+    /// difference of two is one frame's.
+    /// </summary>
+    public readonly record struct SkyMapLayerCosts(
+        double Map, double GridLabels, double ConstellationNames, double PlanetLabels, double CometLabels,
+        double ObjectOverlay, double FixedMarkers, double InfoStrip, double SearchPanel)
+    {
+        /// <summary>What was spent between <paramref name="before"/> and this.</summary>
+        public SkyMapLayerCosts Since(in SkyMapLayerCosts before) => new SkyMapLayerCosts(
+            Map - before.Map, GridLabels - before.GridLabels, ConstellationNames - before.ConstellationNames,
+            PlanetLabels - before.PlanetLabels, CometLabels - before.CometLabels, ObjectOverlay - before.ObjectOverlay,
+            FixedMarkers - before.FixedMarkers, InfoStrip - before.InfoStrip, SearchPanel - before.SearchPanel);
+
+        /// <summary>The sum of the parts.</summary>
+        public double Total => Map + GridLabels + ConstellationNames + PlanetLabels + CometLabels + ObjectOverlay
+            + FixedMarkers + InfoStrip + SearchPanel;
+    }
+
+    /// <summary>
     /// Renderer-agnostic Sky Map tab. The heavy rendering (stars, lines, grid, horizon)
     /// is delegated to <see cref="RenderSkyMap"/> which the Vulkan subclass overrides
     /// to cache as a GPU texture. Text labels and overlays are drawn natively on top.
@@ -72,7 +92,8 @@ namespace TianWen.UI.Abstractions
         private float _gridLabelsRectWKey;
         private float _gridLabelsRectHKey;
         private float _gridLabelsFontSizeKey;
-        private readonly List<(float X, float Y, float W, float H, string Label)> _gridLabelsCache = [];
+        // Ra/Dec: where the label's line meets the edge of the view, the point the ground test asks about.
+        private readonly List<(float X, float Y, float W, float H, string Label, double Ra, double Dec)> _gridLabelsCache = [];
 
         // Constellation name placement is pure f(viewMatrix, FOV, rect, fontSize).
         // ~88 projections + text-measurements per frame. Positions and widths
@@ -210,6 +231,8 @@ namespace TianWen.UI.Abstractions
             _contentY = contentRect.Y;
             State.LastContentRect = contentRect;
             State.BeginDraw();
+            _mapDrawMark = System.Diagnostics.Stopwatch.GetTimestamp();
+            _layerBytesMark = GC.GetAllocatedBytesForCurrentThread();
             var siteLat = plannerState.SiteLatitude;
             var siteLon = plannerState.SiteLongitude;
             var viewingTime = ResolveViewingTime(plannerState, timeProvider);
@@ -324,11 +347,13 @@ namespace TianWen.UI.Abstractions
             // finding, though -- it is the bucket a wrong attribution hides in -- so each layer says
             // what it costs. Cheap: one timestamp pair per layer per frame.
             var layerMark = System.Diagnostics.Stopwatch.GetTimestamp();
+            MapDrawMs += System.Diagnostics.Stopwatch.GetElapsedTime(_mapDrawMark, layerMark).TotalMilliseconds;
+            MapDrawBytes += LayerAllocated();
 
-            // Horizon dimming: when the user has horizon clipping on, sub-horizon labels
-            // get their alpha cut so they clearly read as "not currently visible" without
-            // being hidden entirely (user can still see where a constellation will rise).
-            var dimBelowHorizon = State.ShowHorizon && site.IsValid;
+            // The ground: while the horizon is drawn, it is opaque and everything below it is hidden -- labels, markers, planets,
+            // comets, radiants, planned targets -- with nothing to click (the owner, 2026-11-25: you cannot see through the ground).
+            // Only a constellation's lines are traced faintly on it (SkyMapGpuGeometry.BelowHorizon). It used to dim them to 35%.
+            var clipBelowHorizon = State.ShowHorizon && site.IsValid;
 
             // The grid's labels and the constellation names belong WITH the lines they name, so a
             // host drawing its own content between the two passes gets label and line on the same
@@ -336,19 +361,21 @@ namespace TianWen.UI.Abstractions
             // for objects the host's own content shows, and drawing them over it would double them.
             if (deferLines)
             {
-                _deferredLines = new DeferredLinePass(ppr, cx, cy, fontSize, site, dimBelowHorizon);
+                _deferredLines = new DeferredLinePass(ppr, cx, cy, fontSize, site, clipBelowHorizon);
             }
             else
             {
                 if (State.DrawOwnGrid)
                 {
-                    DrawGridLabels(contentRect, fontSize * 0.8f, ppr, cx, cy);
+                    DrawGridLabels(contentRect, fontSize * 0.8f, ppr, cx, cy, site, clipBelowHorizon);
                 }
                 GridLabelMs += LayerElapsed(ref layerMark);
+                GridLabelBytes += LayerAllocated();
 
                 // Constellation names at boundary centroids (always shown)
-                DrawConstellationNames(contentRect, fontSize * 0.85f, ppr, cx, cy, site, dimBelowHorizon);
+                DrawConstellationNames(contentRect, fontSize * 0.85f, ppr, cx, cy, site, clipBelowHorizon);
                 ConstellationNameMs += LayerElapsed(ref layerMark);
+                ConstellationNameBytes += LayerAllocated();
             }
 
             // The hover wash goes FIRST of the point annotations, so every marker and label it names
@@ -357,8 +384,9 @@ namespace TianWen.UI.Abstractions
             // the wash is then painted under the panel that covers it. See SkyMapTab.Hover.cs.
             DrawHoverSpot(contentRect, ppr, cx, cy);
 
-            DrawPlanetLabels(db, viewingTime, siteLat, siteLon, contentRect, fontSize, ppr, cx, cy, site, dimBelowHorizon);
+            DrawPlanetLabels(db, viewingTime, siteLat, siteLon, contentRect, fontSize, ppr, cx, cy, site, clipBelowHorizon);
             PlanetLabelMs += LayerElapsed(ref layerMark);
+            PlanetLabelBytes += LayerAllocated();
 
             // Ephemeris-computed JPL comet markers (candidate set filtered to the zoom-aware magnitude
             // limit, except for pinned ones). Drawn after planets so a bright comet's label sits above
@@ -379,21 +407,23 @@ namespace TianWen.UI.Abstractions
                 // Null when no COMET is pinned, so the draw loop -- which asks the set about every one
                 // of ~1,600 cached markers on every frame -- skips a hash lookup per marker that can
                 // only ever answer no.
-                DrawCometLabels(viewingTime, contentRect, fontSize, ppr, cx, cy, site, dimBelowHorizon, pinnedComets);
+                DrawCometLabels(viewingTime, contentRect, fontSize, ppr, cx, cy, site, clipBelowHorizon, pinnedComets);
             }
             CometLabelMs += LayerElapsed(ref layerMark);
+            CometLabelBytes += LayerAllocated();
 
             // Radiants of the meteor showers active on the viewing night: an event, never in the object DB, drawn through the
             // object layers' own gate ([O], "only with photo", a pin bypasses both), the same SkyMapState.ShouldDrawShowerRadiant
             // the click and hover resolver asks.
-            DrawShowerRadiants(viewingTime, contentRect, fontSize, ppr, cx, cy, site, dimBelowHorizon, pinnedIndices);
+            DrawShowerRadiants(viewingTime, contentRect, fontSize, ppr, cx, cy, site, clipBelowHorizon, pinnedIndices);
 
             // Always render the object overlay pass, when [O] is off, only pinned
             // planner targets are drawn (the user's planned observations should always
             // be visible as landmarks on the sky map). The showAll flag tells the engine
             // whether to include non-pinned catalog objects in the result.
-            RenderObjectOverlay(db, contentRect, BaseFontSize, site, dimBelowHorizon, plannerState, State.ShowObjectOverlay);
+            RenderObjectOverlay(db, contentRect, BaseFontSize, site, clipBelowHorizon, plannerState, State.ShowObjectOverlay);
             ObjectOverlayMs += LayerElapsed(ref layerMark);
+            ObjectOverlayBytes += LayerAllocated();
 
             // Mosaic panel grid: drawn BEHIND the mount reticle but ON TOP of catalog
             // overlays so panel outlines don't get buried under catalog markers but the
@@ -407,7 +437,7 @@ namespace TianWen.UI.Abstractions
             // mount reticle so the reticle stays the topmost element when it overlaps a target.
             if (State.ScheduleTargets.Length > 0)
             {
-                RenderScheduleTargets(contentRect, BaseFontSize, ppr, cx, cy, site, dimBelowHorizon);
+                RenderScheduleTargets(contentRect, BaseFontSize, ppr, cx, cy, site, clipBelowHorizon);
             }
 
             // NCP/SCP/Zenith reticles (clickable goto targets) and N/S/E/W horizon
@@ -423,6 +453,7 @@ namespace TianWen.UI.Abstractions
                 RenderMountOverlay(mountOverlay, contentRect, BaseFontSize, ppr, cx, cy);
             }
             FixedMarkerMs += LayerElapsed(ref layerMark);
+            FixedMarkerBytes += LayerAllocated();
 
             // The strip and the crosshair say where the VIEW is pointing and where its centre is, and
             // a driven host has already answered both -- its own status bar names the frame, and its
@@ -434,6 +465,7 @@ namespace TianWen.UI.Abstractions
                 DrawInfoStrip(contentRect, fontSize, cx, cy,
                     viewingTime, plannerState.SiteTimeZone, isTimeShifted);
                 InfoStripMs += LayerElapsed(ref layerMark);
+                InfoStripBytes += LayerAllocated();
 
                 // Crosshair
                 var crossColor = new RGBAColor32(0xFF, 0xFF, 0xFF, 0x40);
@@ -460,6 +492,7 @@ namespace TianWen.UI.Abstractions
             DrawSearchAndInfoPanel(plannerState, contentRect, db,
                 siteLat, siteLon, viewingTime, site, ppr, cx, cy);
             SearchPanelMs += LayerElapsed(ref layerMark);
+            SearchPanelBytes += LayerAllocated();
 
             // The strip's time landmarks drop up over everything above, the search panel included.
             if (!State.ViewDrivenExternally)
@@ -487,24 +520,28 @@ namespace TianWen.UI.Abstractions
 
             _deferredLines = null;
             var layerMark = System.Diagnostics.Stopwatch.GetTimestamp();
+            _layerBytesMark = GC.GetAllocatedBytesForCurrentThread();
 
             RenderSkyMapLines(contentRect);
 
             if (State.DrawOwnGrid)
             {
-                DrawGridLabels(contentRect, deferred.FontSize * 0.8f, deferred.Ppr, deferred.CenterX, deferred.CenterY);
+                DrawGridLabels(contentRect, deferred.FontSize * 0.8f, deferred.Ppr, deferred.CenterX, deferred.CenterY,
+                    deferred.Site, deferred.ClipBelowHorizon);
             }
             GridLabelMs += LayerElapsed(ref layerMark);
+            GridLabelBytes += LayerAllocated();
 
             DrawConstellationNames(contentRect, deferred.FontSize * 0.85f, deferred.Ppr,
-                deferred.CenterX, deferred.CenterY, deferred.Site, deferred.DimBelowHorizon);
+                deferred.CenterX, deferred.CenterY, deferred.Site, deferred.ClipBelowHorizon);
             ConstellationNameMs += LayerElapsed(ref layerMark);
+            ConstellationNameBytes += LayerAllocated();
         }
 
         /// <summary>What the line pass needs that the backdrop pass computed.</summary>
         private readonly record struct DeferredLinePass(
             double Ppr, float CenterX, float CenterY, float FontSize,
-            SiteContext Site, bool DimBelowHorizon);
+            SiteContext Site, bool ClipBelowHorizon);
 
         private DeferredLinePass? _deferredLines;
 
@@ -546,12 +583,48 @@ namespace TianWen.UI.Abstractions
         /// </remarks>
         public void RenderLayerPalette(RectF32 contentRect, bool includeKeyHints = true)
         {
-            if (LayerPaletteShown)
+            if (!LayerPaletteShown)
             {
-                NoteLayerPaletteArranged(
-                    RenderLayout(LayerPaletteTree(Scale, includeKeyHints), contentRect, FontPath, Scale), contentRect, Scale);
+                return;
             }
+
+            // The palette's tree is the same tree until a layer is switched, the panel is moved or collapsed, or it
+            // fades: kept across the frames between (KeptLayout). It was 62 KB of every frame.
+            var scale = Scale;
+            var fontPath = FontPath;
+            var palette = State.LayerPalette;
+            var layers = 0UL;
+            for (var i = 0; i < SkyMapLayers.All.Length; i++)
+            {
+                var layer = SkyMapLayers.All[i];
+                var available = layer.Available(State);
+                layers |= (available ? 1UL : 0UL) << (2 * i);
+                layers |= (available && layer.IsOn(State) ? 1UL : 0UL) << (2 * i + 1);
+            }
+
+            var key = new LayerPaletteKey(
+                palette.OffsetAlong, palette.OffsetAcross, palette.Side, palette.Collapsed, palette.Fade, layers,
+                includeKeyHints, BaseFontSize);
+            if (!_keptLayerPalette.TryGet(key, contentRect, scale, fontPath, out var arranged))
+            {
+                arranged = _keptLayerPalette.Keep(key, contentRect, scale, fontPath,
+                    ArrangeLayout(LayerPaletteTree(scale, includeKeyHints), contentRect, fontPath, scale));
+            }
+
+            PaintLayout(arranged, fontPath, scale);
+            NoteLayerPaletteArranged(arranged, contentRect, scale);
         }
+
+        // Everything SkyMapLayerPalette.Build reads of the state: where the panel is and whether it is rolled up, how
+        // far it has faded, and each layer's availability and on/off (two bits a layer, in the table's order).
+        private readonly record struct LayerPaletteKey(
+            float OffsetAlong, float OffsetAcross, Layout.DockSide? Side, bool Collapsed, float Fade, ulong Layers,
+            bool KeyHints, float FontSize);
+
+        private KeptLayout<LayerPaletteKey> _keptLayerPalette;
+
+        /// <summary>How many times the layer palette's tree was built (<see cref="KeptLayout{TKey}.Builds"/>).</summary>
+        internal int LayerPaletteBuilds => _keptLayerPalette.Builds;
 
         /// <summary>
         /// Whether the layer palette is on show this frame (<see cref="LayerPaletteShown"/>), for a host that paints it
@@ -592,12 +665,9 @@ namespace TianWen.UI.Abstractions
                 }
             }
 
-            // A fade in progress has to keep asking for frames, or it stops wherever the last event left it:
-            // nothing else redraws while the pointer is still.
-            if (State.LayerPalette.IsFading)
-            {
-                State.NeedsRedraw = true;
-            }
+            // A fade in progress keeps asking for frames through SkyMapState.NeedsContinuousFrames, a standing reason the
+            // host's redraw check reads. It used to raise the redraw flag here, in the draw, which the host's clear after
+            // this very frame took: the fade then moved a step whenever something else drew.
         }
 
         /// <summary>
@@ -628,6 +698,23 @@ namespace TianWen.UI.Abstractions
 
         /// <inheritdoc cref="GridLabelMs"/>
         internal double PlanetLabelMs { get; private set; }
+
+        /// <summary>
+        /// Cumulative cost of everything before the label layers: the viewing instant, the site, the ephemerides and the
+        /// map's own draw (<see cref="RenderSkyMap"/>). The other half of a frame's account, beside the layers'.
+        /// </summary>
+        internal double MapDrawMs { get; private set; }
+
+        // When this frame's draw began, for MapDrawMs: taken in RenderSkyBehind, read where the label layers start.
+        private long _mapDrawMark;
+
+        /// <summary>
+        /// What the map's draw and each layer drawn on it have cost so far, cumulative: a host takes it before and
+        /// after a frame and says where a slow one went, where a profiler could only sample it.
+        /// </summary>
+        public SkyMapLayerCosts LayerCosts => new SkyMapLayerCosts(
+            MapDrawMs, GridLabelMs, ConstellationNameMs, PlanetLabelMs, CometLabelMs, ObjectOverlayMs, FixedMarkerMs,
+            InfoStripMs, SearchPanelMs);
 
         /// <summary>
         /// How the overlay engine placed a catalogue label: with collision avoidance (<see cref="OverlayEngine.PlaceLabels"/>, so a
@@ -668,6 +755,37 @@ namespace TianWen.UI.Abstractions
         /// <inheritdoc cref="GridLabelMs"/>
         internal double SearchPanelMs { get; private set; }
 
+        // What the calling thread has allocated since the last layer, which the next starts from. Beside each layer's time,
+        // so a paint that allocates a lot says which layer did (a traced run's account of a large paint).
+        private long LayerAllocated()
+        {
+            var now = GC.GetAllocatedBytesForCurrentThread();
+            var bytes = now - _layerBytesMark;
+            _layerBytesMark = now;
+            return bytes;
+        }
+
+        private long _layerBytesMark;
+
+        internal long MapDrawBytes { get; private set; }
+        internal long GridLabelBytes { get; private set; }
+        internal long ConstellationNameBytes { get; private set; }
+        internal long PlanetLabelBytes { get; private set; }
+        internal long CometLabelBytes { get; private set; }
+        internal long ObjectOverlayBytes { get; private set; }
+        internal long FixedMarkerBytes { get; private set; }
+        internal long InfoStripBytes { get; private set; }
+        internal long SearchPanelBytes { get; private set; }
+
+        /// <summary>
+        /// What the map's draw and each layer drawn on it have allocated so far, cumulative, in kilobytes, in the shape of
+        /// <see cref="LayerCosts"/>: the difference of two is a frame's.
+        /// </summary>
+        public SkyMapLayerCosts LayerKilobytes => new SkyMapLayerCosts(
+            MapDrawBytes / 1024.0, GridLabelBytes / 1024.0, ConstellationNameBytes / 1024.0, PlanetLabelBytes / 1024.0,
+            CometLabelBytes / 1024.0, ObjectOverlayBytes / 1024.0, FixedMarkerBytes / 1024.0, InfoStripBytes / 1024.0,
+            SearchPanelBytes / 1024.0);
+
         private static double LayerElapsed(ref long mark)
         {
             var now = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -688,7 +806,7 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         protected virtual void RenderObjectOverlay(
             ICelestialObjectDB db, RectF32 contentRect,
-            float baseFontSize, SiteContext site, bool dimBelowHorizon, PlannerState plannerState,
+            float baseFontSize, SiteContext site, bool clipBelowHorizon, PlannerState plannerState,
             bool showAllOverlays)
         {
         }
@@ -701,7 +819,7 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         protected virtual void RenderScheduleTargets(
             RectF32 contentRect, float baseFontSize,
-            double ppr, float cx, float cy, SiteContext site, bool dimBelowHorizon)
+            double ppr, float cx, float cy, SiteContext site, bool clipBelowHorizon)
         {
         }
 
@@ -787,7 +905,7 @@ namespace TianWen.UI.Abstractions
         /// Place grid labels where grid lines intersect the viewport edges,
         /// matching the FITS viewer WCS overlay approach.
         /// </summary>
-        private void DrawGridLabels(RectF32 rect, float fontSize, double ppr, float cx, float cy)
+        private void DrawGridLabels(RectF32 rect, float fontSize, double ppr, float cx, float cy, SiteContext site, bool clipBelowHorizon)
         {
             var fontPath = FontPath;
             var fov = State.FieldOfViewDeg;
@@ -827,11 +945,18 @@ namespace TianWen.UI.Abstractions
             var palette = LayerPaletteShown ? State.LayerPalette.PanelRect : default;
             var avoidPalette = palette.Width > 0f && palette.Height > 0f;
 
-            foreach (var (x, y, w, h, label) in _gridLabelsCache)
+            foreach (var (x, y, w, h, label, ra, dec) in _gridLabelsCache)
             {
                 if (avoidPalette
                     && x < palette.Right && x + w > palette.X
                     && y < palette.Bottom && y + h > palette.Y)
+                {
+                    continue;
+                }
+
+                // A label goes into the ground with its line: the grid is hidden there (SkyMapGpuGeometry.BelowHorizon).
+                // Asked here rather than when the cache is built, which is keyed on the view while the ground turns with the clock.
+                if (clipBelowHorizon && !site.IsAboveHorizon(ra, dec))
                 {
                     continue;
                 }
@@ -854,49 +979,85 @@ namespace TianWen.UI.Abstractions
             // RA labels: find where each constant-RA line crosses the viewport edge
             for (var ra = 0.0; ra < 24.0; ra += raStep)
             {
-                if (FindEdgeCrossing(ra, true, rect, ppr, cx, cy, out var lx, out var ly, out var edge))
+                if (FindEdgeCrossing(ra, true, rect, ppr, cx, cy, out var lx, out var ly, out var edge, out var atRa, out var atDec))
                 {
                     var label = raStep < 1 ? $"{ra:F1}h" : $"{ra:F0}h";
                     // Place label near the edge crossing, offset inward
                     var textX = edge == Edge.Right ? lx - 45 : lx + margin;
                     var textY = edge == Edge.Bottom ? ly - labelH : ly + margin;
-                    _gridLabelsCache.Add((textX, textY, 50, labelH, label));
+                    _gridLabelsCache.Add((textX, textY, 50, labelH, label, atRa, atDec));
                 }
             }
 
             // Dec labels: find where each constant-Dec line crosses the viewport edge
             for (var dec = -90.0 + decStep; dec < 90.0; dec += decStep)
             {
-                if (FindEdgeCrossing(dec, false, rect, ppr, cx, cy, out var lx, out var ly, out var edge))
+                if (FindEdgeCrossing(dec, false, rect, ppr, cx, cy, out var lx, out var ly, out var edge, out var atRa, out var atDec))
                 {
                     var label = dec >= 0 ? $"+{dec:F0}\u00B0" : $"{dec:F0}\u00B0";
                     var textX = edge == Edge.Right ? lx - 45 : lx + margin;
                     var textY = edge == Edge.Bottom ? ly - labelH : ly + margin;
-                    _gridLabelsCache.Add((textX, textY, 50, labelH, label));
+                    _gridLabelsCache.Add((textX, textY, 50, labelH, label, atRa, atDec));
                 }
             }
         }
 
         private enum Edge { Top, Bottom, Left, Right }
 
+        // How many steps a grid line is traced in to find where it meets the view's edge, and the sine and cosine of each
+        // step's varying coordinate as SkyMapState.RaDecToUnitVec takes them: the declination of a line of right ascension,
+        // and the right ascension of a line of declination.
+        private const int GridEdgeSteps = 80;
+        private const float GridHours2RadF = MathF.PI / 12f;
+
+        private static readonly (float Sin, float Cos)[] s_gridDecSamples = GridSamples(
+            static i => MathF.SinCos(float.DegreesToRadians((float)(-90.0 + i * 180.0 / GridEdgeSteps))));
+
+        private static readonly (float Sin, float Cos)[] s_gridRaSamples = GridSamples(
+            static i => MathF.SinCos((float)(i * 24.0 / GridEdgeSteps * GridHours2RadF)));
+
+        private static (float Sin, float Cos)[] GridSamples(Func<int, (float, float)> sample)
+        {
+            var samples = new (float Sin, float Cos)[GridEdgeSteps + 1];
+            for (var i = 0; i <= GridEdgeSteps; i++)
+            {
+                samples[i] = sample(i);
+            }
+            return samples;
+        }
+
         /// <summary>
         /// Trace a grid line and find where it crosses a viewport edge (entry or exit).
         /// For RA lines (isRA=true): traces Dec from -90 to +90 at constant RA.
         /// For Dec lines (isRA=false): traces RA from 0 to 24 at constant Dec.
-        /// Returns the crossing point nearest to a viewport edge for label placement.
+        /// Returns the crossing point nearest to a viewport edge for label placement, and where it is on the sky.
         /// </summary>
         private bool FindEdgeCrossing(double value, bool isRA, RectF32 rect, double ppr,
-            float cx, float cy, out float crossX, out float crossY, out Edge edge)
+            float cx, float cy, out float crossX, out float crossY, out Edge edge, out double crossRa, out double crossDec)
         {
             crossX = 0;
             crossY = 0;
             edge = Edge.Top;
+            crossRa = 0;
+            crossDec = 0;
+            var prevRa = 0.0;
+            var prevDec = 0.0;
 
-            const int steps = 80;
+            const int steps = GridEdgeSteps;
             var prevInside = false;
             var prevSx = 0f;
             var prevSy = 0f;
             var prevValid = false;
+
+            // The line's fixed coordinate once, and the varying one from a table: the same unit vector
+            // SkyMapState.RaDecToUnitVec makes from (ra, dec), float for float, without its two sines and cosines at every
+            // one of the 81 steps of every line on every frame of a pan (a third of the labels' cost, 2026-11-25). The
+            // projection below is SkyMapProjection.ProjectWithMatrix's, from that vector.
+            var view = State.CurrentViewMatrix;
+            var (sinFixed, cosFixed) = isRA
+                ? MathF.SinCos((float)(value * GridHours2RadF))
+                : MathF.SinCos(float.DegreesToRadians((float)value));
+            var samples = isRA ? s_gridDecSamples : s_gridRaSamples;
 
             for (var i = 0; i <= steps; i++)
             {
@@ -912,13 +1073,23 @@ namespace TianWen.UI.Abstractions
                     dec = value;
                 }
 
-                if (!SkyMapProjection.ProjectWithMatrix(ra, dec, State.CurrentViewMatrix,
-                    ppr, cx, cy, out var sx, out var sy))
+                var (sinVar, cosVar) = samples[i];
+                var (ux, uy, uz) = isRA
+                    ? (cosVar * cosFixed, cosVar * sinFixed, sinVar)
+                    : (cosFixed * cosVar, cosFixed * sinVar, sinFixed);
+                var camX = view.M11 * ux + view.M12 * uy + view.M13 * uz;
+                var camY = view.M21 * ux + view.M22 * uy + view.M23 * uz;
+                var cosD = -(view.M31 * ux + view.M32 * uy + view.M33 * uz);
+                if (cosD <= -0.99f)
                 {
                     prevValid = false;
                     prevInside = false;
                     continue;
                 }
+
+                var k = 2.0 / (1.0 + cosD);
+                var sx = cx + (float)(camX * k * ppr);
+                var sy = cy - (float)(camY * k * ppr);
 
                 var inside = sx >= rect.X && sx < rect.X + rect.Width
                           && sy >= rect.Y && sy < rect.Y + rect.Height;
@@ -929,6 +1100,8 @@ namespace TianWen.UI.Abstractions
                     // Use the point that's inside the viewport
                     crossX = inside ? sx : prevSx;
                     crossY = inside ? sy : prevSy;
+                    crossRa = inside ? ra : prevRa;
+                    crossDec = inside ? dec : prevDec;
 
                     // Determine which edge based on the crossing point's position
                     var edgeX = crossX;
@@ -949,6 +1122,8 @@ namespace TianWen.UI.Abstractions
 
                 prevSx = sx;
                 prevSy = sy;
+                prevRa = ra;
+                prevDec = dec;
                 prevInside = inside;
                 prevValid = true;
             }
@@ -962,13 +1137,6 @@ namespace TianWen.UI.Abstractions
         /// <summary>
         /// Draw constellation names at the centroid of each constellation's boundary strips.
         /// </summary>
-        /// <summary>
-        /// Return <paramref name="color"/> scaled down to ~35% alpha if <paramref name="dim"/> is true.
-        /// Used to make sub-horizon labels still readable but clearly "not tonight" visually.
-        /// </summary>
-        private static RGBAColor32 DimmedIf(RGBAColor32 color, bool dim)
-            => dim ? new RGBAColor32(color.Red, color.Green, color.Blue, (byte)(color.Alpha * 0.35f)) : color;
-
         // Cached constellation centroids. ConstellationBoundary.Table is static
         // so the centroids never change; computing once at first use avoids a
         // ~300-entry dictionary build + double foreach every frame (especially
@@ -999,7 +1167,7 @@ namespace TianWen.UI.Abstractions
         }
 
         private void DrawConstellationNames(RectF32 rect, float fontSize, double ppr, float cx, float cy,
-            SiteContext site, bool dimBelowHorizon)
+            SiteContext site, bool clipBelowHorizon)
         {
             var fontPath = FontPath;
             var fov = State.FieldOfViewDeg;
@@ -1027,10 +1195,14 @@ namespace TianWen.UI.Abstractions
 
             foreach (var (name, ra, dec, sx, sy, tw) in _constellNamesCache)
             {
-                var belowHorizon = dimBelowHorizon && !site.IsAboveHorizon(ra, dec);
+                // Under the ground no name: the constellation's own lines are traced faintly there, its name is not.
+                if (clipBelowHorizon && !site.IsAboveHorizon(ra, dec))
+                {
+                    continue;
+                }
                 DrawText(name.AsSpan(), fontPath,
                     sx - tw * 0.5f, sy - fontSize * 0.5f, tw + 4, fontSize * 1.2f,
-                    fontSize, DimmedIf(ConstellNameColor, belowHorizon), TextAlign.Center, TextAlign.Center);
+                    fontSize, ConstellNameColor, TextAlign.Center, TextAlign.Center);
             }
         }
 
@@ -1054,13 +1226,18 @@ namespace TianWen.UI.Abstractions
         private void DrawPlanetLabels(
             ICelestialObjectDB db, DateTimeOffset viewingTime, double siteLat, double siteLon,
             RectF32 rect, float fontSize, double ppr, float cx, float cy,
-            SiteContext site, bool dimBelowHorizon)
+            SiteContext site, bool clipBelowHorizon)
         {
             var fontPath = FontPath;
             _planetDiscsThisFrame.Clear();
 
             foreach (var (planetIdx, ra, dec, aspect, vmag) in State.GetPlanetPositionsCached(viewingTime))
             {
+                // Under the ground: no dot, disc or label, and nothing to click (the ground is opaque).
+                if (clipBelowHorizon && !site.IsAboveHorizon(ra, dec))
+                {
+                    continue;
+                }
                 if (!SkyMapProjection.ProjectWithMatrix(ra, dec, State.CurrentViewMatrix, ppr, cx, cy, out var sx, out var sy))
                 {
                     continue;
@@ -1074,8 +1251,7 @@ namespace TianWen.UI.Abstractions
                     {
                         var reach = (float)(PlanetSpriteCache.DiscDiameterPx(offCentre, ppr) / 2 * PlanetDiscSprite.ExtentRadii(planetIdx));
                         if (sx + reach >= rect.X && sx - reach < rect.X + rect.Width && sy + reach >= rect.Y && sy - reach < rect.Y + rect.Height
-                            && TryDrawPlanetDisc(offCentre, ra, dec, sx, sy, ppr, cx, cy, SkyMapState.PlanetDotRadius(planetIdx, vmag),
-                                dimBelowHorizon && !site.IsAboveHorizon(ra, dec), out _))
+                            && TryDrawPlanetDisc(offCentre, ra, dec, sx, sy, ppr, cx, cy, SkyMapState.PlanetDotRadius(planetIdx, vmag), out _))
                         {
                             _planetDiscsThisFrame.Add(planetIdx);
                         }
@@ -1094,15 +1270,14 @@ namespace TianWen.UI.Abstractions
                     // rather than at the glyphs.
                     var label = GetPlanetLabel(db, planetIdx);
                     var name = label.Name;
-                    var belowHorizon = dimBelowHorizon && !site.IsAboveHorizon(ra, dec);
-                    var planetColor = DimmedIf(SkyMapRenderer.GetPlanetColor(planetIdx), belowHorizon);
+                    var planetColor = SkyMapRenderer.GetPlanetColor(planetIdx);
 
                     // The textured disc once it is big enough on screen (A4), else the filled dot sized by its live
                     // magnitude (the Sun and Moon fixed). Below the threshold nothing about a sprite is touched.
                     var dotRadius = SkyMapState.PlanetDotRadius(planetIdx, vmag);
                     // The label starts past whatever was drawn: 10 px from a dot, clear of the sprite's reach (Saturn's rings past its globe).
                     var labelOffset = 10f;
-                    if (aspect is { } shown && TryDrawPlanetDisc(shown, ra, dec, sx, sy, ppr, cx, cy, dotRadius, belowHorizon, out var discRadius))
+                    if (aspect is { } shown && TryDrawPlanetDisc(shown, ra, dec, sx, sy, ppr, cx, cy, dotRadius, out var discRadius))
                     {
                         labelOffset = MathF.Max(labelOffset, (discRadius * (float)PlanetDiscSprite.ExtentRadii(planetIdx)) + 4f);
                         _planetDiscsThisFrame.Add(planetIdx);
@@ -1202,7 +1377,7 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private void DrawShowerRadiants(
             DateTimeOffset viewingTime, RectF32 rect, float fontSize, double ppr, float cx, float cy,
-            SiteContext site, bool dimBelowHorizon, IReadOnlySet<CatalogIndex>? pinnedIndices)
+            SiteContext site, bool clipBelowHorizon, IReadOnlySet<CatalogIndex>? pinnedIndices)
         {
             State.ShowerSiteLongitudeDeg = site.IsValid ? site.Longitude : 0.0;
             var radiants = State.GetShowerRadiantsCached(viewingTime);
@@ -1234,8 +1409,12 @@ namespace TianWen.UI.Abstractions
                     continue;
                 }
 
-                var below = dimBelowHorizon && !site.IsAboveHorizon(radiant.RA, radiant.Dec);
-                var mark = DimmedIf(markColor, below);
+                // Under the ground: no radiant, nothing to click (the ground is opaque).
+                if (clipBelowHorizon && !site.IsAboveHorizon(radiant.RA, radiant.Dec))
+                {
+                    continue;
+                }
+                var mark = markColor;
                 DrawCircle(sx, sy, ring, mark, 1.5f);
                 for (var i = 0; i < 8; i++)
                 {
@@ -1250,7 +1429,7 @@ namespace TianWen.UI.Abstractions
                 }
 
                 DrawText(radiant.Name.AsSpan(), FontPath, sx + rayOuter + 3f * dpiScale, sy - fontSize, 190f * dpiScale, fontSize * 1.2f,
-                    fontSize, DimmedIf(nameColor, below), TextAlign.Near, TextAlign.Center);
+                    fontSize, nameColor, TextAlign.Near, TextAlign.Center);
                 entry.ScreenX = sx;
                 entry.ScreenY = sy;
                 RegisterLabel(sx + rayOuter + 3f * dpiScale, sy - fontSize, 190f * dpiScale, fontSize * 1.2f, entry.Hit, entry.OnClick);
@@ -1269,7 +1448,7 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private void DrawCometLabels(
             DateTimeOffset viewingTime, RectF32 rect, float fontSize,
-            double ppr, float cx, float cy, SiteContext site, bool dimBelowHorizon,
+            double ppr, float cx, float cy, SiteContext site, bool clipBelowHorizon,
             IReadOnlySet<CatalogIndex>? pinnedIndices = null)
         {
             var fontPath = FontPath;
@@ -1328,9 +1507,13 @@ namespace TianWen.UI.Abstractions
                     continue;
                 }
 
-                var below = dimBelowHorizon && !site.IsAboveHorizon(marker.RA, marker.Dec);
-                var comaColor = DimmedIf(CometColor, below);
-                var labelColor = DimmedIf(CometLabelColor, below);
+                // Under the ground: no coma, tail or label, pinned or not (the ground is opaque).
+                if (clipBelowHorizon && !site.IsAboveHorizon(marker.RA, marker.Dec))
+                {
+                    continue;
+                }
+                var comaColor = CometColor;
+                var labelColor = CometLabelColor;
 
                 // Anti-solar tail: a short segment from the coma pointing directly away from the Sun.
                 if (!float.IsNaN(sunX))
@@ -1353,7 +1536,7 @@ namespace TianWen.UI.Abstractions
                 {
                     DrawCircle(sx, sy,
                         OverlayEngine.PinnedHaloMinSemiMajorPx * dpiScale * OverlayEngine.PinnedHaloScale,
-                        DimmedIf(OverlayEngine.PinnedHaloColor, below), OverlayEngine.PinnedHaloStrokePx);
+                        OverlayEngine.PinnedHaloColor, OverlayEngine.PinnedHaloStrokePx);
                 }
 
                 // Coma: filled dot + a soft ring so it reads distinctly from a star/planet dot.
@@ -1431,24 +1614,39 @@ namespace TianWen.UI.Abstractions
             var fontPath = FontPath;
             var stripH = 24f * dpiScale;
             var stripY = rect.Y + rect.Height - stripH;
-            RenderLayout(Layout.Builder.Spacer().Bg(InfoPanelBg), new RectF32(rect.X, stripY, rect.Width, stripH));
+            var backRect = new RectF32(rect.X, stripY, rect.Width, stripH);
+            if (!_keptStripBack.TryGet(default, backRect, Scale, fontPath, out var back))
+            {
+                back = _keptStripBack.Keep(default, backRect, Scale, fontPath,
+                    ArrangeLayout(Layout.Builder.Spacer().Bg(InfoPanelBg), backRect));
+            }
+            PaintLayout(back);
 
-            var localTime = viewingTime.ToOffset(siteTimeZone);
             // To the minute, shifted or not. The seconds are the top bar's clock, which ticks in its own rectangle; a
             // second count here would be a second clock, and one that stood still between the map's frames, which
             // are drawn when the sky has moved (GuiTimeCadence.SkyDrift) and not once a second.
-            var timeText = isTimeShifted
-                ? $"{localTime:yyyy-MM-dd HH:mm}"
-                : $"{localTime:HH:mm}";
-
-            // Append a compact signed offset chip while scrubbed (e.g. "(+2d 03h)") so the
-            // absolute instant above is read as a deliberate offset from the live wall clock
-            // (which stays visible in the global status bar). Only the scrub offset is shown;
-            // a planner-set PlanningDate is already self-evident from the absolute date.
-            if (State.TimeOffset != TimeSpan.Zero)
+            // Written out when the minute it names changes, not for every frame of that minute.
+            var localTime = viewingTime.ToOffset(siteTimeZone);
+            var timeTextFor = (localTime.Ticks / TimeSpan.TicksPerMinute, isTimeShifted, State.TimeOffset);
+            if (_stripTimeText is null || timeTextFor != _stripTimeTextFor)
             {
-                timeText += $"  ({SkyMapState.FormatOffset(State.TimeOffset)})";
+                var text = isTimeShifted
+                    ? $"{localTime:yyyy-MM-dd HH:mm}"
+                    : $"{localTime:HH:mm}";
+
+                // Append a compact signed offset chip while scrubbed (e.g. "(+2d 03h)") so the
+                // absolute instant above is read as a deliberate offset from the live wall clock
+                // (which stays visible in the global status bar). Only the scrub offset is shown;
+                // a planner-set PlanningDate is already self-evident from the absolute date.
+                if (State.TimeOffset != TimeSpan.Zero)
+                {
+                    text += $"  ({SkyMapState.FormatOffset(State.TimeOffset)})";
+                }
+
+                _stripTimeText = text;
+                _stripTimeTextFor = timeTextFor;
             }
+            var timeText = _stripTimeText;
 
             var fovText = State.FieldOfViewDeg < 1
                 ? $"FOV: {State.FieldOfViewDeg * 60:F0}'"
@@ -1476,65 +1674,77 @@ namespace TianWen.UI.Abstractions
             // whatever the palette is doing, since the frame is the map's MODE, not one of its layers, so it is not in
             // the table the panel renders.
             var position = $"RA: {State.CenterRA:F2}h  Dec: {State.CenterDec:F1}\u00B0";
-            // What the readout says with less and less room, least needed first: the key hints (the palette and F1 say
-            // them), the limiting magnitude, the position, the field, and then nothing.
-            ReadOnlySpan<string> readouts =
-            [
-                $"{position}    {fovText}    {magText}    [P] view{layerHints}{levelHint}",
-                $"{position}    {fovText}    {magText}",
-                $"{position}    {fovText}",
-                fovText,
-                "",
-            ];
-
             // The time on the right, blue when time-shifted, inside its controls (SkyMapTab.TimeControls): the
             // steps the arrow keys take either side of it, a press on the time for the night's landmarks, and
             // Now while scrubbed. The info text takes what they leave, so the two can no longer overlap.
             var timeColor = isTimeShifted ? TimeShiftColor : InfoText;
             var stripFont = fontSize * 0.85f;
             var stripRect = new RectF32(rect.X + 8, stripY, rect.Width - 16, stripH);
-            var modeSwitch = BuildModeSwitch(stripFont, dpiScale);
-            var afterSwitch = Layout.Builder.Spacer().WFixed(8f * dpiScale);
+            var scrubbed = State.TimeOffset != TimeSpan.Zero;
 
             // The readout is packed from the left and the time controls from the right, and a row packed from both ends
             // draws over itself once the window is narrower than the two together (it did, from about 1100 px). So the
             // strip gives things up until what is left fits, on the engine's measurement of the row: the readout a part
             // at a time, then the steps either side of the time down to the hour, then those. The time is measured at the
             // width its button keeps for a scrubbed date, which is what the button takes of the room when it can.
+            //
+            // The row is the controls and the readout side by side, so its width is the controls' (the same for every
+            // frame of a pan, and kept: StripControlsWidth) plus the readout's own, which is the one part that changes
+            // as the view moves. Each readout is written when the one before it did not fit.
             ReadOnlySpan<(int Readout, int Steps)> fits =
             [
                 (0, 3), (1, 3), (2, 3), (3, 3), (4, 3), (4, 1), (4, 0),
             ];
             var fit = fits[^1];
+            var info = "";
+            var readoutAt = -1;
+            var readoutWidth = 0f;
             foreach (var candidate in fits)
             {
-                var row = Layout.Builder.HStack(
-                        modeSwitch,
-                        afterSwitch,
-                        Layout.Builder.Text(readouts[candidate.Readout], stripFont, trim: TextTrim.None).WAuto(),
-                        TimeControlsGroup(BuildTimeControls(TimeTextWidthSample, timeColor, stripFont, dpiScale, stepsPerSide: candidate.Steps), dpiScale)
-                            .WAuto())
-                    .WAuto();
-                var needed = Layout.Engine.Measure(
-                    row, new Layout.Size<float>(float.MaxValue, stripH), MeasureContext(scale: DesignScale.One)).Width;
-                if (needed <= stripRect.Width)
+                if (candidate.Readout != readoutAt)
+                {
+                    readoutAt = candidate.Readout;
+                    // What the readout says with less and less room, least needed first: the key hints (the palette
+                    // and F1 say them), the limiting magnitude, the position, the field, and then nothing.
+                    info = readoutAt switch
+                    {
+                        0 => $"{position}    {fovText}    {magText}    [P] view{layerHints}{levelHint}",
+                        1 => $"{position}    {fovText}    {magText}",
+                        2 => $"{position}    {fovText}",
+                        3 => fovText,
+                        _ => "",
+                    };
+                    readoutWidth = Layout.Engine.Measure(
+                        Layout.Builder.Text(info, stripFont, trim: TextTrim.None).WAuto(),
+                        new Layout.Size<float>(float.MaxValue, stripH), MeasureContext(scale: DesignScale.One)).Width;
+                }
+
+                if (StripControlsWidth(candidate.Steps, timeColor, stripFont, dpiScale, stripH, scrubbed) + readoutWidth <= stripRect.Width)
                 {
                     fit = candidate;
                     break;
                 }
             }
 
-            var info = readouts[fit.Readout];
-            var arranged = RenderLayout(
-                Layout.Builder.HStack(
-                    modeSwitch,
-                    afterSwitch,
-                    Layout.Builder.Fill(key: InfoStripTextKey).WStar(),
-                    TimeControlsGroup(BuildTimeControls(timeText, timeColor, stripFont, dpiScale, stepsPerSide: fit.Steps), dpiScale)),
-                stripRect,
-                // Device pixels, like the rest of the strip.
-                scale: DesignScale.One);
-            RememberTimeButton(arranged);
+            // The strip's own tree holds the mode switch and the time controls, and the readout is drawn into the room
+            // it leaves: the tree is the same one until the mode, the time's text or the room changes, so it is kept
+            // across the frames of a pan (KeptLayout). The mode is in the key because the switch shows it.
+            var stripKey = new InfoStripKey(State.Mode, timeText, timeColor, stripFont, dpiScale, fit.Steps, scrubbed);
+            if (!_keptInfoStrip.TryGet(stripKey, stripRect, DesignScale.One, fontPath, out var arranged))
+            {
+                arranged = _keptInfoStrip.Keep(stripKey, stripRect, DesignScale.One, fontPath,
+                    ArrangeLayout(
+                        Layout.Builder.HStack(
+                            BuildModeSwitch(stripFont, dpiScale),
+                            Layout.Builder.Spacer().WFixed(8f * dpiScale),
+                            Layout.Builder.Fill(key: InfoStripTextKey).WStar(),
+                            TimeControlsGroup(BuildTimeControls(timeText, timeColor, stripFont, dpiScale, stepsPerSide: fit.Steps), dpiScale)),
+                        stripRect,
+                        // Device pixels, like the rest of the strip.
+                        scale: DesignScale.One));
+                RememberTimeButton(arranged);
+            }
+            PaintLayout(arranged, scale: DesignScale.One);
 
             // Clipped to its own slot besides: a readout a digit wider than the one measured ends at the controls, never
             // over them.
@@ -1550,6 +1760,54 @@ namespace TianWen.UI.Abstractions
         }
 
         private const string InfoStripTextKey = "skymap-info-text";
+
+        // Everything the strip's tree is built from: the mode its switch shows, the time's text and colour, the sizes,
+        // how many steps there is room for, and whether the view is scrubbed (which adds Now).
+        private readonly record struct InfoStripKey(
+            SkyMapMode Mode, string TimeText, RGBAColor32 TimeColor, float FontSize, float DpiScale, int Steps, bool Scrubbed);
+
+        private KeptLayout<InfoStripKey> _keptInfoStrip;
+        private KeptLayout<int> _keptStripBack;
+
+        /// <summary>How many times the info strip's tree was built (<see cref="KeptLayout{TKey}.Builds"/>).</summary>
+        internal int InfoStripBuilds => _keptInfoStrip.Builds;
+
+        // The strip's time as text, and the minute, shift and offset it was written for.
+        private string? _stripTimeText;
+        private (long Minute, bool Shifted, TimeSpan Offset) _stripTimeTextFor;
+
+        // The width the strip's controls take with this many steps a side: the mode switch, its gap and the time
+        // controls at the widest time they show, on the engine's measurement of them as a row. The same for every frame
+        // until a size or the theme changes, so measured once for each count of steps.
+        private readonly record struct StripControlsKey(RGBAColor32 TimeColor, float FontSize, float DpiScale, float StripHeight, bool Scrubbed, int PaletteGeneration, string? FontPath);
+
+        private StripControlsKey _stripControlsFor;
+        private readonly float[] _stripControlsWidth = [float.NaN, float.NaN, float.NaN, float.NaN];
+
+        private float StripControlsWidth(int steps, RGBAColor32 timeColor, float stripFont, float dpiScale, float stripH, bool scrubbed)
+        {
+            var key = new StripControlsKey(timeColor, stripFont, dpiScale, stripH, scrubbed, GuiTheme.PaletteGeneration, FontPath);
+            if (key != _stripControlsFor)
+            {
+                _stripControlsFor = key;
+                Array.Fill(_stripControlsWidth, float.NaN);
+            }
+
+            ref var width = ref _stripControlsWidth[Math.Clamp(steps, 0, _stripControlsWidth.Length - 1)];
+            if (float.IsNaN(width))
+            {
+                var row = Layout.Builder.HStack(
+                        BuildModeSwitch(stripFont, dpiScale),
+                        Layout.Builder.Spacer().WFixed(8f * dpiScale),
+                        TimeControlsGroup(BuildTimeControls(TimeTextWidthSample, timeColor, stripFont, dpiScale, stepsPerSide: steps), dpiScale)
+                            .WAuto())
+                    .WAuto();
+                width = Layout.Engine.Measure(
+                    row, new Layout.Size<float>(float.MaxValue, stripH), MeasureContext(scale: DesignScale.One)).Width;
+            }
+
+            return width;
+        }
 
         /// <summary>The mode switch's segments, by name, for a host or an inspector.</summary>
         internal const string ModeHorizonAction = "SkyMapMode:AltAz";

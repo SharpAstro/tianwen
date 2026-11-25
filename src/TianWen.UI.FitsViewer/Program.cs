@@ -512,9 +512,9 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
 
     OnDropFile = (path) => { if (path is not null) host.HandleDropFile(path); },
 
-    // TickPlayback() FIRST (and always, via || short-circuit order): it runs every loop iteration --
-    // including the idle WaitEventTimeout polls -- which is how SER playback stays frame-paced without
-    // busy-spinning. It decodes the next frame ahead off the render thread and returns true only when a
+    // TickPlayback() FIRST (and always, via || short-circuit order): the loop asks this check about once a
+    // refresh, the idle WaitEventTimeout polls included, and right before every frame (SdlVulkan.Renderer's
+    // RedrawCheckPacing), which is how SER playback stays frame-paced without busy-spinning. It decodes the next frame ahead off the render thread and returns true only when a
     // frame should actually be shown now (or a seek is resolving); between frames it returns false so
     // the loop idles and the GPU/disk go quiet (mirroring the standalone viewer's low-idle behaviour).
     CheckNeedsRedraw = () =>
@@ -527,7 +527,7 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
             StartupTrace.Mark("events");
         }
 
-        // BOTH of these must run on EVERY iteration, so neither may sit on the right of a ||: the gate
+        // BOTH of these must run on EVERY ask, so neither may sit on the right of a ||: the gate
         // pump is the only place a hand-off from a later launch is noticed, and the host's own question
         // paces SER playback and the blink and consumes the sky's request (see WantsFrame). Evaluate
         // them, then combine.

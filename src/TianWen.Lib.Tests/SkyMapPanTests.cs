@@ -259,16 +259,49 @@ public class SkyMapPanTests
     }
 
     /// <summary>
-    /// Just under the zenith a sideways drag turns the view in proportion to the drag, as Stellarium does: at most twice the drag's own
-    /// angle in azimuth, never the half turn it took to keep the grabbed star exactly under the pointer there.
+    /// In a narrow field, up to 80 degrees a sideways drag keeps the sky under the pointer (the owner, 2026-11-25: with the floor
+    /// at 60 degrees the sky lagged the pointer and the drag read as resistance near the zenith). At 75 degrees the old floor moved
+    /// the grabbed star barely half way, 2 against the 3.9 the cosine asks.
     /// </summary>
     [Fact]
-    public void InAltAz_ASidewaysDragJustUnderTheZenithTurnsInProportion()
+    public void InAltAz_ASidewaysDragAt75DegreesInANarrowFieldKeepsTheSkyUnderThePointer()
+    {
+        const double narrowFov = 20.0;
+        var (zx, zy, zz) = SkyMapState.RaDecToUnitVec(8.0, 40.0);
+        var zenith = new Vector3(zx, zy, zz);
+        // Seventy-five degrees up, facing south.
+        var s = new SkyMapState { Mode = SkyMapMode.Horizon, FieldOfViewDeg = narrowFov, CenterRA = 8.0, CenterDec = 25.0 };
+        s.UpdateRollForReference(zx, zy, zz, FrameSeconds);
+        var ppr = SkyMapProjection.PixelsPerRadian(ContentH, narrowFov);
+        float cx = ContentW * 0.5f, cy = ContentH * 0.5f;
+        const float fromX = 440f, toX = 560f;
+        var (grabRA, grabDec) = SkyMapProjection.UnprojectWithMatrix(fromX, cy, ViewMatrix(s), ppr, cx, cy);
+
+        Drag(s, fromX, cy, toX, cy);
+        s.IsDragging = false;
+
+        SkyMapProjection.ProjectWithMatrix(grabRA, grabDec, ViewMatrix(s), ppr, cx, cy, out var x, out var y).ShouldBeTrue();
+        Vector2.Distance(new Vector2(x, y), new Vector2(toX, cy)).ShouldBeLessThan(0.15f * (toX - fromX),
+            $"the grabbed star stays under the pointer at 75 degrees: it landed at ({x:F1}, {y:F1}) for a drag to ({toX}, {cy})");
+        HorizonTiltDeg(s, zenith).ShouldBeLessThan(0.05, "with the horizon level");
+    }
+
+    /// <summary>
+    /// Just under the zenith a sideways drag turns the view in proportion to the drag, as Stellarium does, never the half turn it
+    /// took to keep the grabbed star exactly under the pointer there: at most 1/cos(80 deg), about 5.8 times the drag's own angle
+    /// in azimuth, in a narrow field, and in a wide one at most 1/sin(fov/2), which keeps the stars at the window's edge to the
+    /// pointer's speed (2 at 60 degrees, 1.4 at 90: at 5.8 a 300 px drag turned a 90 degree field by 90 degrees).
+    /// </summary>
+    [Theory]
+    [InlineData(20.0, 5.82)]  // 1.01 / cos(80 deg); sin(10 deg) is the same number
+    [InlineData(60.0, 2.02)]  // 1.01 / sin(30 deg)
+    [InlineData(90.0, 1.43)]  // 1.01 / sin(45 deg)
+    public void InAltAz_ASidewaysDragJustUnderTheZenithTurnsInProportion(double fov, double mostTimesTheDrag)
     {
         var (zx, zy, zz) = SkyMapState.RaDecToUnitVec(8.0, 40.0);
         var zenith = new Vector3(zx, zy, zz);
         // Two degrees under the zenith, facing south.
-        var s = new SkyMapState { Mode = SkyMapMode.Horizon, FieldOfViewDeg = Fov, CenterRA = 8.0, CenterDec = 38.0 };
+        var s = new SkyMapState { Mode = SkyMapMode.Horizon, FieldOfViewDeg = fov, CenterRA = 8.0, CenterDec = 38.0 };
         s.UpdateRollForReference(zx, zy, zz, FrameSeconds);
         var (az0, _) = AzAlt(s, zenith);
 
@@ -279,13 +312,14 @@ public class SkyMapPanTests
         }
         var worst = DragThrough(s, zenith, 450f, 300f, path);
         var (az, alt) = AzAlt(s, zenith);
-        var dragDeg = double.RadiansToDegrees(100.0 / SkyMapProjection.PixelsPerRadian(ContentH, Fov));
+        var dragDeg = double.RadiansToDegrees(100.0 / SkyMapProjection.PixelsPerRadian(ContentH, fov));
         var turned = double.RadiansToDegrees(Math.Abs(SkyMapState.NormalizeSignedAngle(az - az0)));
-        System.Console.WriteLine($"a {dragDeg:F2} deg sideways drag at alt {double.RadiansToDegrees(alt):F1}: azimuth turned {turned:F2} deg, worst turn between moves {worst:F2} deg");
+        System.Console.WriteLine($"a {dragDeg:F2} deg sideways drag at alt {double.RadiansToDegrees(alt):F1} in a {fov} deg field: azimuth turned {turned:F2} deg, worst turn between moves {worst:F2} deg");
 
         // A 1 percent margin: the drag's angle on screen is not exactly its pixels over the scale.
-        turned.ShouldBeLessThanOrEqualTo(2.02 * dragDeg, "a sideways drag under the zenith turned the view out of proportion");
-        turned.ShouldBeGreaterThan(0.5 * dragDeg, "and it still turns");
+        turned.ShouldBeLessThanOrEqualTo(mostTimesTheDrag * dragDeg, $"a sideways drag under the zenith turned a {fov} deg view out of proportion");
+        // And it turns by nearly that much: a floor that let the view lag far behind would pass the bound above.
+        turned.ShouldBeGreaterThan(0.8 * mostTimesTheDrag * dragDeg, $"and it turns a {fov} deg view as far as its floor allows");
         worst.ShouldBeLessThan(2.0, "the view turned violently between two moves of the pointer");
     }
 

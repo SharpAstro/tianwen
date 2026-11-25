@@ -97,6 +97,11 @@ public class CoordinateUtilsTests
     // a value that rounds to zero is never negative
     [InlineData(-0.0001d, SexagesimalPrecision.Minute, "+00*00")]
     [InlineData(-0.5d, SexagesimalPrecision.Millisecond, "-00*30:00")]
+    // tenths of a second: the tenth is always written, and 59.96 seconds carries into the next minute
+    [InlineData(-31.314123299999999d, SexagesimalPrecision.TenthSecond, "-31*18:50.8")]
+    [InlineData(-0.5d, SexagesimalPrecision.TenthSecond, "-00*30:00.0")]
+    [InlineData(12.0166556d, SexagesimalPrecision.TenthSecond, "+12*01:00.0")]
+    [InlineData(-37.877173d, SexagesimalPrecision.TenthSecond, "-37*52:37.8")]
     [InlineData(-31.314123299999999d, SexagesimalPrecision.Millisecond, "-31*18:50.844")]
     [InlineData(123.5d, SexagesimalPrecision.Millisecond, "+123*30:00")]
     public void DegreesToDMSRoundsToThePrecisionAndCarriesIntoTheDegrees(double degrees, SexagesimalPrecision precision, string expected)
@@ -120,6 +125,9 @@ public class CoordinateUtilsTests
     [InlineData(11.11d, SexagesimalPrecision.Second, false, "11:06:36")]
     [InlineData(23.9999d, SexagesimalPrecision.Second, false, "24:00:00")]
     [InlineData(23.9999d, SexagesimalPrecision.Second, true, "00:00:00")]
+    // the atlas's info panel: a right ascension to a tenth of a second, folded AFTER it is rounded (never 24:00:00.0)
+    [InlineData(23.99999d, SexagesimalPrecision.TenthSecond, true, "00:00:00.0")]
+    [InlineData(5.5d, SexagesimalPrecision.TenthSecond, true, "05:30:00.0")]
     [InlineData(25.5d, SexagesimalPrecision.Second, false, "25:30:00")]
     [InlineData(5.5d, SexagesimalPrecision.Minute, false, "05:30")]
     [InlineData(5.99999d, SexagesimalPrecision.Millisecond, false, "05:59:59.964")]

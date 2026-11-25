@@ -92,6 +92,65 @@ public class SkyMapHoverAndPictureTests
         hover.HitRadiusPx.ShouldBeGreaterThan(20f, "the ellipse, not the plain click tolerance, claimed it");
     }
 
+    // The ground is opaque while the horizon is drawn, so what is under it is not drawn, and what is not drawn answers
+    // neither the hover nor the click (the owner, 2026-11-25: you cannot look through the ground). The same object
+    // overhead, and under a ground that is not drawn, are the controls.
+    [Fact]
+    public void AnObjectUnderTheGroundTakesNeitherTheHoverNorTheClick()
+    {
+        var db = new ArticleDb(Nebula, Star, NebulaShape);
+        var state = NewState();
+        state.CurrentViewMatrix = state.ComputeViewMatrix();
+        var (x, y) = Project(state, Nebula.RA, Nebula.Dec);
+        var (nx, ny, nz) = SkyMapState.RaDecToUnitVec(Nebula.RA, Nebula.Dec);
+        var overhead = new System.Numerics.Vector3(nx, ny, nz);
+
+        // The zenith at the nebula's antipode: the nebula is at the nadir.
+        state.ShowHorizon = true;
+        state.Zenith = -overhead;
+        SkyMapSearchActions.ResolveHoverAtScreenPoint(state, db, SceneTime, x, y, pinnedCatalogIndices: null)
+            .ShouldBeNull("the nebula is under the ground");
+        SkyMapSearchActions.SelectAtScreenPoint(state, db, 0, 0, SceneTime, x, y, InputModifier.None, [])
+            .ShouldBeFalse("and a click on the ground selects nothing");
+
+        state.Zenith = overhead;
+        SkyMapSearchActions.ResolveHoverAtScreenPoint(state, db, SceneTime, x, y, pinnedCatalogIndices: null)
+            .ShouldNotBeNull("overhead it is hovered as ever").Index.ShouldBe(Nebula.Index);
+
+        state.Zenith = -overhead;
+        state.ShowHorizon = false;
+        SkyMapSearchActions.ResolveHoverAtScreenPoint(state, db, SceneTime, x, y, pinnedCatalogIndices: null)
+            .ShouldNotBeNull("with the horizon layer off there is no ground").Index.ShouldBe(Nebula.Index);
+    }
+
+    // The ground hides an OBJECT, not a patch of screen: an object just above the horizon is drawn whole, the half of
+    // its marker that hangs below the line included, and a pointer there is on it. The rule used to ask where the
+    // POINTER was, so the lower half of anything sitting on the horizon could be neither hovered nor clicked.
+    [Fact]
+    public void AnObjectJustAboveTheHorizonIsHoveredFromBelowTheLine()
+    {
+        var db = new ArticleDb(Nebula, Star, NebulaShape);
+        var state = NewState();
+        state.CurrentViewMatrix = state.ComputeViewMatrix();
+
+        // The nebula (RA 12 h, Dec 0) a tenth of a degree above the horizon, with the zenith to its north; the pointer
+        // 0.15 degrees south of it, which is 0.05 degrees UNDER the horizon and well inside the nebula's 0.5 degree ellipse.
+        var (nx, ny, nz) = SkyMapState.RaDecToUnitVec(Nebula.RA, Nebula.Dec);
+        var (sinAlt, cosAlt) = MathF.SinCos(float.DegreesToRadians(0.1f));
+        var zenith = (sinAlt * new System.Numerics.Vector3(nx, ny, nz)) + (cosAlt * System.Numerics.Vector3.UnitZ);
+        state.ShowHorizon = true;
+        state.Zenith = zenith;
+
+        const double PointerDec = -0.15;
+        var (px, py, pz) = SkyMapState.RaDecToUnitVec(Nebula.RA, PointerDec);
+        System.Numerics.Vector3.Dot(new System.Numerics.Vector3(px, py, pz), zenith)
+            .ShouldBeLessThan(0f, "the pointer is under the horizon line, or this proves nothing");
+
+        var (x, y) = Project(state, Nebula.RA, PointerDec);
+        SkyMapSearchActions.ResolveHoverAtScreenPoint(state, db, SceneTime, x, y, pinnedCatalogIndices: null)
+            .ShouldNotBeNull("the nebula is above the horizon and the pointer is on its ellipse").Index.ShouldBe(Nebula.Index);
+    }
+
     // Ctrl is read at the moment of the press and a hover carries no press. Guessing at it would make
     // the wash wrong precisely when the user is holding Ctrl to pick a star out of a nebula.
     [Fact]
@@ -279,9 +338,7 @@ public class SkyMapHoverAndPictureTests
     }
 
     // Counting resolves, not pixels: a re-resolve that lands on the same object draws the identical
-    // frame, so only a count can tell "resolved once and reused" from "resolved on every move". A
-    // frame is rendered between the moves, because otherwise the per-frame budget below would block
-    // the second one and the slop would be untested.
+    // frame, so only a count can tell "resolved once and reused" from "resolved on every move".
     [Fact]
     public void ASmallPointerMoveDoesNotReResolveButAMoveToAnotherObjectDoes()
     {
@@ -311,10 +368,9 @@ public class SkyMapHoverAndPictureTests
     }
 
     // The bound that makes hover affordable at a deep zoom: a mouse delivers moves at well over frame
-    // rate. A changed answer holds the next resolve until its frame paints; an unchanged one, which
-    // asks for no frame, holds it for the clock bound instead. The fake clock does not move here, so
-    // twenty moves are one resolve either way. Asserted as a count for the same reason as above --
-    // every one of these moves draws the identical frame.
+    // rate, and a move resolves at most once per clock bound. The fake clock does not move here, so
+    // twenty moves are one resolve. Asserted as a count for the same reason as above -- every one of
+    // these moves draws the identical frame.
     [Fact]
     public void ManyMovesInsideTheClockBoundCostExactlyOneResolve()
     {
@@ -341,6 +397,80 @@ public class SkyMapHoverAndPictureTests
         time.Advance(TimeSpan.FromMilliseconds(10));
         tab.HandleInput(new InputEvent.MouseMove(60f, 60f));
         tab.HoverResolves.ShouldBe(2);
+    }
+
+    // The highlight was 13 updates a second under a moving pointer, and could rest on an object the pointer had left
+    // (the owner's atlas, 2026-11-25): a changed answer held every later move back until its frame had painted, and the
+    // moves it held back were DROPPED, so the frame showed where the pointer had been and nothing looked again when it
+    // stopped. A move is resolved whether or not a frame is on its way.
+    [Fact]
+    public void AMoveWhileAChangedAnswerAwaitsItsFrameIsStillResolved()
+    {
+        using var renderer = new RgbaImageRenderer(200, 200);
+        var (tab, plannerState, time, rect) = NewNebulaCentredTab(renderer);
+        tab.Render(plannerState, rect, time);
+
+        // Onto the nebula: a changed answer, whose frame is NOT painted before the next move.
+        tab.HandleInput(new InputEvent.MouseMove(100f, 100f));
+        tab.State.HoverTarget.ShouldNotBeNull().Index.ShouldBe(Nebula.Index);
+
+        time.Advance(TimeSpan.FromMilliseconds(10));
+        tab.HandleInput(new InputEvent.MouseMove(5f, 5f));
+        tab.State.HoverTarget.ShouldBeNull("the pointer is on bare sky now, and no frame has to paint before that is noticed");
+    }
+
+    // The last move of a gesture commonly lands inside the clock bound of the one before it. It is not resolved by the
+    // move, and it is not lost: the settle the host asks from its redraw check (before every frame) resolves where the
+    // pointer IS, and states what that changed like a move does.
+    [Fact]
+    public void AMoveInsideTheClockBoundIsSettledWhereThePointerRests()
+    {
+        using var renderer = new RgbaImageRenderer(200, 200);
+        var (tab, plannerState, time, rect) = NewNebulaCentredTab(renderer);
+        tab.HostRepaintsStatedMoves = true;
+        tab.Render(plannerState, rect, time);
+
+        tab.HandleInput(new InputEvent.MouseMove(100f, 100f));
+        tab.State.HoverTarget.ShouldNotBeNull().Index.ShouldBe(Nebula.Index);
+        var on = tab.TakePointerMoveChanged().ShouldNotBeNull();
+        tab.Render(plannerState, rect, time);
+
+        // Off it, inside the clock bound (the fake clock has not moved): the move resolves nothing.
+        var resolves = tab.HoverResolves;
+        tab.HandleInput(new InputEvent.MouseMove(5f, 5f));
+        tab.HoverResolves.ShouldBe(resolves, "inside the clock bound a move does not resolve");
+        tab.State.HoverTarget.ShouldNotBeNull("so the wash still names the nebula");
+
+        // The settle catches it up, and states the wash that has to come off.
+        tab.SettlePointer();
+        tab.HoverResolves.ShouldBe(resolves + 1);
+        tab.State.HoverTarget.ShouldBeNull("the pointer rests on bare sky");
+        tab.TakePointerMoveChanged().ShouldBe(on, "the nebula's wash, to take off");
+
+        // Settled: asking again resolves nothing.
+        tab.SettlePointer();
+        tab.HoverResolves.ShouldBe(resolves + 1, "nothing is owed once the pointer's place is resolved");
+        tab.TakePointerMoveChanged().ShouldBeNull();
+    }
+
+    // A press retires the wash, and the settle must not put it back where the pointer last hovered.
+    [Fact]
+    public void TheSettleDoesNotPutBackAWashAPressRetired()
+    {
+        using var renderer = new RgbaImageRenderer(200, 200);
+        var (tab, plannerState, time, rect) = NewNebulaCentredTab(renderer);
+        tab.Render(plannerState, rect, time);
+
+        tab.HandleInput(new InputEvent.MouseMove(5f, 5f));
+        // Onto the nebula inside the clock bound: owed, not resolved.
+        tab.HandleInput(new InputEvent.MouseMove(100f, 100f));
+        tab.State.HoverTarget.ShouldBeNull();
+
+        tab.HandleInput(new InputEvent.MouseDown(100f, 100f));
+        var resolves = tab.HoverResolves;
+        tab.SettlePointer();
+        tab.HoverResolves.ShouldBe(resolves, "a press leaves nothing owed");
+        tab.State.HoverTarget.ShouldBeNull();
     }
 
     // The pointer moving onto an object is a change on screen, so it has to schedule the frame that
@@ -972,10 +1102,10 @@ public class SkyMapHoverAndPictureTests
 
         protected override void RenderObjectOverlay(
             ICelestialObjectDB db, RectF32 contentRect,
-            float baseFontSize, SiteContext site, bool dimBelowHorizon, PlannerState plannerState,
+            float baseFontSize, SiteContext site, bool clipBelowHorizon, PlannerState plannerState,
             bool showAllOverlays)
             => RenderObjectOverlayPrimitive(db, contentRect, baseFontSize,
-                site, dimBelowHorizon, plannerState, showAllOverlays);
+                site, clipBelowHorizon, plannerState, showAllOverlays);
     }
 
     // Two objects in one cell, one of which may carry a verified article with a picture.

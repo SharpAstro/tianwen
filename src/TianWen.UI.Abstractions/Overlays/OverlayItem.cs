@@ -21,10 +21,27 @@ public sealed class OverlayItem
     public CatalogIndex Index { get; init; }
 
     /// <summary>Screen X coordinate of the object center.</summary>
-    public float ScreenX { get; init; }
+    public float ScreenX { get => _screenX; init => _screenX = value; }
 
     /// <summary>Screen Y coordinate of the object center.</summary>
-    public float ScreenY { get; init; }
+    public float ScreenY { get => _screenY; init => _screenY = value; }
+
+    private float _screenX;
+    private float _screenY;
+    private OverlayMarker _marker;
+
+    /// <summary>
+    /// The same object somewhere else on screen: what a pan does to every item of a candidate list, sixty times a
+    /// second. <see cref="OverlayEngine.ProjectSkyMapCandidatesInto"/> moves the item it made for a candidate the
+    /// frame before rather than making another (its <c>reuse</c> argument); everything else an item carries is
+    /// the candidate's and does not change while the list stands.
+    /// </summary>
+    internal void MoveTo(float screenX, float screenY, in OverlayMarker marker)
+    {
+        _screenX = screenX;
+        _screenY = screenY;
+        _marker = marker;
+    }
 
     /// <summary>Right ascension in hours (J2000). Populated by the compute engine so
     /// callers can apply sky-position filtering (e.g. below-horizon dimming on the sky map).</summary>
@@ -37,7 +54,7 @@ public sealed class OverlayItem
     public (float R, float G, float B) Color { get; init; }
 
     /// <summary>The visual marker to draw (ellipse, cross, or circle).</summary>
-    public required OverlayMarker Marker { get; init; }
+    public required OverlayMarker Marker { get => _marker; init => _marker = value; }
 
     /// <summary>Label lines (first line = primary name, rest = secondary info).</summary>
     public required IReadOnlyList<string> LabelLines { get; init; }
@@ -90,7 +107,15 @@ public sealed class OverlayItem
     /// (the projected item drops the arcmin extent and position angle, which the GPU path reads off
     /// the candidate instead), so the link back is what removes the duplication.</para>
     /// </summary>
-    public int CandidateIndex { get; init; } = -1;
+    public int CandidateIndex { get => _candidateIndex; init => _candidateIndex = value; }
+
+    private int _candidateIndex = -1;
+
+    /// <summary>
+    /// The same object at another place in a new candidate list (a gather replaced the list and the object is in both):
+    /// what lets a host keep the item it made, and what it keeps beside it, across gathers (<see cref="MoveTo"/>).
+    /// </summary>
+    public void Renumber(int candidateIndex) => _candidateIndex = candidateIndex;
 
     /// <summary>
     /// Whether the object's verified article has a picture. When the placement is given a picture-mark

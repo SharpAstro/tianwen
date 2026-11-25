@@ -108,8 +108,8 @@ public static class PlanetDiscSprite
     /// The sprite: <see cref="SideFor"/> squared pixels of 8-bit RGBA, straight (not premultiplied) alpha, as every host's blend takes
     /// it, so a limb pixel half covered keeps its colour at half alpha. <paramref name="map"/> null draws the body in a flat
     /// <paramref name="flat"/> colour (a body whose texture has not loaded). With <paramref name="nightTint"/> the sprite is
-    /// the luminance in that colour, so Night mode keeps blue at zero. <paramref name="opacity"/> scales the alpha: a body below the
-    /// horizon is drawn faint, as its label is, and every host then blends the sprite the same way.
+    /// the luminance in that colour, so Night mode keeps blue at zero. <paramref name="opacity"/> scales the alpha, so every
+    /// host blends a faint sprite the same way; the atlas draws every body whole (one under the ground is not drawn at all).
     /// </summary>
     public static byte[] Build(CatalogIndex body, PlanetColourMap? map, RGBAColor32 flat, in PlanetAspect aspect, double radiusPx,
         double poleScreenAngleDeg, bool mirrored, RGBAColor32? nightTint, out int side, float opacity = 1)

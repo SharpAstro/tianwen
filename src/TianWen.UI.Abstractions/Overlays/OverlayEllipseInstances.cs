@@ -51,7 +51,7 @@ public static class OverlayEllipseInstances
     /// <param name="dpiScale">Surface DPI scale, applied to the pixel-defined sizes.</param>
     /// <param name="fovAlpha">Wide-FOV fade already resolved by the caller. Applied to non-pinned
     /// markers only.</param>
-    /// <param name="dimBelowHorizon">Whether to dim objects currently below the horizon.</param>
+    /// <param name="clipBelowHorizon">Whether the ground is drawn, so an object below the horizon gets no instance.</param>
     /// <param name="site">Site context for that horizon test.</param>
     /// <param name="pinnedMarkerColor">Colour of a pinned target's own marker, alpha ignored.</param>
     /// <param name="pinnedHaloColor">Colour of the halo behind it, alpha included -- the caller has
@@ -70,7 +70,7 @@ public static class OverlayEllipseInstances
         float arcminToPx,
         float dpiScale,
         float fovAlpha,
-        bool dimBelowHorizon,
+        bool clipBelowHorizon,
         SiteContext site,
         RGBAColor32 pinnedMarkerColor,
         RGBAColor32 pinnedHaloColor,
@@ -98,7 +98,12 @@ public static class OverlayEllipseInstances
             }
 
             var alpha = OverlayEngine.MarkerAlpha(
-                cand.IsPinned, cand.RA, cand.Dec, dimBelowHorizon, site, fovAlpha);
+                cand.IsPinned, cand.RA, cand.Dec, clipBelowHorizon, site, fovAlpha);
+            if (alpha <= 0f)
+            {
+                // Under the ground: no instance at all, rather than one drawn unseen.
+                continue;
+            }
 
             // Halo first so it lands behind the marker. An ELLIPSE marker gets an ELLIPSE halo --
             // one uniform scale on both semi-axes plus the marker's own position angle, so the halo

@@ -108,11 +108,54 @@ public sealed class SkyMapEphemerisCacheTests
         tab.Render(state, content, time);
         tab.State.CometCacheRebuilds.ShouldBe(1);
 
-        time.Advance(TimeSpan.FromSeconds(3));
+        time.Advance(tab.State.EphemerisCacheTolerance + TimeSpan.FromSeconds(1));
         tab.Render(state, content, time);
 
         tab.State.CometCacheRebuilds.ShouldBe(2);
         tab.State.PlanetCacheRebuilds.ShouldBe(2);
+    }
+
+    /// <summary>
+    /// <b>The window is as long as the view can afford, and no longer.</b> A second everywhere recomputed nine planets
+    /// and every comet for a sky that had not moved a hundredth of a pixel: 70 percent of what an idle atlas spent
+    /// drawing, and the slow frame a second that a pan hitched on (2026-11-25). The window is the time the fastest body
+    /// takes to cross a quarter of a pixel, so it is long in a wide view and back to a second zoomed in, and it is a
+    /// second whenever a planet's or a comet's numbers are being read off the info panel.
+    /// </summary>
+    [Fact]
+    public async Task TheRefreshWindowFollowsTheScaleOfTheView()
+    {
+        var db = await SharedCatalogDB.InitAsync(TestContext.Current.CancellationToken);
+        using var renderer = new RgbaImageRenderer(Size, Size);
+        var tab = new CacheTestSkyMapTab(renderer) { FontPath = FontResolver.ResolveSystemFont() };
+        var state = LiveState(db);
+        var time = new FakeTimeProviderWrapper(new DateTimeOffset(2026, 8, 6, 21, 0, 0, TimeSpan.Zero));
+        var content = new RectF32(0, 0, Size, Size);
+
+        // Wide: three seconds on, which used to be three sweeps, the sky has not moved a pixel and nothing is recomputed.
+        tab.State.FieldOfViewDeg = 60.0;
+        tab.Render(state, content, time);
+        var wide = tab.State.EphemerisCacheTolerance;
+        wide.ShouldBeGreaterThan(TimeSpan.FromSeconds(10), "a 60 degree view cannot show ten seconds of the Moon's motion");
+        wide.ShouldBeLessThanOrEqualTo(SkyMapState.EphemerisCacheLongestInterval);
+        var sweeps = tab.State.CometCacheRebuilds;
+        time.Advance(TimeSpan.FromSeconds(3));
+        tab.Render(state, content, time);
+        tab.State.CometCacheRebuilds.ShouldBe(sweeps);
+        tab.State.PlanetCacheRebuilds.ShouldBe(sweeps);
+
+        // The drift the window allows is a quarter of a pixel at the fastest body's rate, whatever the field.
+        var pixelsPerSecond = SkyMapProjection.PixelsPerRadian(Size, 60.0) / 206264.8;
+        (wide.TotalSeconds * pixelsPerSecond).ShouldBeLessThanOrEqualTo(0.25 + 1e-9);
+
+        // Zoomed in, a second again, and never under it: there the Moon crosses a pixel in a second or so.
+        tab.State.FieldOfViewDeg = 0.1;
+        tab.State.EphemerisCacheTolerance.ShouldBe(TimeSpan.FromSeconds(1));
+
+        // And a second in any view while a body's own numbers are on show.
+        tab.State.FieldOfViewDeg = 60.0;
+        tab.State.Search.InfoPanel = new SkyMapInfoPanelData { Index = CatalogIndex.Moon };
+        tab.State.EphemerisCacheTolerance.ShouldBe(TimeSpan.FromSeconds(1));
     }
 
     /// <summary>
@@ -163,6 +206,49 @@ public sealed class SkyMapEphemerisCacheTests
         state.GetPlanetPositionsCached(start);
         state.GetPlanetPositionsCached(start.AddDays(30));
         state.PlanetCacheRebuilds.ShouldBe(2);
+    }
+
+    /// <summary>
+    /// With <see cref="SkyMapState.RefreshEphemeridesAhead"/>, the clock running on computes the next positions on another
+    /// thread before the cached ones go stale, and the frame that finds them done installs them: no frame of a clock that
+    /// runs on sweeps. A jump in time still resolves at once.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task AheadTheNextPositionsAreComputedOffTheFrameAndAJumpStillResolvesAtOnce()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var state = new SkyMapState { RefreshEphemeridesAhead = true };
+        var comets = new StubCometRepository(StubCometRepository.Comet("12P", "Pons-Brooks"));
+        var start = new DateTimeOffset(2026, 8, 6, 21, 0, 0, TimeSpan.Zero);
+        state.GetPlanetPositionsCached(start);
+        state.GetCometPositionsCached(comets, start);
+        var tolerance = state.EphemerisCacheTolerance;
+        (state.PlanetCacheRebuilds, state.CometCacheRebuilds).ShouldBe((1, 1));
+
+        // Most of the way to stale: the frame returns what it has and starts the next sweep elsewhere.
+        var later = start + (tolerance * 0.8);
+        var planetBefore = state.GetPlanetPositionsCached(later)[0];
+        state.GetCometPositionsCached(comets, later);
+        (state.PlanetCacheRebuilds, state.CometCacheRebuilds).ShouldBe((1, 1), "the frame swept nothing itself");
+
+        // A later frame finds the sweeps done and installs them, still inside the tolerance of the instant they were for.
+        var installed = false;
+        while (!installed)
+        {
+            ct.ThrowIfCancellationRequested();
+            await Task.Delay(5, ct);
+            var planet = state.GetPlanetPositionsCached(later)[0];
+            state.GetCometPositionsCached(comets, later);
+            installed = state.PlanetCacheRebuilds == 2 && state.CometCacheRebuilds == 2;
+            if (installed)
+            {
+                planet.RA.ShouldNotBe(planetBefore.RA, "the positions are for the later instant");
+            }
+        }
+
+        // A scrub a month on is stale by far more than anything computed ahead: it is computed now.
+        state.GetPlanetPositionsCached(start.AddDays(30));
+        state.PlanetCacheRebuilds.ShouldBe(3);
     }
 
     /// <summary>

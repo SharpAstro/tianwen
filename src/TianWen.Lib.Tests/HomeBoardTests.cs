@@ -1,6 +1,7 @@
 ﻿using Shouldly;
 using System;
 using System.Collections.Immutable;
+using System.Linq;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
@@ -94,6 +95,38 @@ namespace TianWen.Lib.Tests
             // reads as a lost binding.
             rig.Title.ShouldBe("Backyard");
             rig.Status.ShouldBe("Offline (last seen 6 h ago)");
+        }
+
+        /// <summary>
+        /// The window title names the profile on show from <see cref="HomeBoard.ViewedProfile"/>, on every tab, while the cards
+        /// are built only on the Home tab: the two must give the same answer, or the title and the card disagree about what a
+        /// rig runs.
+        /// </summary>
+        [Fact]
+        public void TheViewedProfileIsTheViewedCardsSubtitle()
+        {
+            var (contexts, rigs, appState) = Board();
+            appState.ActiveProfile = new Profile(Guid.NewGuid(), "Backyard refractor", ProfileData.Empty);
+            rigs.SetBindings([Binding("Roof"), Binding("Backyard")]);
+
+            AssertAgree("this computer on show");
+
+            // A bound rig on show that has no connection this run: an offline card, which names no profile.
+            contexts.Activate(contexts.GetOrAddRemote("node-Roof", "Roof")).ShouldBeTrue();
+            AssertAgree("an offline rig on show");
+            HomeBoard.ViewedProfile(contexts, rigs, appState).ShouldBeNull();
+
+            // A rig on show that no binding names: no card is viewed, and the title names no profile.
+            contexts.Activate(contexts.GetOrAddRemote("node-Elsewhere", "Elsewhere")).ShouldBeTrue();
+            AssertAgree("a view no card matches");
+
+            void AssertAgree(string what)
+            {
+                var viewed = HomeBoard.BuildCards(contexts, rigs, appState, Now)
+                    .Where(static c => c.IsViewed).Select(static c => c.Subtitle).ToArray();
+                viewed.Length.ShouldBeLessThanOrEqualTo(1, what);
+                HomeBoard.ViewedProfile(contexts, rigs, appState).ShouldBe(viewed.FirstOrDefault(), what);
+            }
         }
 
         [Fact]

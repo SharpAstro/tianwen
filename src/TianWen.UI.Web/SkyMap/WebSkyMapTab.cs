@@ -190,20 +190,20 @@ namespace TianWen.UI.Web.SkyMap
         /// markers rasterised by <see cref="DrawOverlayMarkers"/> below.</summary>
         protected override void RenderObjectOverlay(
             ICelestialObjectDB db, RectF32 contentRect,
-            float baseFontSize, SiteContext site, bool dimBelowHorizon, PlannerState plannerState,
+            float baseFontSize, SiteContext site, bool clipBelowHorizon, PlannerState plannerState,
             bool showAllOverlays)
             => RenderObjectOverlayPrimitive(db, contentRect, baseFontSize,
-                site, dimBelowHorizon, plannerState, showAllOverlays);
+                site, clipBelowHorizon, plannerState, showAllOverlays);
 
         // Inputs the instance stream is a function of. A pan moves NONE of them, which is what makes
         // the buffer worth keying: the gather is already cached across a pan, so re-uploading its
         // projection-independent instances every pointermove would put back a per-event cost the
         // cache exists to remove. The horizon term is the site's own hour angle bucketed to 30 s, the
         // same bucket UpdateFrame uses for the horizon and meridian line sets and for the same reason
-        // -- dimming crosses the horizon at real-clock speed, not at input speed.
+        // -- an object crosses the horizon at real-clock speed, not at input speed.
         private readonly record struct OverlayInstanceKey(
             int CandidateVersion, int CandidateCount, float ArcminToPixels,
-            float DpiScale, float FovAlpha, bool DimBelowHorizon, double LstBucket);
+            float DpiScale, float FovAlpha, bool ClipBelowHorizon, double LstBucket);
 
         private OverlayInstanceKey _overlayInstanceKey;
         private bool _hasOverlayInstanceKey;
@@ -228,19 +228,19 @@ namespace TianWen.UI.Web.SkyMap
             IReadOnlyList<OverlayItem> items,
             int candidateVersion,
             float arcminToPixels, double ppr, float cxView, float cyView,
-            float dpiScale, float fovAlpha, bool dimBelowHorizon, SiteContext site)
+            float dpiScale, float fovAlpha, bool clipBelowHorizon, SiteContext site)
         {
             var key = new OverlayInstanceKey(
                 candidateVersion, candidates.Count, arcminToPixels, dpiScale, fovAlpha,
-                dimBelowHorizon,
-                dimBelowHorizon && site.IsValid ? Math.Round(site.LST * 120.0) / 120.0 : 0.0);
+                clipBelowHorizon,
+                clipBelowHorizon && site.IsValid ? Math.Round(site.LST * 120.0) / 120.0 : 0.0);
             if (!_hasOverlayInstanceKey || !_overlayInstanceKey.Equals(key))
             {
                 // The browser has no theme switcher, so the halo takes the engine's fixed landmark
                 // colour rather than the desktop's themed accent.
                 OverlayEllipseInstances.Build(
                     candidates, _overlayInstances,
-                    arcminToPixels, dpiScale, fovAlpha, dimBelowHorizon, site,
+                    arcminToPixels, dpiScale, fovAlpha, clipBelowHorizon, site,
                     OverlayEngine.PinnedMarkerColor,
                     OverlayEngine.PinnedHaloColor with { Alpha = (byte)(OverlayEngine.PinnedHaloColor.Alpha * fovAlpha) },
                     State.MirrorView);
@@ -261,7 +261,7 @@ namespace TianWen.UI.Web.SkyMap
                 }
 
                 var alpha = OverlayEngine.MarkerAlpha(
-                    item.IsPinned, item.RA, item.Dec, dimBelowHorizon, site, fovAlpha);
+                    item.IsPinned, item.RA, item.Dec, clipBelowHorizon, site, fovAlpha);
 
                 var (r, g, b) = item.Color;
                 var color = item.IsPinned

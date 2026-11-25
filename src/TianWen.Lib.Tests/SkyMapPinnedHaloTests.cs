@@ -77,10 +77,10 @@ public sealed class SkyMapPinnedHaloTests
 
         protected override void RenderObjectOverlay(
             ICelestialObjectDB db, RectF32 contentRect,
-            float baseFontSize, SiteContext site, bool dimBelowHorizon, PlannerState plannerState,
+            float baseFontSize, SiteContext site, bool clipBelowHorizon, PlannerState plannerState,
             bool showAllOverlays)
             => RenderObjectOverlayPrimitive(db, contentRect, baseFontSize,
-                site, dimBelowHorizon, plannerState, showAllOverlays);
+                site, clipBelowHorizon, plannerState, showAllOverlays);
     }
 
     [Fact]

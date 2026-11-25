@@ -453,15 +453,26 @@ namespace TianWen.UI.Abstractions
             _eqState.RemoteContextActive = _contexts.IsRemoteActive;
             PersistFirstContacts();
 
-            // The home board, published the same way and for the same reason: it must be current on every
-            // tab, and the tab renders a snapshot rather than reaching into the rig registry itself.
+            // The home board, published as a snapshot because the tab renders one rather than reaching into the rig registry
+            // itself. Only while the Home tab shows it: building every card on every ask on every tab cost the atlas as much of
+            // the render thread as drawing it did (2026-11-25). Nothing else reads the cards: the window title takes the
+            // profile on show from HomeBoard.ViewedProfile, the same rule. The GUI's loop asks this right before every frame it
+            // draws (SdlVulkan.Renderer's RedrawCheckPacing), so the first frame after a switch to Home, by input or by a
+            // signal handled after a frame, is drawn from cards built for it.
             //
-            // Deliberately ABOVE the ActiveTab gate below, and deliberately NOT added to it. Everything
-            // here is state mirroring and one throttled HTTP read per rig; the gate guards polling
-            // already-connected DRIVERS, so keeping the board on this side of it is what makes "the home
-            // screen does zero device I/O" a property that can be stated rather than argued.
+            // Nothing here reads a device: everything is state mirroring and one throttled HTTP read per rig, which is
+            // what makes "the home screen does zero device I/O" a property that can be stated rather than argued.
             NotifyLimitTransitions(); // first: it also refreshes the local verdict the cards below read
-            _appState.HomeCards = HomeBoard.BuildCards(_contexts, _rigs, _appState, _timeProvider.GetUtcNow());
+            if (_appState.ActiveTab is GuiTab.Home)
+            {
+                _appState.HomeCards = HomeBoard.BuildCards(_contexts, _rigs, _appState, _timeProvider.GetUtcNow());
+            }
+            else if (!_appState.HomeCards.IsDefaultOrEmpty)
+            {
+                // Not kept past the tab that shows them: a board drawn from cards of minutes ago would state a rig's old
+                // state as its present one, where an empty board for a frame states nothing.
+                _appState.HomeCards = [];
+            }
             RefreshNodeProfiles();
             RefreshNodeAccess();
             PollNodeDevices();

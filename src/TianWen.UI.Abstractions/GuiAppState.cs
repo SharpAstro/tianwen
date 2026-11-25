@@ -294,7 +294,35 @@ public class GuiAppState
     /// </summary>
     public TimeSpan SiteTimeZone { get; set; }
 
-    public bool NeedsRedraw { get; set; } = true;
+    /// <summary>
+    /// Whether the window is asked for a frame. A <see cref="RedrawFlag"/>: raised from anywhere, a thread pool's
+    /// callbacks included, and cleared by the host after a frame that repainted everything (the setter's false), which
+    /// does not take a raise that landed on another thread while that frame was drawn.
+    /// </summary>
+    public bool NeedsRedraw
+    {
+        get => _redraw.IsRaised;
+        set
+        {
+            if (value)
+            {
+                _redraw.Raise();
+            }
+            else
+            {
+                _redraw.ClearAfterFrame();
+            }
+        }
+    }
+
+    private readonly RedrawFlag _redraw = new RedrawFlag(raised: true);
+
+    /// <summary>Called as a frame starts to draw, on the thread that draws it (<see cref="RedrawFlag.BeginDraw"/>).</summary>
+    public void BeginDraw() => _redraw.BeginDraw();
+
+    /// <summary>The host's clear after a frame that repainted everything; true when a raise the draw itself made was
+    /// dropped by it (<see cref="RedrawFlag.ClearAfterFrame"/>).</summary>
+    public bool ClearRedrawAfterFrame() => _redraw.ClearAfterFrame();
     public (float X, float Y) MouseScreenPosition { get; set; }
     public InputModifier LastClickModifiers { get; set; }
 

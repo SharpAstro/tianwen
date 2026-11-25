@@ -16,6 +16,9 @@ public enum SexagesimalPrecision
     /// <summary><c>DD:MM:SS</c>, the LX200 high-precision forms.</summary>
     Second = 3600,
 
+    /// <summary><c>DD:MM:SS.T</c>, the tenth always written: what a person reads a position at (the atlas's info panel).</summary>
+    TenthSecond = 36_000,
+
     /// <summary><c>DD:MM:SS.fff</c>, the fraction written only when it is not zero.</summary>
     Millisecond = 3_600_000
 }

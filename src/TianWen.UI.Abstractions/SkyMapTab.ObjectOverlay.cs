@@ -217,7 +217,7 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         protected void RenderObjectOverlayPrimitive(
             ICelestialObjectDB db, RectF32 contentRect,
-            float baseFontSize, SiteContext site, bool dimBelowHorizon, PlannerState plannerState,
+            float baseFontSize, SiteContext site, bool clipBelowHorizon, PlannerState plannerState,
             bool showAllOverlays)
         {
             var dpiScale = DpiScale;
@@ -311,6 +311,8 @@ namespace TianWen.UI.Abstractions
             // viewport got a label but no marker.
             var projectStart = System.Diagnostics.Stopwatch.GetTimestamp();
             OverlayEngine.ProjectSkyMapCandidatesInto(_primOverlayCandidates, State, contentRect, dpiScale, _primOverlayItems);
+            // Under the ground nothing is placed, drawn or clickable (the ground is opaque).
+            OverlayEngine.RemoveUnderTheGround(_primOverlayItems, clipBelowHorizon, site);
             PrimOverlayProjectMs += System.Diagnostics.Stopwatch.GetElapsedTime(projectStart).TotalMilliseconds;
             if (_primOverlayItems.Count == 0)
             {
@@ -320,7 +322,7 @@ namespace TianWen.UI.Abstractions
 
             var markerStart = System.Diagnostics.Stopwatch.GetTimestamp();
             DrawOverlayMarkers(_primOverlayCandidates, _primOverlayItems, PrimOverlayGathers,
-                arcminToPixels, ppr, cxView, cyView, dpiScale, fovAlpha, dimBelowHorizon, site);
+                arcminToPixels, ppr, cxView, cyView, dpiScale, fovAlpha, clipBelowHorizon, site);
             PrimOverlayMarkerMs += System.Diagnostics.Stopwatch.GetElapsedTime(markerStart).TotalMilliseconds;
 
             // Pass 2: labels via the shared best-effort placement (stable slots) + DrawText, over the
@@ -346,7 +348,7 @@ namespace TianWen.UI.Abstractions
                     }
 
                     var a = OverlayEngine.MarkerAlpha(
-                        item.IsPinned, item.RA, item.Dec, dimBelowHorizon, site, fovAlpha);
+                        item.IsPinned, item.RA, item.Dec, clipBelowHorizon, site, fovAlpha);
                     var (r, g, b) = item.Color;
                     var col = item.IsPinned
                         ? new RGBAColor32(0xFF, 0x90, 0x50, (byte)(a * 255f))
@@ -414,7 +416,7 @@ namespace TianWen.UI.Abstractions
             IReadOnlyList<OverlayCandidate> candidates, IReadOnlyList<OverlayItem> items,
             int candidateVersion,
             float arcminToPixels, double ppr, float cxView, float cyView,
-            float dpiScale, float fovAlpha, bool dimBelowHorizon, SiteContext site)
+            float dpiScale, float fovAlpha, bool clipBelowHorizon, SiteContext site)
         {
             foreach (var item in items)
             {
@@ -427,7 +429,7 @@ namespace TianWen.UI.Abstractions
                 var sy = item.ScreenY;
 
                 var alpha = OverlayEngine.MarkerAlpha(
-                    cand.IsPinned, cand.RA, cand.Dec, dimBelowHorizon, site, fovAlpha);
+                    cand.IsPinned, cand.RA, cand.Dec, clipBelowHorizon, site, fovAlpha);
 
                 var (cr, cg, cb) = cand.Color;
                 var color = cand.IsPinned
