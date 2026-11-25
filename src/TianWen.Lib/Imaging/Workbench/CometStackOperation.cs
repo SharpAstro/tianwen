@@ -83,8 +83,9 @@ public sealed record CometStackSettings : StackSettings
 /// (<c>--manifest</c>: the frames, the reference and each frame's star transform), so a starless comet layer
 /// (<see cref="CometStackSettings.RemoveStars"/>, <c>--remove-stars</c>) shares the comet stack's canvas; with
 /// <see cref="CometStackSettings.InheritWhiteBalance"/> it takes that master's white balance too (<c>--inherit-wb</c>).
-/// One image for both, since the two point at the same master in practice; a run that follows names its track first,
-/// so a bare rate cannot follow.</para>
+/// One image for both, so the master that is followed must also state a balance where one is taken: an original the verb
+/// wrote with a picture or an image an enhance gave does, a master a workbench step wrote does not (no step renders or
+/// solves its master) and is refused in words. A run that follows names its track first, so a bare rate cannot follow.</para>
 /// </remarks>
 /// <param name="logger">Takes the pipeline's own lines, or null.</param>
 /// <param name="catalogDb">The star catalogue the reference frame is plate-solved against; with none, a step with a
@@ -112,7 +113,8 @@ public sealed class CometStackOperation(ILogger<StackingPipeline>? logger = null
         [
             new OperationInputRole("track", "The comet's track for these frames: the file tianwen comet track wrote. Left out, rateX and rateY place the comet.", Optional: true),
             new OperationInputRole("follows", "An earlier stack's master this run follows: its manifest gives the frames, the reference and each frame's star transform, "
-                + "and with inheritWhiteBalance its white balance is taken. Named after the track.", Optional: true),
+                + "and with inheritWhiteBalance its white balance is taken, which only a master that states one can give (an original the stack verb wrote with a picture, or an enhance's image; "
+                + "not a master a workbench step wrote). Named after the track.", Optional: true),
         ],
         Settings:
         [
@@ -372,7 +374,8 @@ public sealed class CometStackOperation(ILogger<StackingPipeline>? logger = null
                 if (!Image.TryReadFitsHeader(followed, out var donor) || donor.Meta.ColourCalibration is not { } balance)
                 {
                     return NamedResults.Refused(OperationOutcome.BadInput(
-                        $"{inputs[2].Name} states no white balance (WBRED, WBGREEN, WBBLUE): a colour master a stack wrote carries one, a mono master none"));
+                        $"{inputs[2].Name} states no white balance (WBRED, WBGREEN, WBBLUE): only a master that was rendered, enhanced or given one carries it "
+                        + "(an original the stack verb wrote with a picture, or an image an enhance gave); a master a workbench step wrote states none, nor does a mono one"));
                 }
 
                 inherited = balance;

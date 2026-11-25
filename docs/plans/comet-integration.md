@@ -180,10 +180,14 @@ offline. A track from another site, or not covering every frame, skips the group
 (`CometTrack.Bracketing`), as a live request pads by one step, so a night's file serves several groups each on its own
 window.
 
-The workbench's `comet-stack` step does the whole two-layer recipe: the comet master with its star layer and composite
-in one run, and the starless comet layer (`removeStars`) as a second step that FOLLOWS the first's master, one image
-whose manifest drives the run and whose white balance it can take (`--manifest`, `--inherit-wb`). It is how the workbench's `comet-stack` step takes its comet, by the owner's call: a step's
-key is fixed before it runs, and Horizons' answer is not.
+The track file is how the step takes its comet, by the owner's call: a step's key is fixed before it runs, and
+Horizons' answer is not.
+
+The workbench's `comet-stack` step does the whole two-layer recipe: the comet master with its star layer and
+composite in one run, and the starless comet layer (`removeStars`) as a second step that FOLLOWS the first's master,
+one image whose manifest drives the run and whose white balance it can take (`--manifest`, `--inherit-wb`). The
+balance comes only from a master that states one (an original the verb wrote with a picture, or an enhance's
+image); a master a workbench step wrote states none, and a run asked to inherit from it is refused in words.
 
 The same leg split the reference frame's solve from the master's (`StackingOptions.SolveMaster`). The catalogue's
 presence was the one switch for both, so `--no-plate-solve --comet` could solve no reference, derived no rate and

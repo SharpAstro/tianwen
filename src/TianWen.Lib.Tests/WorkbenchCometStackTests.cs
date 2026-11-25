@@ -378,6 +378,8 @@ public sealed class WorkbenchCometStackTests(ITestOutputHelper output) : IDispos
         var colour = WriteMaster(masters, "master_colour", 3, balance, withManifest: true);
         var bare = WriteMaster(masters, "master_bare", 3, balance, withManifest: false);
         var mono = WriteMaster(masters, "master_mono", 1, balance: null, withManifest: true);
+        // A colour master as a workbench step writes it (no render, no enhance): a manifest, and no balance.
+        var stepMade = WriteMaster(masters, "master_step", 3, balance: null, withManifest: true);
         // A catalogue is there, so what is refused is what the run was given.
         var operation = new CometStackOperation(catalogDb: Substitute.For<ICelestialObjectDB>());
         async Task<OperationOutcome> Run(CometStackSettings settings, params string[] paths)
@@ -387,6 +389,9 @@ public sealed class WorkbenchCometStackTests(ITestOutputHelper output) : IDispos
         (await Run(new CometStackSettings(), frames, trackPath, bare)).Message.ShouldContain("has no manifest beside it");
         (await Run(new CometStackSettings { InheritWhiteBalance = true }, frames, trackPath)).Message.ShouldContain("inheritWhiteBalance takes the white balance");
         (await Run(new CometStackSettings { InheritWhiteBalance = true }, frames, trackPath, mono)).Message.ShouldContain("states no white balance");
+        var refused = (await Run(new CometStackSettings { InheritWhiteBalance = true }, frames, trackPath, stepMade)).Message;
+        refused.ShouldContain("states no white balance");
+        refused.ShouldContain("a master a workbench step wrote states none");
         var notServed = await Run(new CometStackSettings { RemoveStars = true }, frames, trackPath);
         notServed.Failure.ShouldBe(OperationFailure.NotServed);
         notServed.Message.ShouldContain("no star remover serves");
@@ -477,9 +482,9 @@ public sealed class WorkbenchCometStackTests(ITestOutputHelper output) : IDispos
         Of(second, "night").Steps[0].State.ShouldBe(StepState.Kept, Said(second));
 
         // The comet layer that follows the comet master (#2489's second leg): each frame's stars removed (by a stand-in
-        // that hands back its input), the run driven by the master's manifest, so it shares its frames and its
+        // that hands back a copy of its input), the run driven by the master's manifest, so it shares its frames and its
         // reference. The master is the verb's file, with the manifest the verb wrote beside it: a master given as an
-        // original follows as one from the store does.
+        // original; the one from the store is followed below.
         var verbMaster = Path.Combine(into, $"master_{group}.fits");
         File.Exists(StackManifest.PathFor(verbMaster)).ShouldBeTrue("premise: the verb wrote the master's manifest beside it");
         var layered = _folders.Create("comet-layer-").FullName;
@@ -513,6 +518,39 @@ public sealed class WorkbenchCometStackTests(ITestOutputHelper output) : IDispos
         (await layerVerb.Parse(layerLine[2..]).InvokeAsync(cancellationToken: ct)).ShouldBe(0, string.Join(Environment.NewLine, layerSaid));
 
         ShouldBeTheSameFile(starless, Path.Combine(layerInto, $"master_{group}.fits"), $"the starless comet layer of '{group}'");
+
+        // The same follow, the master being the first step's stored result: a picture that starts from the night step's
+        // result `group`, so it is the stored master's companion manifest (the store keeps it beside each master under
+        // the result's name) that StackManifest.PathFor finds. The night step makes no star layer, so its key does not
+        // hang on the remover and the extra stack is cheap.
+        var chained = _folders.Create("comet-chain-").FullName;
+        await WorkbenchProjectFile.WriteAsync(chained, WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("night", frames, WorkbenchFixtures.Edit(CometStackOperation.Id,
+                new JsonObject { ["starLayer"] = false }, "track")),
+            WorkbenchFixtures.Picture("track", trackPath),
+            WorkbenchFixtures.StartingFromResult("comet", "night", group),
+            WorkbenchFixtures.Picture("starless", frames, WorkbenchFixtures.Edit(CometStackOperation.Id,
+                new JsonObject { ["removeStars"] = true, ["starLayer"] = false }, "track", "comet"))), ct);
+
+        var chainReport = await layerRunner.RunAsync(chained, new WorkbenchRunOptions { Say = output.WriteLine }, ct);
+
+        var chainStep = Of(chainReport, "starless").Steps[0];
+        chainStep.State.ShouldBe(StepState.Ran, Said(chainReport));
+        var nightStep = Of(chainReport, "night").Steps[0];
+        var storedMaster = Path.Combine(chained, StepStore.FolderName, StepStore.FileNameOf(StepKey.OfResult(nightStep.Key, group)));
+        File.Exists(StackManifest.PathFor(storedMaster)).ShouldBeTrue("premise: the store keeps the manifest beside the master");
+        var chainLine = chainStep.CommandLine.ToArray();
+        chainLine.ShouldContain(StackManifest.PathFor(storedMaster), "the line names the stored master's companion manifest");
+
+        var chainInto = Path.Combine(_folders.Create("verb-chain-").FullName, "output");
+        chainLine[4] = chainInto;
+        var chainSaid = new ConcurrentQueue<string>();
+        var chainVerb = Verb(chainSaid, log, db, new FakeExternal(output, root: _folders.Create("memory-chain-")), remover: remover);
+
+        (await chainVerb.Parse(chainLine[2..]).InvokeAsync(cancellationToken: ct)).ShouldBe(0, string.Join(Environment.NewLine, chainSaid));
+
+        var chainedLayer = Path.Combine(chained, StepStore.FolderName, StepStore.FileNameOf(StepKey.OfResult(chainStep.Key, group)));
+        ShouldBeTheSameFile(chainedLayer, Path.Combine(chainInto, $"master_{group}.fits"), $"the starless comet layer of '{group}' that follows the stored master");
     }
 
     // The ASCII header blocks of a FITS file, up to and with its END card.

@@ -475,7 +475,10 @@ and the composite with `_composite`, each with its sidecars (the verb's `master_
   an earlier stack's master. Its manifest, which the store keeps beside each master under the result's name, drives
   the run (`--manifest`: the frames, the reference and each frame's star transform), so a starless comet layer shares
   the comet stack's canvas; with `inheritWhiteBalance` its white balance is taken too (`--inherit-wb`), which a
-  starless plate cannot solve for itself. One image for both, since in practice they are the same master. The
+  starless plate cannot solve for itself. One image for both, so a master that is to give the balance must state
+  one (WBRED, WBGREEN, WBBLUE): an original the `stack` verb wrote with a picture, or an image an enhance gave, does;
+  a master a workbench step wrote does not, since no step renders or solves its master, and it is refused in words
+  (a step-made master still gives the manifest, so `inheritWhiteBalance` is for those two kinds). The
   inputs are by place, so a run that follows names its track first and a bare rate cannot follow; a master named
   where the track goes, one with no manifest beside it, and a balance asked of no master or of one that states none
   are each refused in words before a frame is read. A master given as an original (a file the verb wrote) is keyed
