@@ -317,9 +317,13 @@ public static class NarrowbandCombination
                 back[c] = dst;
             }
             output.Release();
+            // On the input's scale, so on a unit scale when the input was, and saying so: a deblurred star stands above
+            // 2.0, where the peak alone would call the result ADU (#2504). Said here, and not only by the file read a
+            // workbench step takes, so an in-memory caller (the viewer, image sharpen) gets it too.
+            var meta = plane.IsUnitReferred && !plane.ImageMeta.UnitReferred ? plane.ImageMeta with { UnitReferred = true } : plane.ImageMeta;
             var stepped = float.IsFinite(max)
-                ? new Image(back, BitDepth.Float32, max, min, plane.Pedestal, plane.ImageMeta)
-                : new Image(back, BitDepth.Float32, plane.MaxValue, plane.MinValue, plane.Pedestal, plane.ImageMeta);
+                ? new Image(back, BitDepth.Float32, max, min, plane.Pedestal, meta)
+                : new Image(back, BitDepth.Float32, plane.MaxValue, plane.MinValue, plane.Pedestal, meta);
             // How much quieter the step left the plane, as the enhance program records it (ImageMeta.CompoundNoiseReduction),
             // so a plate denoised here is not stretched as that much cleaner data by every auto stretch after.
             var noiseReduction = ImageMeta.CompoundNoiseReduction(plane.EstimateNoiseProfile(), stepped.EstimateNoiseProfile(),
@@ -327,7 +331,7 @@ public static class NarrowbandCombination
             result[i] = noiseReduction == plane.ImageMeta.NoiseReduction
                 ? stepped
                 : new Image(back, BitDepth.Float32, stepped.MaxValue, stepped.MinValue, stepped.Pedestal,
-                    plane.ImageMeta with { NoiseReduction = noiseReduction });
+                    meta with { NoiseReduction = noiseReduction });
         }
         return (result, atCeiling);
     }

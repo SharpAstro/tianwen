@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Imaging.Workbench;
 using Xunit;
 
@@ -80,6 +81,21 @@ public sealed class UnitReferredCardTests(ITestOutputHelper output) : IDisposabl
         read.ShouldNotBeNull();
         read.MaxValue.ShouldBeGreaterThan(2f, "premise: the result's peak alone would say ADU");
         read.IsUnitReferred.ShouldBeTrue("the step's result says it is on its input's scale");
+    }
+
+    [Fact]
+    public async Task ADeblurInMemorySaysItsResultIsOnItsInputsUnitScale()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var master = StarField(0.855f, Meta());
+
+        // BlurX lifted 10P's brightest star about 3.5 times; the default headroom keeps it under the deblurrer's ceiling.
+        var (deblurred, atCeiling) = await NarrowbandCombination.DeblurAsync([master], new LiftingDeblurrer(3.5f), cancellationToken: ct);
+
+        atCeiling.ShouldBe(0);
+        deblurred[0].MaxValue.ShouldBeGreaterThan(2f, "premise: the lifted star stands above where the peak alone says unit scale");
+        deblurred[0].ImageMeta.UnitReferred.ShouldBeTrue("the viewer and image sharpen never read it through a step, so the routine says it");
+        deblurred[0].IsUnitReferred.ShouldBeTrue();
     }
 
     [Fact]
@@ -166,6 +182,28 @@ public sealed class UnitReferredCardTests(ITestOutputHelper output) : IDisposabl
         }
 
         return new Image([plane], BitDepth.Float32, max, min, 0f, meta);
+    }
+
+    /// <summary>Lifts every value by a gain, as sharpening lifts a star's peak, and stops at <c>[0, 1]</c>'s ceiling as BlurX does.</summary>
+    private sealed class LiftingDeblurrer(float gain) : IImageDeblurrer
+    {
+        public string Name => "Test/Lifting";
+
+        public Task<Image> EnhanceAsync(Image input, System.Threading.CancellationToken cancellationToken = default)
+        {
+            var src = input.GetChannelSpan(0);
+            var plane = new float[input.Height, input.Width];
+            var max = 0f;
+            for (var y = 0; y < input.Height; y++)
+            {
+                for (var x = 0; x < input.Width; x++)
+                {
+                    plane[y, x] = MathF.Min(1f, gain * src[(y * input.Width) + x]);
+                    max = MathF.Max(max, plane[y, x]);
+                }
+            }
+            return Task.FromResult(new Image([plane], BitDepth.Float32, max, 0f, 0f, input.ImageMeta));
+        }
     }
 
     private static ImageMeta Meta() => new("synth", DateTimeOffset.UnixEpoch, TimeSpan.FromSeconds(60), FrameType.Light, "",
