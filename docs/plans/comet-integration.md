@@ -170,8 +170,8 @@ elevation, so reading it beat passing a zero that looks like a measurement.
 
 ### The track as a file (#2489, 2026-11-25)
 
-`tianwen comet track <frames> -o <file>` asks Horizons ONCE for the night (every light's exposure under the folder,
-the frames' own site, the same request rule as above, `CometTrackFetch`) and writes the answer as a file
+`tianwen comet track <frames> -o <file>` asks Horizons ONCE for the night (the exposure of every light a stack of the
+folder takes, the frames' own site, the same request rule as above, `CometTrackFetch`) and writes the answer as a file
 (`CometTrack`: the designation, the site and the samples, nothing about when it was fetched). `stack --comet-track
 <file>` then registers on it with no network: the reference frame is still plate-solved to project it, so the star
 layer and the composite are made as with `--comet`, which `--comet-rate` (a bare rate, no position) cannot give
@@ -179,6 +179,12 @@ offline. A track from another site, or not covering every frame, skips the group
 (`CometTrack.RefusalFor`). Each group is fitted on the samples that bracket its own frames, one past each end
 (`CometTrack.Bracketing`), as a live request pads by one step, so a night's file serves several groups each on its own
 window.
+
+The lights are the ones the stack's own scan takes (`StackingPipeline.ScanFramesAsync`), never a second reading of
+the folder. The first cut read every header that said LIGHT, and the first real run, on 10P's night, showed what that
+costs: Astro Pixel Processor's six composites in `PROC` say `IMAGETYP='LIGHT'`, `OBJECT='10p Temepl'` and an
+`EXPTIME` of 7920 s, so the request refused the folder as two comets and, with the comet named, asked Horizons for two
+hours past the last light (149 "lights" where the stack takes 135, positions 28 minutes apart instead of 19).
 
 The track file is how the workbench's `comet-stack` step takes its comet, by the owner's call: a step's key is fixed
 before it runs, and Horizons' answer is not.
