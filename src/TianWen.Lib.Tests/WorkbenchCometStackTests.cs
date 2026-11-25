@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Numerics;
 using System.Text;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -21,6 +22,7 @@ using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Imaging.Stacking;
 using TianWen.Lib.Imaging.Workbench;
@@ -78,12 +80,29 @@ public sealed class WorkbenchCometStackTests(ITestOutputHelper output) : IDispos
 
     /// <summary>The real <c>stack</c> verb on <paramref name="catalogDb"/>, saying what it says into <paramref name="said"/>.</summary>
     private static Command Verb(ConcurrentQueue<string> said, ILogger<StackingPipeline> log, ICelestialObjectDB catalogDb, IExternal external,
-        Func<StackingOptions, int>? sink = null)
+        Func<StackingOptions, int>? sink = null, IStarRemover? remover = null)
     {
         var host = Substitute.For<IConsoleHost>();
         host.When(h => h.WriteScrollable(Arg.Any<string>(), Arg.Any<bool>())).Do(call => said.Enqueue(call.Arg<string>()));
         host.When(h => h.WriteError(Arg.Any<string>())).Do(call => said.Enqueue("error: " + call.Arg<string>()));
-        return new StackSubCommand(host, log, catalogDb, new SharpenPipeline(), external) { OptionsSink = sink }.Build();
+        return new StackSubCommand(host, log, catalogDb, new SharpenPipeline(), external, remover) { OptionsSink = sink }.Build();
+    }
+
+    // A small master a stack could have written: its channels, its white balance or none, and its manifest beside it or
+    // not (the manifest's content is never read before a stack runs on it).
+    private static string WriteMaster(string folder, string name, int channels, ColourCalibration? balance, bool withManifest)
+    {
+        var meta = new ImageMeta("synth", NightStart, TimeSpan.FromSeconds(60), FrameType.Light, "",
+            3.76f, 3.76f, 130, FocuserPositions.None, Filter.None, 1, 1, float.NaN, channels == 1 ? SensorType.Monochrome : SensorType.Color, 0, 0,
+            RowOrder.TopDown, Latitude, Longitude, ColourCalibration: balance);
+        var path = Path.Combine(folder, name + ".fits");
+        new Image([.. Enumerable.Range(0, channels).Select(static _ => new float[8, 8])], BitDepth.Float32, 1f, 0f, 0f, meta).WriteToFitsFile(path);
+        if (withManifest)
+        {
+            File.WriteAllText(StackManifest.PathFor(path), "{}");
+        }
+
+        return path;
     }
 
     private static CometTrack AnyTrack() => new(
@@ -98,6 +117,7 @@ public sealed class WorkbenchCometStackTests(ITestOutputHelper output) : IDispos
     [InlineData("""{"rateX":1.5,"rateY":-2,"starLayer":false}""", "a rate carries no position")]
     [InlineData("""{"starLayer":false,"maskArcsec":120}""", "starLayer is off")]
     [InlineData("""{"maskArcsec":0}""", "maskArcsec is arcseconds")]
+    [InlineData("""{"starRemovalMode":"splitCfa"}""", "removeStars is off")]
     [InlineData("""{"quadStars":3}""", "a quad is four stars")]
     [InlineData("""{"comet":"10P"}""", "cannot be read")]
     public void SettingsThatCannotRunAreRefusedInWords(string settings, string says)
@@ -198,14 +218,26 @@ public sealed class WorkbenchCometStackTests(ITestOutputHelper output) : IDispos
         said.ShouldContain(line => line.Contains("names its own comet"));
     }
 
-    /// <summary>A star remover stood in for, serving a mono input, a colour one or both, which leaves its input as it is.</summary>
+    /// <summary>A star remover stood in for, serving a mono input, a colour one or both, whose plate is a copy of its
+    /// input: a new image, since the caller owns both what it hands and what it gets back.</summary>
     private sealed class StandInRemover(string name, bool mono = true, bool colour = true) : IStarRemover, IEnhancerAvailability
     {
         public string Name => name;
 
         public bool CanServe(int channelCount, EnhanceOptions options) => channelCount == 1 ? mono : colour;
 
-        public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default) => Task.FromResult(input);
+        public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
+        {
+            var planes = new float[input.ChannelCount][,];
+            for (var c = 0; c < planes.Length; c++)
+            {
+                var source = input.GetChannelArray(c);
+                planes[c] = new float[source.GetLength(0), source.GetLength(1)];
+                Array.Copy(source, planes[c], source.Length);
+            }
+
+            return Task.FromResult(new Image(planes, input.BitDepth, input.MaxValue, input.MinValue, input.Pedestal, input.ImageMeta));
+        }
     }
 
     // A small night (four of StackingCloudEmptiedGroupTest's lights: 51 N, 0 E, 2026-12-21 from midnight; four, since the
@@ -283,12 +315,168 @@ public sealed class WorkbenchCometStackTests(ITestOutputHelper output) : IDispos
     }
 
     /// <summary>
+    /// A run that follows another (#2489's second leg): its line names the master's manifest and, where it inherits it,
+    /// the master itself, with each frame's stars removed; through the verb's real options it resolves to what the step
+    /// runs with, the white balance read off the master's own cards.
+    /// </summary>
+    [Fact]
+    public async Task AFollowingRunsLineNamesItsManifestAndItsBalanceAndResolvesThroughTheVerb()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var frames = _folders.Create("frames-").FullName;
+        var into = Path.Combine(_folders.Create("into-").FullName, "masters");
+        var trackPath = Path.Combine(_folders.Create("track-").FullName, "10P.json");
+        await AnyTrack().WriteAsync(trackPath, ct);
+        var followed = WriteMaster(_folders.Create("masters-").FullName, "master_10P", 3,
+            new ColourCalibration(1.25f, 1f, 0.8f, ColourCalibrationSource.SkyBackground), withManifest: true);
+        Image.TryReadFitsHeader(followed, out var header).ShouldBeTrue();
+        var balance = header.Meta.ColourCalibration.ShouldNotBeNull("premise: the master states its white balance");
+        var remover = new StandInRemover("Stand-in remover");
+        var operation = new CometStackOperation(starRemover: remover);
+        var settings = new CometStackSettings { RemoveStars = true, StarRemovalMode = StarRemovalMode.SplitCfa, InheritWhiteBalance = true, StarLayer = false };
+        operation.Refusal(settings).ShouldBeNull();
+
+        var line = operation.CommandLine(settings, [frames, trackPath, followed], into).ToArray();
+
+        output.WriteLine(StepCommandLine.Display(line));
+        foreach (var word in new[] { "--remove-stars", "--star-removal-mode", "splitcfa", "--manifest", StackManifest.PathFor(followed), "--inherit-wb", followed, "--no-star-layer" })
+        {
+            line.ShouldContain(word);
+        }
+
+        StackingOptions? resolved = null;
+        var said = new ConcurrentQueue<string>();
+        var verb = Verb(said, new PipelineLog(output), Substitute.For<ICelestialObjectDB>(), Substitute.For<IExternal>(), options =>
+        {
+            resolved = options;
+            return 0;
+        }, remover);
+
+        var exit = await verb.Parse(line[2..]).InvokeAsync(cancellationToken: ct);
+
+        exit.ShouldBe(0, string.Join(Environment.NewLine, said));
+        var options = resolved.ShouldNotBeNull();
+        (options with { EnhanceOptions = null, CometTrack = null })
+            .ShouldBe(CometStackOperation.OptionsOf(settings, frames, into, track: null, StackManifest.PathFor(followed), balance));
+        options.InheritedWhiteBalance.ShouldBe(balance);
+        options.RemoveStarsPerFrame.ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// The chain: a master a comet-stack step wrote states no balance of its own, so a run that follows it with
+    /// inheritWhiteBalance is refused; once its own run inherited one, its master carries the cards the post-processing
+    /// stamps for an inherited balance (WBSOURCE, WBRED, WBGREEN, WBBLUE, with the donor's source, render or no render:
+    /// <c>InheritedWhiteBalanceStampTests</c>), and the run that follows it takes that balance.
+    /// </summary>
+    [Fact]
+    public async Task AMasterWhoseRunInheritedABalanceGivesItToTheRunThatFollowsIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var frames = _folders.Create("frames-").FullName;
+        var into = Path.Combine(_folders.Create("into-").FullName, "masters");
+        var trackPath = Path.Combine(_folders.Create("track-").FullName, "10P.json");
+        await AnyTrack().WriteAsync(trackPath, ct);
+        // A colour master as a comet-stack step writes it (no render, no enhance): a manifest beside it, and no balance.
+        var layer = WriteMaster(_folders.Create("masters-").FullName, "master_10P", 3, balance: null, withManifest: true);
+        var operation = new CometStackOperation(catalogDb: Substitute.For<ICelestialObjectDB>());
+        var settings = new CometStackSettings { InheritWhiteBalance = true, StarLayer = false };
+
+        var refused = (await operation.RunIntoAsync(settings, [.. new[] { frames, trackPath, layer }.Select(OperationInput.FromFile)],
+            _folders.Create("refused-").FullName, null, ct)).Outcome;
+        refused.Message.ShouldContain("states no white balance");
+
+        // Its run followed an original that stated a balance, with inheritWhiteBalance: the four cards
+        // MasterPostProcessor.StampColourCalibrationAsync writes on the master, with the donor's source kept. The source
+        // is the sky background's (SKYBG), since a master with no WBSOURCE card reads as SPCC (ColourCalibration.FromCard)
+        // and so could not show the card was written.
+        var donor = new ColourCalibration(1.31f, 1f, 0.77f, ColourCalibrationSource.SkyBackground);
+        await FitsHeaderEditor.SetStringCardAsync(layer, "WBSOURCE", ColourCalibration.CardOf(donor.Source), overwriteExisting: true, apply: true, cancellationToken: ct);
+        await FitsHeaderEditor.SetNumericCardAsync(layer, "WBRED", donor.R, overwriteExisting: true, apply: true, cancellationToken: ct);
+        await FitsHeaderEditor.SetNumericCardAsync(layer, "WBGREEN", donor.G, overwriteExisting: true, apply: true, cancellationToken: ct);
+        await FitsHeaderEditor.SetNumericCardAsync(layer, "WBBLUE", donor.B, overwriteExisting: true, apply: true, cancellationToken: ct);
+        Image.TryReadFitsHeader(layer, out var header).ShouldBeTrue();
+        var stated = header.Meta.ColourCalibration.ShouldNotBeNull("premise: the master states the balance its run inherited");
+        stated.Source.ShouldBe(ColourCalibrationSource.SkyBackground);
+        stated.R.ShouldBe(donor.R, 1e-6f);
+        stated.G.ShouldBe(donor.G, 1e-6f);
+        stated.B.ShouldBe(donor.B, 1e-6f);
+
+        var line = operation.CommandLine(settings, [frames, trackPath, layer], into).ToArray();
+
+        output.WriteLine(StepCommandLine.Display(line));
+        line.ShouldContain("--inherit-wb");
+        line.ShouldContain(layer);
+        StackingOptions? resolved = null;
+        var said = new ConcurrentQueue<string>();
+        var verb = Verb(said, new PipelineLog(output), Substitute.For<ICelestialObjectDB>(), Substitute.For<IExternal>(), options =>
+        {
+            resolved = options;
+            return 0;
+        });
+
+        (await verb.Parse(line[2..]).InvokeAsync(cancellationToken: ct)).ShouldBe(0, string.Join(Environment.NewLine, said));
+        resolved.ShouldNotBeNull().InheritedWhiteBalance.ShouldBe(stated);
+    }
+
+    /// <summary>
+    /// A run that follows another is refused in words, before any frame is read, where what it is given cannot serve
+    /// it: a master where the track goes, a master with no manifest beside it, a balance asked of no master or of one
+    /// that states none, and stars to remove with no remover that serves.
+    /// </summary>
+    [Fact]
+    public async Task AFollowingRunIsRefusedInWordsWhereWhatItIsGivenCannotServeIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var frames = _folders.Create("frames-").FullName;
+        var trackPath = Path.Combine(_folders.Create("track-").FullName, "10P.json");
+        await AnyTrack().WriteAsync(trackPath, ct);
+        var masters = _folders.Create("masters-").FullName;
+        var balance = new ColourCalibration(1.25f, 1f, 0.8f, ColourCalibrationSource.SkyBackground);
+        var colour = WriteMaster(masters, "master_colour", 3, balance, withManifest: true);
+        // A master with no manifest beside it, as an enhance's image is (master_x_sharpened.fits: the manifest is
+        // written for the master's own path alone), so a balance it states is never reached.
+        var bare = WriteMaster(masters, "master_bare", 3, balance, withManifest: false);
+        var mono = WriteMaster(masters, "master_mono", 1, balance: null, withManifest: true);
+        // A colour master as a workbench step writes it (no render, no enhance): a manifest, and no balance.
+        var stepMade = WriteMaster(masters, "master_step", 3, balance: null, withManifest: true);
+        // A catalogue is there, so what is refused is what the run was given.
+        var operation = new CometStackOperation(catalogDb: Substitute.For<ICelestialObjectDB>());
+        async Task<OperationOutcome> Run(CometStackSettings settings, params string[] paths)
+            => (await operation.RunIntoAsync(settings, [.. paths.Select(OperationInput.FromFile)], _folders.Create("into-").FullName, null, ct)).Outcome;
+
+        (await Run(new CometStackSettings(), frames, colour)).Message.ShouldContain("takes the comet's track first and the master it follows after it");
+        (await Run(new CometStackSettings(), frames, trackPath, bare)).Message.ShouldContain("has no manifest beside it");
+        (await Run(new CometStackSettings { InheritWhiteBalance = true }, frames, trackPath)).Message.ShouldContain("inheritWhiteBalance takes the white balance");
+        (await Run(new CometStackSettings { InheritWhiteBalance = true }, frames, trackPath, mono)).Message.ShouldContain("states no white balance");
+        var refused = (await Run(new CometStackSettings { InheritWhiteBalance = true }, frames, trackPath, stepMade)).Message;
+        refused.ShouldContain("states no white balance");
+        refused.ShouldContain("a master a workbench step wrote has none of its own");
+        var notServed = await Run(new CometStackSettings { RemoveStars = true }, frames, trackPath);
+        notServed.Failure.ShouldBe(OperationFailure.NotServed);
+        notServed.Message.ShouldContain("no star remover serves");
+    }
+
+    /// <summary>The key says which remover takes each frame's stars, beside what the star layer does, and says it in
+    /// words where none serves.</summary>
+    [Fact]
+    public void TheKeySaysWhichRemoverTakesEachFramesStarsBesideTheStarLayer()
+    {
+        new CometStackOperation(starRemover: new StandInRemover("Stand-in remover")).Served(new CometStackSettings { RemoveStars = true }).By
+            .ShouldBe("each frame's stars removed by Stand-in remover (mosaic); star layer: the body subtracted by Stand-in remover");
+        new CometStackOperation().Served(new CometStackSettings { RemoveStars = true, StarLayer = false }).By
+            .ShouldBe("each frame's stars removed, and no star remover serves");
+    }
+
+    /// <summary>
     /// A comet's night (a field that plate-solves, with a comet moving across it) stacked as a step on its track, with no
     /// network: the comet master is registered on the comet at the track's rate and the star layer on the stars, each a
-    /// result of the step under its name, and both are the files the step's line makes the verb write, to the byte.
+    /// result of the step under its name, and both are the files the step's line makes the verb write, to the byte. Then
+    /// the comet layer that follows the comet master, each frame's stars removed and the run driven by its manifest, is
+    /// the verb's file too.
     /// </summary>
     // Heavy by measurement: 57.5 s on Linux and 68.6 s on Windows in its first CI run (#2517), two stacks of six 9 Mpx
-    // frames, each with its star layer, and a plate solve of the reference in each.
+    // frames, each with its star layer, and a plate solve of the reference in each; 1 min 52 s and 2 min 3 s in the
+    // heavy run. The comet layer that follows (#2489's second leg) adds the stored master's stack and the follower's, each frame's stars removed, and the verb's run of the follower.
     [Fact(Timeout = 600_000)]
     [Trait("Category", "Heavy")]
     public async Task TheCometStepsMastersAreTheFilesTianwenStackWritesOnTheTrack()
@@ -351,6 +539,46 @@ public sealed class WorkbenchCometStackTests(ITestOutputHelper output) : IDispos
         // Run again: the track is an original read by its bytes, so nothing has moved and nothing is stacked again.
         var second = await runner.RunAsync(project, cancellationToken: ct);
         Of(second, "night").Steps[0].State.ShouldBe(StepState.Kept, Said(second));
+
+        // The comet layer that follows the comet master (#2489's second leg): each frame's stars removed (by a stand-in
+        // that hands back a copy of its input), the run driven by the master's manifest, so it shares its frames and its
+        // reference. A master given as an original follows by the same StackManifest.PathFor, which the fast tests hold
+        // with hand-written masters; here the master is the first step's stored result, so it is the store's companion
+        // manifest that is found.
+        var remover = new StandInRemover("Stand-in remover");
+        var layerRunner = new WorkbenchRunner(new OperationCatalog([new CometStackOperation(log, db, remover)]));
+
+        // A picture that starts from the night step's result `group`, so it is the stored master's companion manifest (the
+        // store keeps it beside each master under the result's name) that StackManifest.PathFor finds. The night step makes no star layer, so its key does not
+        // hang on the remover and the extra stack is cheap.
+        var chained = _folders.Create("comet-chain-").FullName;
+        await WorkbenchProjectFile.WriteAsync(chained, WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("night", frames, WorkbenchFixtures.Edit(CometStackOperation.Id,
+                new JsonObject { ["starLayer"] = false }, "track")),
+            WorkbenchFixtures.Picture("track", trackPath),
+            WorkbenchFixtures.StartingFromResult("comet", "night", group),
+            WorkbenchFixtures.Picture("starless", frames, WorkbenchFixtures.Edit(CometStackOperation.Id,
+                new JsonObject { ["removeStars"] = true, ["starLayer"] = false }, "track", "comet"))), ct);
+
+        var chainReport = await layerRunner.RunAsync(chained, new WorkbenchRunOptions { Say = output.WriteLine }, ct);
+
+        var chainStep = Of(chainReport, "starless").Steps[0];
+        chainStep.State.ShouldBe(StepState.Ran, Said(chainReport));
+        var nightStep = Of(chainReport, "night").Steps[0];
+        var storedMaster = Path.Combine(chained, StepStore.FolderName, StepStore.FileNameOf(StepKey.OfResult(nightStep.Key, group)));
+        File.Exists(StackManifest.PathFor(storedMaster)).ShouldBeTrue("premise: the store keeps the manifest beside the master");
+        var chainLine = chainStep.CommandLine.ToArray();
+        chainLine.ShouldContain(StackManifest.PathFor(storedMaster), "the line names the stored master's companion manifest");
+
+        var chainInto = Path.Combine(_folders.Create("verb-chain-").FullName, "output");
+        chainLine[4] = chainInto;
+        var chainSaid = new ConcurrentQueue<string>();
+        var chainVerb = Verb(chainSaid, log, db, new FakeExternal(output, root: _folders.Create("memory-chain-")), remover: remover);
+
+        (await chainVerb.Parse(chainLine[2..]).InvokeAsync(cancellationToken: ct)).ShouldBe(0, string.Join(Environment.NewLine, chainSaid));
+
+        var chainedLayer = Path.Combine(chained, StepStore.FolderName, StepStore.FileNameOf(StepKey.OfResult(chainStep.Key, group)));
+        ShouldBeTheSameFile(chainedLayer, Path.Combine(chainInto, $"master_{group}.fits"), $"the starless comet layer of '{group}' that follows the stored master");
     }
 
     // The ASCII header blocks of a FITS file, up to and with its END card.
