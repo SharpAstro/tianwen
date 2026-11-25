@@ -42,7 +42,7 @@ public partial class DesktopAppIdentityTests
     [Fact]
     public void SdlIsToldTheSameIdentity()
     {
-        var metadata = DesktopAppIdentity.Viewer.SdlMetadata;
+        var metadata = DesktopAppIdentity.Viewer.SdlMetadataFor(packaged: false);
         metadata.Identifier.ShouldBe(DesktopAppIdentity.Viewer.Id);
         metadata.Name.ShouldBe(DesktopAppIdentity.Viewer.DisplayName);
         metadata.Version.ShouldBeNull("the entry assembly's version is SDL's default, and the right one");

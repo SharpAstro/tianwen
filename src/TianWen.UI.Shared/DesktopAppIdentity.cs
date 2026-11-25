@@ -33,7 +33,4 @@ public sealed record DesktopAppIdentity(string Id, string DisplayName)
     /// package's manifest names the app there and an id of ours would split an SDL toast from the package's windows.</summary>
     public SdlAppMetadata SdlMetadataFor(bool packaged) => new(Name: DisplayName, Identifier: packaged ? null : Id,
         Creator: "SharpAstro", Url: "https://github.com/SharpAstro/tianwen");
-
-    /// <summary>The identity for SDL outside an app package.</summary>
-    public SdlAppMetadata SdlMetadata => SdlMetadataFor(packaged: false);
 }

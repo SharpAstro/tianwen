@@ -157,8 +157,8 @@ maximised.
 
 ## Who the app is: one id per app
 
-**Each app claims one reverse-DNS id before its first window, and the same string goes to Windows and to
-SDL.** `DesktopAppIdentity` (TianWen.UI.Shared) holds both apps' ids and names: `com.sharpastro.tianwen.gui`
+**Each app claims one reverse-DNS id before its first window, and outside the Store package the same string
+goes to Windows and to SDL.** `DesktopAppIdentity` (TianWen.UI.Shared) holds both apps' ids and names: `com.sharpastro.tianwen.gui`
 ("TianWen") and `com.sharpastro.tianwen.fits` ("Astro Photo Viewer"). Each `Program.cs` calls AppShell's
 `AppIdentity.Claim(id, name)` after the single-instance gate (a launch that hands off and exits names nothing)
 and passes `SdlMetadataFor(startMenuShortcut == StartMenuShortcut.Packaged)` to `SdlVulkanWindow.Create`.
