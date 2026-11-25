@@ -169,7 +169,9 @@ and passes `SdlMetadata` to `SdlVulkanWindow.Create`.
   first window: a window takes its process's app id when it is created.
 - **Inside the Store package it does nothing** (AppShell 1.5, `StartMenuShortcut.Packaged`): the manifest
   names Astro Photo Viewer already, and an id of our own would split its windows from the package's tile.
-  So the zip build and the Store build make the same call.
+  So the zip build and the Store build make the same call. SDL is told the same: `SdlMetadataFor(packaged)`
+  leaves the identifier null when `Claim` answered `Packaged`, so there is no second id in the Store build.
+  A `Foreign` or `Failed` answer is logged at Warning (the app then shows as an unknown app).
 - **Why one string for both.** SDL hands the identifier to Wayland (`app_id`), X11 (`WM_CLASS`) and macOS,
   and in the SDL releases that have desktop notifications it registers a Windows toast under it. If the
   Windows app id were a different string, a toast (#2507) would group apart from the app's windows.

@@ -48,6 +48,36 @@ public partial class DesktopAppIdentityTests
         metadata.Version.ShouldBeNull("the entry assembly's version is SDL's default, and the right one");
     }
 
+    [Fact]
+    public void SdlLeavesTheIdentifierToThePackageInsideOne()
+    {
+        DesktopAppIdentity.Viewer.SdlMetadataFor(packaged: true).Identifier.ShouldBeNull();
+        DesktopAppIdentity.Viewer.SdlMetadataFor(packaged: true).Name.ShouldBe(DesktopAppIdentity.Viewer.DisplayName);
+        DesktopAppIdentity.Viewer.SdlMetadataFor(packaged: false).Identifier.ShouldBe(DesktopAppIdentity.Viewer.Id);
+    }
+
+    [Theory]
+    [Trait("Category", "Invariant")]
+    [InlineData("TianWen.UI.Gui")]
+    [InlineData("TianWen.UI.FitsViewer")]
+    public void EachAppClaimsItsIdentityBeforeItsFirstWindowAndTellsSdl(string project)
+    {
+        if (ChromeMeasuresThroughTheEngineTests.FindSourceRoot() is not { } src)
+        {
+            Assert.Skip("the sources are not beside the binaries here");
+            return;
+        }
+
+        var text = File.ReadAllText(Path.Combine(src, project, "Program.cs"));
+        var claim = text.IndexOf("AppIdentity.Claim(", System.StringComparison.Ordinal);
+        var create = text.IndexOf("SdlVulkanWindow.Create(", System.StringComparison.Ordinal);
+
+        claim.ShouldBeGreaterThan(-1, $"{project} claims its app identity");
+        create.ShouldBeGreaterThan(-1);
+        claim.ShouldBeLessThan(create, "Windows gives a window its process's app id when the window is created");
+        text.Substring(create, text.IndexOf(';', create) - create).ShouldContain("appMetadata: appIdentity.SdlMetadataFor(");
+    }
+
     [Theory]
     [InlineData("tianwen-gui.Info.plist.in", nameof(DesktopAppIdentity.Gui))]
     [InlineData("tianwen-fits.Info.plist.in", nameof(DesktopAppIdentity.Viewer))]

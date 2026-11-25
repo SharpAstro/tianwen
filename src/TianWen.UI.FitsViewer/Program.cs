@@ -286,7 +286,14 @@ StartupTrace.Mark("gate");
 // created. The Store build (Astro Photo Viewer) is named by its package's manifest, and Claim leaves it alone there.
 var appIdentity = DesktopAppIdentity.Viewer;
 var startMenuShortcut = AppIdentity.Claim(appIdentity.Id, appIdentity.DisplayName);
-logger.LogDebug("App identity {Id}: Start menu shortcut {Shortcut}", appIdentity.Id, startMenuShortcut);
+if (startMenuShortcut is StartMenuShortcut.Foreign or StartMenuShortcut.Failed)
+{
+    logger.LogWarning("App identity {Id}: Start menu shortcut {Shortcut}; the OS may show this app as an unknown app", appIdentity.Id, startMenuShortcut);
+}
+else
+{
+    logger.LogDebug("App identity {Id}: Start menu shortcut {Shortcut}", appIdentity.Id, startMenuShortcut);
+}
 
 // --- SDL3 + Vulkan init ---
 // Install the native-library resolver before the first P/Invoke into SDL3 so a
@@ -294,7 +301,7 @@ logger.LogDebug("App identity {Id}: Start menu shortcut {Shortcut}", appIdentity
 NativeLoaderDiagnostics.Install(logger);
 
 using var sdlWindow = NativeLoaderDiagnostics.InitNative(logger, "SDL3 + Vulkan window",
-    () => SdlVulkanWindow.Create("Fits viewer", 1536, 1080, appMetadata: appIdentity.SdlMetadata));
+    () => SdlVulkanWindow.Create("Fits viewer", 1536, 1080, appMetadata: appIdentity.SdlMetadataFor(startMenuShortcut == StartMenuShortcut.Packaged)));
 // The viewer's Open and Save dialogs are this window's (SdlVulkan.Renderer, over SDL's platform dialogs), bound now that
 // it exists; the services were built before it (HostFileDialogs).
 sp.GetRequiredService<HostFileDialogs>().Bind(new SdlFileDialogs(sdlWindow));

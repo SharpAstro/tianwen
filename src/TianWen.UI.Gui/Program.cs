@@ -183,7 +183,14 @@ if (!string.Equals(Environment.GetEnvironmentVariable(GuiSingleInstanceEnvVar), 
 // created. In an app package the manifest names the app and Claim leaves it alone.
 var appIdentity = DesktopAppIdentity.Gui;
 var startMenuShortcut = AppIdentity.Claim(appIdentity.Id, appIdentity.DisplayName);
-logger.LogDebug("App identity {Id}: Start menu shortcut {Shortcut}", appIdentity.Id, startMenuShortcut);
+if (startMenuShortcut is StartMenuShortcut.Foreign or StartMenuShortcut.Failed)
+{
+    logger.LogWarning("App identity {Id}: Start menu shortcut {Shortcut}; the OS may show this app as an unknown app", appIdentity.Id, startMenuShortcut);
+}
+else
+{
+    logger.LogDebug("App identity {Id}: Start menu shortcut {Shortcut}", appIdentity.Id, startMenuShortcut);
+}
 
 // SDL3 + Vulkan init. Install the native-library resolver before the first
 // P/Invoke into SDL3 so a failed DLL load lands in the file logger instead of
@@ -191,7 +198,7 @@ logger.LogDebug("App identity {Id}: Start menu shortcut {Shortcut}", appIdentity
 NativeLoaderDiagnostics.Install(logger);
 
 using var sdlWindow = NativeLoaderDiagnostics.InitNative(logger, "SDL3 + Vulkan window",
-    () => SdlVulkanWindow.Create("TianWen", 1280, 900, appMetadata: appIdentity.SdlMetadata));
+    () => SdlVulkanWindow.Create("TianWen", 1280, 900, appMetadata: appIdentity.SdlMetadataFor(startMenuShortcut == StartMenuShortcut.Packaged)));
 // The viewer's Open and Save dialogs are this window's (SdlVulkan.Renderer, over SDL's platform dialogs), bound now that
 // it exists; the services were built before it (HostFileDialogs).
 sp.GetRequiredService<HostFileDialogs>().Bind(new SdlFileDialogs(sdlWindow));

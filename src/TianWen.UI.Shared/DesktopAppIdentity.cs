@@ -28,7 +28,11 @@ public sealed record DesktopAppIdentity(string Id, string DisplayName)
     public static DesktopAppIdentity Viewer { get; } = new("com.sharpastro.tianwen.fits", "Astro Photo Viewer");
 
     /// <summary>The same identity for SDL, which applies it before <c>SDL_Init</c>; the version stays the entry
-    /// assembly's.</summary>
-    public SdlAppMetadata SdlMetadata => new(Name: DisplayName, Identifier: Id, Creator: "SharpAstro",
-        Url: "https://github.com/SharpAstro/tianwen");
+    /// assembly's. Inside an app package (<paramref name="packaged"/>) the identifier is left to SDL, because the
+    /// package's manifest names the app there and an id of ours would split an SDL toast from the package's windows.</summary>
+    public SdlAppMetadata SdlMetadataFor(bool packaged) => new(Name: DisplayName, Identifier: packaged ? null : Id,
+        Creator: "SharpAstro", Url: "https://github.com/SharpAstro/tianwen");
+
+    /// <summary>The identity for SDL outside an app package.</summary>
+    public SdlAppMetadata SdlMetadata => SdlMetadataFor(packaged: false);
 }
