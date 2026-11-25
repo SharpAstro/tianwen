@@ -1496,7 +1496,8 @@ at `runs/swan-halo-probe.png`, `runs/swan-halo-deep.png`, `runs/swan-halo-map.pn
 
 ## The first run through the workbench step, and what it found (2026-11-25)
 
-Tracked by #2489 (the step) and #2521 (the one straight-line rate per group).
+Tracked by #2523 (the default), #2524 (the late refusal) and #2521 (the one straight-line rate per group); the step
+itself was #2489.
 
 The comet-stack step (#2517, #2518) was run on 10P's real night for the first time, on the laptop, and its composite
 was worse than the one the owner made in August (`10pcompositecolour1to1.png`, 2026-08-27). Three runs, each read with
@@ -1542,7 +1543,14 @@ runs (a trail is a few hundred pixels of a third of a million); along the track 
 
 Pinned on synthetic plates by `CometResidueTests` (a clean coma, a trail pair, a dark streak, a slope cut at the reach).
 
-**Still to settle:** whether the step's `removeStars` should default on, since without it the composite is the trap;
+**Restored, measured:** the same night through the fixed pipeline (`stack --comet-track --remove-stars`, the starless
+comet layer TilePipelined, the star layer Bayer drizzle with the body subtracted from all 125 frames) read -0.92
+(star layer luminance), +1.45 (star layer chroma) and -2.15 (model chroma), all clean, and its composite shows no ring
+and no streak. `Comet10PAcceptanceProbe` holds those three readings and the written composite on the real night
+(env-gated, Heavy).
+
+**Still to settle:** whether the step's `removeStars` should default on, since without it the composite is the trap
+(#2523); a step whose nominal strategy this computer cannot fit refuses only after the 49 minutes of removal (#2524);
 and the colour. SPCC on run 2's composite fitted (0.414, 1.000, 1.077) where August's picture says (0.969, 1.000, 1.209),
 and the same render with August's triple is brown where August's is neutral, so the composite's colour has moved since
 August, not only the fit (the normaliser floor and the AHD changes of #1991 are the candidates; #842).
