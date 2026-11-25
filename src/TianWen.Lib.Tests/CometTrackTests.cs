@@ -10,9 +10,11 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Shouldly;
 using TianWen.Cli;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Comets;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Stacking;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
@@ -124,6 +126,37 @@ public sealed class CometTrackTests : IDisposable
         track.Bracketing(Night.AddMinutes(30), Night.AddMinutes(60)).Select(static sample => sample.TimeUtc).ToArray()
             .ShouldBe([Night.AddMinutes(30), Night.AddMinutes(60)], "a sample at an end is that end");
         track.Bracketing(Night, Night.AddMinutes(120)).Length.ShouldBe(5, "a group as long as the night takes the whole file");
+    }
+
+    /// <summary>
+    /// The pipeline's fit of a track FILE is the fit of the samples bracketing the group, never of the whole file
+    /// (<see cref="StackingPipeline.FitTrackFile"/>). On a curved track the two differ: a comet whose
+    /// pixel x is 30 h + 20 h^2 over a six-hour file moves 160 px/h between 3 h and 3.5 h, where a line through the
+    /// whole file says 150.
+    /// </summary>
+    [Fact]
+    public void ATrackFilesRateIsFittedOnTheGroupsWindowAndNotOnTheWholeFile()
+    {
+        // 6" a pixel, north up and east left, centred on the field the comet tests use.
+        const double Scale = 6.0 / 3600.0;
+        var wcs = new WCS(8.468, -41.24) { CRPix1 = 1500, CRPix2 = 1500, CD1_1 = -Scale, CD1_2 = 0, CD2_1 = 0, CD2_2 = Scale };
+        var samples = ImmutableArray.CreateBuilder<EphemerisSample>();
+        for (var half = 0; half <= 12; half++)
+        {
+            var hours = half / 2.0;
+            var (ra, dec) = wcs.PixelToSky(1000 + 30 * hours + 20 * hours * hours, 1200 - 10 * hours).ShouldNotBeNull();
+            samples.Add(new EphemerisSample(Night.AddHours(hours), ra * 15.0, dec));
+        }
+
+        var track = Track() with { Samples = samples.ToImmutable() };
+
+        var group = StackingPipeline.FitTrackFile(wcs, track, Night.AddHours(3.1), Night.AddHours(3.4)).ShouldNotBeNull();
+        var whole = CometRateSolver.SolveCanvasRatePxPerHour(wcs, track.Samples.AsSpan()).ShouldNotBeNull();
+
+        group.PxPerHour.X.ShouldBe(160f, 0.5f, "the samples at 3 h and 3.5 h, which bracket the group");
+        group.PxPerHour.Y.ShouldBe(-10f, 0.5f);
+        group.SampleCount.ShouldBe(2);
+        whole.PxPerHour.X.ShouldBe(150f, 0.5f, "premise: the whole file's line is another rate, so the test tells the two apart");
     }
 
     [Fact]

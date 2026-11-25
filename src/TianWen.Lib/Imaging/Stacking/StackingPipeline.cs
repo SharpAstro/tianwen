@@ -1201,10 +1201,14 @@ public sealed class StackingPipeline(
                 // compact form and rejected. The run went on to spend its whole integration
                 // producing a duplicate of a master that already existed.
                 // Worded by what was given: a track file is no --comet to drop, and a workbench step has neither option.
+                // The track's own fault sends the person to another track; anything else (the reference frame would not
+                // solve, the fit failed) leaves the track as it is and says what is wrong instead.
                 var reason = options.CometTrack is { } givenTrack
-                    ? $"comet registration on the track of \"{givenTrack.Designation}\" gave no rate ("
-                        + (cometTrackRefusal ?? "the reference frame was not plate-solved or the track not fitted, as the log says")
-                        + "): give a track asked from these frames' site over their night, or a rate"
+                    ? $"comet registration on the track of \"{givenTrack.Designation}\" gave no rate: "
+                        + (cometTrackRefusal is { } trackFault
+                            ? $"{trackFault}; give a track asked from these frames' site over their night, or a rate"
+                            : "the reference frame did not plate-solve or the track could not be fitted to it (the log says which); a reference "
+                                + "frame that solves, or a rate, is needed")
                     : $"comet registration was requested for \""
                         + (string.IsNullOrWhiteSpace(options.CometDesignation) ? referenceRaw.ImageMeta.ObjectName : options.CometDesignation)
                         + "\" but no rate could be derived; pass --comet-rate dx,dy to supply one, or drop --comet to stack star-aligned on purpose";
@@ -2730,15 +2734,15 @@ public sealed class StackingPipeline(
         // The track: the file's samples that bracket this group, or Horizons' answer to the request built above, which
         // spans the same window. Either way they go to the same fit.
         ImmutableArray<EphemerisSample> track;
+        CometRate? fitted;
         string designation;
         double siteLat, siteLon, siteElev;
         if (options.CometTrack is { } file)
         {
-            // The samples bracketing this group's frames, not the whole file: a file asked for the night serves each
-            // group on its own window, as a live fetch of that window would.
             (track, designation, siteLat, siteLon, siteElev) = (file.Bracketing(first, last), file.Designation, file.SiteLatDeg, file.SiteLonDeg, file.SiteElevMetres);
             logger.LogInformation("  [comet] the track of {Designation} from its file: {Count} of its {Total} samples bracket the group, no network asked",
                 designation, track.Length, file.Samples.Length);
+            fitted = FitTrackFile(referenceWcs, file, first, last);
         }
         else
         {
@@ -2753,9 +2757,11 @@ public sealed class StackingPipeline(
                     track.Length, asked.Designation);
                 return (null, null);
             }
+
+            fitted = CometRateSolver.SolveCanvasRatePxPerHour(referenceWcs, track.AsSpan());
         }
 
-        if (CometRateSolver.SolveCanvasRatePxPerHour(referenceWcs, track.AsSpan()) is not { } rate)
+        if (fitted is not { } rate)
         {
             logger.LogWarning("  [comet] the track could not be fitted to a rate");
             return (null, null);
@@ -2769,6 +2775,14 @@ public sealed class StackingPipeline(
             rate.PxPerHour.X, rate.PxPerHour.Y, rate.PxPerHour.Length(), rate.MaxResidualPx);
         return (rate, null);
     }
+
+    /// <summary>
+    /// The rate and place a track FILE gives a group: fitted through the samples that bracket the group's frames
+    /// (<see cref="CometTrack.Bracketing"/>), never the whole file, so a file asked for the night serves each group on its
+    /// own window as a live fetch of that window would (#2517's review). The one place that choice is made.
+    /// </summary>
+    internal static CometRate? FitTrackFile(WCS referenceWcs, CometTrack file, DateTimeOffset firstExposureStart, DateTimeOffset lastExposureEnd)
+        => CometRateSolver.SolveCanvasRatePxPerHour(referenceWcs, file.Bracketing(firstExposureStart, lastExposureEnd).AsSpan());
 
     /// <summary>
     /// One master per calibration set (<see cref="CalibrationEpochs.SplitSets"/>), cached under
