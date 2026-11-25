@@ -1205,7 +1205,11 @@ public sealed class StackingPipeline(
                     : options.CometDesignation);
                 var reason = $"comet registration was requested for \"{wanted}\" but no rate could be derived"
                     + (cometTrackRefusal is { } refused ? $" ({refused})" : "")
-                    + "; pass --comet-rate dx,dy to supply one, or drop --comet to stack star-aligned on purpose";
+                    + (options.CometTrack is not null
+                        ? "; pass --comet-rate dx,dy to supply one, or drop --comet-track to stack star-aligned on purpose"
+                        : options.CometDesignation is not null
+                            ? "; pass --comet-rate dx,dy to supply one, or drop --comet to stack star-aligned on purpose"
+                            : "; give a rate (rateX and rateY) or a track, or stack star-aligned on purpose");
                 logger.LogWarning("  [skip] {Reason}", reason);
                 return new GroupResult(slug, lightList.Count, 0, Result: null, MasterFitsPath: null,
                     PreviewPngPath: null, Elapsed: groupSw.Elapsed, SkipReason: reason,
@@ -2732,8 +2736,20 @@ public sealed class StackingPipeline(
         double siteLat, siteLon, siteElev;
         if (options.CometTrack is { } file)
         {
-            (track, designation, siteLat, siteLon, siteElev) = (file.Samples, file.Designation, file.SiteLatDeg, file.SiteLonDeg, file.SiteElevMetres);
-            logger.LogInformation("  [comet] the track of {Designation} from its file: {Count} samples, no network asked", designation, track.Length);
+            // Only the samples around THIS group's window, as a live fetch of that window answers: a night-wide file serves
+            // several groups, and a line fitted through all of it would be longer and coarser than each group's own.
+            track = file.SamplesAround(first, last);
+            (designation, siteLat, siteLon, siteElev) = (file.Designation, file.SiteLatDeg, file.SiteLonDeg, file.SiteElevMetres);
+            if (track.Length < 2)
+            {
+                var around = string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                    $"the track of {designation} holds {track.Length} sample(s) within one file step of the frames' window {first:u} to {last:u}, and a rate needs two");
+                logger.LogWarning("  [comet] {Refusal}", around);
+                return (null, around);
+            }
+
+            logger.LogInformation("  [comet] the track of {Designation} from its file: {Count} of {Total} samples around the group's window, no network asked",
+                designation, track.Length, file.Samples.Length);
         }
         else
         {

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
@@ -56,6 +57,28 @@ public sealed record CometTrack(
     /// </summary>
     public const double SiteToleranceDeg = 0.1;
 
+    /// <summary>The distance between two longitudes, degrees, across the antimeridian: 179.99 E and 179.99 W are 0.02 apart.</summary>
+    public static double LongitudeApartDeg(double lonA, double lonB)
+        => Math.Abs(((lonA - lonB) % 360.0 + 540.0) % 360.0 - 180.0);
+
+    /// <summary>
+    /// The samples that bear on frames from <paramref name="first"/> to <paramref name="last"/>: those inside that window
+    /// padded by one file step (the span over the gaps) each side, which is what a live fetch of the window answers. A
+    /// night-wide file serves each group of a stack through its own window, not through the whole night.
+    /// </summary>
+    public ImmutableArray<EphemerisSample> SamplesAround(DateTimeOffset first, DateTimeOffset last)
+    {
+        if (Samples.Length < 2)
+        {
+            return Samples;
+        }
+
+        var step = (Samples[^1].TimeUtc - Samples[0].TimeUtc) / (Samples.Length - 1);
+        var from = first - step;
+        var to = last + step;
+        return [.. Samples.Where(s => s.TimeUtc >= from && s.TimeUtc <= to)];
+    }
+
     /// <summary>The track Horizons answered <paramref name="request"/> with.</summary>
     public static CometTrack From(CometTrackRequest request, ImmutableArray<EphemerisSample> samples)
         => new(CurrentSchemaVersion, Horizons, request.Designation, request.SiteLatDeg, request.SiteLonDeg, request.SiteElevMetres,
@@ -76,9 +99,7 @@ public sealed record CometTrack(
             return $"the frames state no site (SITELAT, SITELONG), so whether the track of {Designation} was asked from their place cannot be told";
         }
 
-        // Longitude across the antimeridian: 179.99 E and 179.99 W are 0.02 degrees apart.
-        var lonApart = Math.Abs(((siteLonDeg - SiteLonDeg) % 360.0 + 540.0) % 360.0 - 180.0);
-        if (Math.Abs(siteLatDeg - SiteLatDeg) > SiteToleranceDeg || lonApart > SiteToleranceDeg)
+        if (Math.Abs(siteLatDeg - SiteLatDeg) > SiteToleranceDeg || LongitudeApartDeg(siteLonDeg, SiteLonDeg) > SiteToleranceDeg)
         {
             return string.Create(System.Globalization.CultureInfo.InvariantCulture,
                 $"the track of {Designation} was asked from ({SiteLatDeg:F4}, {SiteLonDeg:F4}) and the frames were taken at ({siteLatDeg:F4}, {siteLonDeg:F4}): a comet's track is the one seen from the frames' own site");
@@ -97,6 +118,11 @@ public sealed record CometTrack(
     /// would fit a rate to the samples it kept.</summary>
     public async Task WriteAsync(string path, CancellationToken cancellationToken = default)
     {
+        if (Path.GetDirectoryName(Path.GetFullPath(path)) is { Length: > 0 } folder)
+        {
+            Directory.CreateDirectory(folder);
+        }
+
         var tmp = path + ".tmp";
         await using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
         {
@@ -128,6 +154,11 @@ public sealed record CometTrack(
         {
             // A file a person may have edited by hand: what is wrong with it is said, not thrown.
             refusal = $"{path} is no comet track: {ex.Message}";
+            return false;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            refusal = $"{path} cannot be read: {ex.Message}";
             return false;
         }
 
@@ -182,6 +213,8 @@ public sealed record CometTrack(
 /// <summary>The track file's JSON: indented, since a person reads it, and enums as words.</summary>
 [JsonSourceGenerationOptions(
     WriteIndented = true,
+    // LF whatever the machine (Environment.NewLine is the default): one answer is one set of bytes, so one step key.
+    NewLine = "\n",
     UseStringEnumConverter = true)]
 [JsonSerializable(typeof(CometTrack))]
 public sealed partial class CometTrackJsonContext : JsonSerializerContext

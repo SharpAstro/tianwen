@@ -107,6 +107,54 @@ public sealed class CometTrackTests : IDisposable
     }
 
     [Fact]
+    public void AGroupFitsOnlyTheSamplesAroundItsWindowPaddedByOneFileStep()
+    {
+        var track = Track(samples: 9); // 20:00 to 00:00, a sample every 30 minutes
+
+        var around = track.SamplesAround(Night.AddMinutes(100), Night.AddMinutes(130));
+
+        // 100..130 padded by one 30-minute step is 70..160.
+        around.Select(static s => s.TimeUtc).ShouldBe([Night.AddMinutes(90), Night.AddMinutes(120), Night.AddMinutes(150)]);
+        track.SamplesAround(Night.AddMinutes(-600), Night.AddMinutes(600)).Length.ShouldBe(9);
+        track.SamplesAround(Night.AddMinutes(1000), Night.AddMinutes(1010)).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void LongitudesApartWrapAtTheAntimeridian()
+    {
+        CometTrack.LongitudeApartDeg(179.99, -179.99).ShouldBe(0.02, 1e-9);
+        CometTrack.LongitudeApartDeg(16.3, 16.0).ShouldBe(0.3, 1e-9);
+    }
+
+    [Fact]
+    public async Task ATrackIsWrittenWithLineFeedsAndInAFolderThatDidNotExist()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var path = Path.Combine(_folders.Create("track-").FullName, "not", "yet", "10P.json");
+
+        await Track().WriteAsync(path, ct);
+
+        var bytes = File.ReadAllBytes(path);
+        bytes.ShouldNotContain((byte)'\r', "one answer is one set of bytes on every machine");
+        bytes.ShouldContain((byte)'\n');
+    }
+
+    [Fact]
+    public void ATrackFileThatCannotBeReadIsRefusedInWordsNotThrown()
+    {
+        var path = Path.Combine(_folders.Create("track-").FullName, "10P.json");
+        File.WriteAllText(path, "{}");
+        using var held = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
+
+        // A file another process holds open is refused in words (on Linux it reads fine, so only the Windows lock is asserted).
+        if (OperatingSystem.IsWindows())
+        {
+            CometTrack.TryRead(path, out _, out var refusal).ShouldBeFalse();
+            refusal.ShouldContain("cannot be read");
+        }
+    }
+
+    [Fact]
     public void TheRequestIsTheNightsWindowFromItsLightsOwnSiteAndTheCometTheyName()
     {
         var folder = _folders.Create("night-").FullName;

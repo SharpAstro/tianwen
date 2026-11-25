@@ -243,12 +243,12 @@ internal sealed class StackSubCommand(
         };
         var cometOpt = new Option<string?>("--comet")
         {
-            Description = "Comet / moving-target integration: register on the BODY instead of the star field, so the comet integrates sharp and the stars trail. Pass a designation ('10P', 'C/2023 A3') or leave the value empty to read it from the frames' own OBJECT card. The rate is derived by plate-solving the reference frame and asking JPL Horizons for a TOPOCENTRIC track over the session's own span, from the site the frames record in SITELAT/SITELONG/SITEELEV - a geocentric ephemeris is NOT good enough (diurnal parallax moved 10P by 2.7 px across one night, 25x the registration residual). Needs network; use --comet-rate offline.",
+            Description = "Comet / moving-target integration: register on the BODY instead of the star field, so the comet integrates sharp and the stars trail. Pass a designation ('10P', 'C/2023 A3') or leave the value empty to read it from the frames' own OBJECT card. The rate is derived by plate-solving the reference frame and asking JPL Horizons for a TOPOCENTRIC track over the session's own span, from the site the frames record in SITELAT/SITELONG/SITEELEV - a geocentric ephemeris is NOT good enough (diurnal parallax moved 10P by 2.7 px across one night, 25x the registration residual). Needs network; offline, use --comet-track with a file 'tianwen comet track' wrote.",
             Arity = ArgumentArity.ZeroOrOne,
         };
         var cometRateOpt = new Option<string?>("--comet-rate")
         {
-            Description = "Comet integration with an EXPLICIT canvas rate, as 'dx,dy' in pixels per hour of the reference frame's pixel grid (e.g. '-11.2,5.9'). The offline counterpart to --comet, and the override when an ephemeris is wrong; wins over --comet when both are given. Note this is CANVAS pixels per hour, not a sky rate: the star solution has already absorbed dither and field rotation by the time it applies. Carries no POSITION, only a rate, so it cannot drive the companion star layer - use --comet for that.",
+            Description = "Comet integration with an EXPLICIT canvas rate, as 'dx,dy' in pixels per hour of the reference frame's pixel grid (e.g. '-11.2,5.9'). The offline counterpart to --comet, and the override when an ephemeris is wrong; wins over --comet when both are given. Note this is CANVAS pixels per hour, not a sky rate: the star solution has already absorbed dither and field rotation by the time it applies. Carries no POSITION, only a rate, so it cannot drive the companion star layer - use --comet-track (offline) or --comet for that.",
         };
         var cometTrackOpt = new Option<string?>("--comet-track")
         {

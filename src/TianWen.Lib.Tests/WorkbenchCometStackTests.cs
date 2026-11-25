@@ -269,6 +269,28 @@ public sealed class WorkbenchCometStackTests(ITestOutputHelper output) : IDispos
         Of(second, "night").Steps[0].State.ShouldBe(StepState.Kept, Said(second));
     }
 
+    /// <summary>The key holds whether a star remover subtracts the body, and says so where it serves one channel shape only.</summary>
+    [Fact]
+    public void TheStepsKeyFactMovesWithTheStarRemoverAndTheRate()
+    {
+        var settings = new CometStackSettings();
+        var none = new CometStackOperation().Served(settings).By;
+        var serves = Substitute.For<TianWen.Lib.Imaging.Enhancement.IStarRemover, TianWen.Lib.Imaging.Enhancement.IEnhancerAvailability>();
+        ((TianWen.Lib.Imaging.Enhancement.IEnhancerAvailability)serves).CanServe(Arg.Any<int>(), Arg.Any<TianWen.Lib.Imaging.Enhancement.EnhanceOptions>()).Returns(true);
+        var colourOnly = Substitute.For<TianWen.Lib.Imaging.Enhancement.IStarRemover, TianWen.Lib.Imaging.Enhancement.IEnhancerAvailability>();
+        ((TianWen.Lib.Imaging.Enhancement.IEnhancerAvailability)colourOnly).CanServe(3, Arg.Any<TianWen.Lib.Imaging.Enhancement.EnhanceOptions>()).Returns(true);
+
+        var every = new CometStackOperation(null, null, serves).Served(settings).By;
+        var partly = new CometStackOperation(null, null, colourOnly).Served(settings).By;
+
+        none.ShouldContain("excluded");
+        every.ShouldContain("subtracted");
+        every.ShouldNotContain("else excluded");
+        partly.ShouldContain("else excluded");
+        new[] { none, every, partly }.Distinct().Count().ShouldBe(3, "three answers, three keys");
+        new CometStackOperation(null, null, serves).Served(new CometStackSettings { RateX = 1, RateY = 2, StarLayer = false }).By.ShouldBeEmpty();
+    }
+
     // The ASCII header blocks of a FITS file, up to and with its END card.
     private static string HeaderOf(string fits)
     {

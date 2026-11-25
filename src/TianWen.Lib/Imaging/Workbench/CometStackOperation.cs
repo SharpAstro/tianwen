@@ -170,8 +170,12 @@ public sealed class CometStackOperation(ILogger<StackingPipeline>? logger = null
             return ("star layer: the body excluded, no star remover serves", string.Empty);
         }
 
+        // The pipeline decides per master by its channel count, so "subtracted" is said only where the remover serves
+        // a mono AND a colour input; one that serves a single shape is said to, since the other shape is excluded.
         var (name, tag) = IEnhancerAvailability.ServedOf(starRemover, EnhanceOptions.Default);
-        return ($"star layer: the body subtracted by {name}", tag);
+        return IEnhancerAvailability.ServesEvery(starRemover, EnhanceOptions.Default)
+            ? ($"star layer: the body subtracted by {name}", tag)
+            : ($"star layer: the body subtracted by {name} where it serves the master's channels, else excluded", tag);
     }
 
     /// <inheritdoc/>

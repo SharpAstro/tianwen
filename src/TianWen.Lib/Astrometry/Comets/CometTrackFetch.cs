@@ -76,7 +76,7 @@ public static class CometTrackFetch
                 site = here;
             }
             else if (!(double.IsNaN(seen.Lat) && double.IsNaN(here.Lat))
-                && !(Math.Abs(seen.Lat - here.Lat) <= CometTrack.SiteToleranceDeg && Math.Abs(seen.Lon - here.Lon) <= CometTrack.SiteToleranceDeg))
+                && !(Math.Abs(seen.Lat - here.Lat) <= CometTrack.SiteToleranceDeg && CometTrack.LongitudeApartDeg(seen.Lon, here.Lon) <= CometTrack.SiteToleranceDeg))
             {
                 refusal = $"the lights under {framesFolder} were taken at more than one site, and a comet's track is the one seen from one: "
                     + "ask for each site's frames apart";
