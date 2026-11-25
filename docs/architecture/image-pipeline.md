@@ -447,11 +447,15 @@ result back on the input's scale. On 10P/Tempel 2 BlurX lifted the brightest sta
 background read 0, `FindStarsAsync` returned no stars (the step printed `FWHM 1.83 px -> NaN`), and in a chain every step
 after it divided the frame by 2.995 (the gradient step's sky read 0.00227 for 0.00681).
 
-**Who declares it.** A workbench step and a verb read their input through `OperationInput.TryRead`, which declares an
-input unit-referred by its peak (`Image.DeclaringUnitReference`); every step carries its input's `ImageMeta` onto its
-result, so the result is written with `UNITREF` whatever its peak. A rescale clears it (`ImageMeta.Rescale` with a factor
-other than one): after one, 1.0 is no longer the full scale, and the peak decides again. Stacked masters are not
-declared; they are written on `[0, 1]` (`ScaleFloatValuesToUnitCeiling`) and their peak says it.
+**Who declares it.** The routine that can lift a highlight past 2.0 says it of its result: `NarrowbandCombination`'s
+one-scale routine, which the deblur (and the single denoise and star removal) runs through, sets `UnitReferred` on a
+result whose input was unit-referred, in memory, so the viewer and `image sharpen` get it as well as a written file.
+Every step after it reads the card into `ImageMeta` and carries its input's metadata onto its result, so the chain says
+it to its end. A file nothing lifted says nothing and keeps its bytes; its peak decides. (Declaring at every read was
+tried first and dropped: the older verbs read their file themselves, so a step's file and its verb's differed by the
+card.) A rescale clears it (`ImageMeta.Rescale` with a factor other than one): after one, 1.0 is no longer the full
+scale, and the peak decides again. Stacked masters are not declared; they are written on `[0, 1]`
+(`ScaleFloatValuesToUnitCeiling`) and their peak says it.
 
 **`HasUnitScalePeak` is not a lie, and is still asked where the question is the peak.** It says whether the peak is at
 or under 2.0, and a declared image peaking at 2.995 answers false. The TIFF export asks it on purpose: a float TIFF holds

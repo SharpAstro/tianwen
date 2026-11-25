@@ -338,9 +338,10 @@ public record struct ImageMeta(
     /// 10P/Tempel 2's brightest star about 3.5 times, so a master peaking at 0.855 came back peaking at 2.995. Judged by
     /// its peak that file was ADU, so its histogram, its background and its star list came out empty, and every step after
     /// it in a chain divided the frame by 2.995. The peak cannot tell a lifted star from ADU; only the producer knows.</para>
-    /// <para><b>Who says it.</b> A workbench step or a verb reads its input through <c>OperationInput.TryRead</c>, which
-    /// declares an input that is unit-referred (by this card or by its peak), and a step writes on its input's scale with
-    /// its input's metadata, so the result says it too. A rescale clears it (<see cref="Rescale"/>): after one, 1.0 is no
+    /// <para><b>Who says it.</b> The routine that can lift a highlight past 2.0 on its input's unit scale says it of its
+    /// result (<c>NarrowbandCombination</c>'s one-scale routine, which the deblur runs through). Every step after it reads the
+    /// card into this and carries its input's metadata onto its result, so the result says it too. An image the routine
+    /// never touched says nothing, and its peak decides. A rescale clears it (<see cref="Rescale"/>): after one, 1.0 is no
     /// longer the full scale, and the peak decides again.</para>
     /// <para><b>Not <c>SATURATE</c>.</b> That card says where saturation is, and a lifted star above 1.0 is not saturated:
     /// a reader that leaves out stars above <c>SATURATE</c> would leave out exactly the stars a deblur kept.</para>

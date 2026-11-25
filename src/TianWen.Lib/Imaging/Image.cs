@@ -1414,27 +1414,6 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
     internal bool IsUnitScaledFloat => IsUnitReferred && (BitDepth is BitDepth.Float32 || samplesAreUnitReferred);
 
     /// <summary>
-    /// This image with <see cref="ImageMeta.UnitReferred"/> set when it is unit-referred by its peak and does not yet say
-    /// so, so whatever is made from it on its scale, and written, says so too (#2504); otherwise this image itself.
-    /// </summary>
-    /// <remarks>
-    /// <para><b>Frame ownership: a CONSUMED input</b> when a new image comes back: the result takes this image's planes
-    /// and their buffers as they are, so release only the result and do not use this image again.</para>
-    /// <para>Why at the read and not at the write: a step that lifts its input's highlights above 2.0 (a deblur) cannot
-    /// tell from its result's peak which scale it is on. Its input still could, and every step carries its input's
-    /// metadata onto its result (<c>OperationInput.TryRead</c> calls this).</para>
-    /// </remarks>
-    internal Image DeclaringUnitReference()
-    {
-        if (imageMeta.UnitReferred || !HasUnitScalePeak || BitDepth != BitDepth.Float32)
-        {
-            return this;
-        }
-
-        return new Image(Planes, BitDepth, Pedestal, imageMeta with { UnitReferred = true }, SamplesAreUnitReferred, sourceRaster);
-    }
-
-    /// <summary>
     /// The channel to detect stars in: green on a 3-channel image, channel 0 otherwise.
     /// </summary>
     /// <remarks>

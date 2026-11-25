@@ -92,22 +92,8 @@ public sealed class OperationInput
 
     /// <summary>The image and its plate solution as they are in the file (or as derived); false with the reason in
     /// words when it cannot be had.</summary>
-    /// <remarks>
-    /// An image on a unit scale comes back saying so (<see cref="ImageMeta.UnitReferred"/>, <see cref="Image.DeclaringUnitReference"/>):
-    /// a step writes on its input's scale with its input's metadata, so its result says so too, whatever its peak. A
-    /// deblur lifts a bright star past 2.0, and a result that did not say so was read as ADU by every step after it (#2504).
-    /// </remarks>
     public bool TryRead([NotNullWhen(true)] out Image? image, out WCS? wcs, [NotNullWhen(false)] out string? refusal)
-    {
-        if (!_read(out var read, out wcs, out refusal))
-        {
-            image = null;
-            return false;
-        }
-
-        image = read.DeclaringUnitReference();
-        return true;
-    }
+        => _read(out image, out wcs, out refusal);
 
     /// <summary>
     /// The image read as a master: its absent pixels made absent (<see cref="MasterAlignment.MaskAbsent"/>: a master's

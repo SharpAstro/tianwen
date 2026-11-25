@@ -62,25 +62,45 @@ public sealed class UnitReferredCardTests(ITestOutputHelper output) : IDisposabl
     }
 
     [Fact]
-    public void AStepReadsAUnitInputAsDeclaredAndItsResultSaysSoWhateverItsPeak()
+    public void AStepAfterADeblurCarriesTheCardOntoItsResult()
     {
         var folder = _folders.Create("unitref-step-").FullName;
-        var master = Path.Combine(folder, "master.fits");
-        var result = Path.Combine(folder, "deblurred.fits");
-        StarField(0.855f, Meta()).WriteToFitsFile(master);
+        var deblurred = Path.Combine(folder, "deblurred.fits");
+        var result = Path.Combine(folder, "flattened.fits");
+        StarField(LiftedPeak, Meta() with { UnitReferred = true }).WriteToFitsFile(deblurred);
 
-        OperationInput.FromFile(master).TryRead(out var input, out var wcs, out var refusal).ShouldBeTrue(refusal);
+        OperationInput.FromFile(deblurred).TryRead(out var input, out var wcs, out var refusal).ShouldBeTrue(refusal);
         input.ShouldNotBeNull();
-        input.ImageMeta.UnitReferred.ShouldBeTrue("an input unit-referred by its peak is read as declared");
+        input.ImageMeta.UnitReferred.ShouldBeTrue("the card is read into the input's metadata");
 
-        // What a deblur does: the same scale, a star lifted past 2.0, the input's metadata carried onto the result.
-        var lifted = StarField(LiftedPeak, input.ImageMeta);
-        OperationOutput.Write(lifted, result, wcs);
+        // What the step after a deblur does: the same scale, its input's metadata carried onto its result.
+        var stepped = StarField(LiftedPeak, input.ImageMeta, sky: Sky * 0.5f);
+        OperationOutput.Write(stepped, result, wcs);
 
         Image.TryReadFitsFile(result, out var read).ShouldBeTrue();
         read.ShouldNotBeNull();
         read.MaxValue.ShouldBeGreaterThan(2f, "premise: the result's peak alone would say ADU");
-        read.IsUnitReferred.ShouldBeTrue("the step's result says it is on its input's scale");
+        read.IsUnitReferred.ShouldBeTrue("the step's result says it is on its input's scale, so the chain says it to its end");
+    }
+
+    [Fact]
+    public void AFileNothingLiftedSaysNothingAndItsPeakDecides()
+    {
+        var folder = _folders.Create("unitref-plain-").FullName;
+        var master = Path.Combine(folder, "master.fits");
+        var adu = Path.Combine(folder, "adu.fits");
+        StarField(0.855f, Meta()).WriteToFitsFile(master);
+        StarField(60000f, Meta(), sky: 1200f).WriteToFitsFile(adu);
+
+        OperationInput.FromFile(master).TryRead(out var unit, out _, out var refusal).ShouldBeTrue(refusal);
+        OperationInput.FromFile(adu).TryRead(out var counts, out _, out refusal).ShouldBeTrue(refusal);
+        unit.ShouldNotBeNull();
+        counts.ShouldNotBeNull();
+
+        unit.ImageMeta.UnitReferred.ShouldBeFalse("a step's file and its verb's stay byte for byte the same where nothing lifted");
+        unit.IsUnitReferred.ShouldBeTrue("its peak says it");
+        counts.ImageMeta.UnitReferred.ShouldBeFalse();
+        counts.IsUnitReferred.ShouldBeFalse();
     }
 
     [Fact]
@@ -99,20 +119,6 @@ public sealed class UnitReferredCardTests(ITestOutputHelper output) : IDisposabl
     }
 
     [Fact]
-    public void AnAduFrameIsNotDeclaredByBeingRead()
-    {
-        var folder = _folders.Create("unitref-adu-").FullName;
-        var path = Path.Combine(folder, "adu.fits");
-        StarField(60000f, Meta(), sky: 1200f).WriteToFitsFile(path);
-
-        OperationInput.FromFile(path).TryRead(out var input, out _, out var refusal).ShouldBeTrue(refusal);
-        input.ShouldNotBeNull();
-
-        input.ImageMeta.UnitReferred.ShouldBeFalse();
-        input.IsUnitReferred.ShouldBeFalse();
-    }
-
-    [Fact]
     public void ARescaleClearsTheDeclarationAndAnUnchangedScaleKeepsIt()
     {
         var declared = StarField(LiftedPeak, Meta() with { UnitReferred = true });
@@ -121,7 +127,7 @@ public sealed class UnitReferredCardTests(ITestOutputHelper output) : IDisposabl
 
         adu.ImageMeta.UnitReferred.ShouldBeFalse("multiplied out to ADU, 1.0 is no longer the full scale");
         adu.IsUnitReferred.ShouldBeFalse();
-        adu.MaxValue.ShouldBe(LiftedPeak * ushort.MaxValue, LiftedPeak * ushort.MaxValue * 1e-5f, "the full scale maps to 65535, a lifted star above it");
+        adu.MaxValue.ShouldBe(declared.MaxValue * ushort.MaxValue, declared.MaxValue * ushort.MaxValue * 1e-5f, "the full scale maps to 65535, a lifted star above it");
         declared.ImageMeta.Rescale(1f).UnitReferred.ShouldBeTrue("a factor of one is no rescale");
         declared.ScaleFloatValuesToUnit().ShouldBeSameAs(declared, "a declared unit image is on its scale already and is not divided by its peak");
     }
@@ -137,7 +143,7 @@ public sealed class UnitReferredCardTests(ITestOutputHelper output) : IDisposabl
         var byPeak = StretchSolver.ComputeStretchUniforms(StretchMode.Linked, StretchParameters.Default, stats, null, declared.MaxValue);
 
         asDeclared.NormFactor.ShouldBe(1f);
-        byPeak.NormFactor.ShouldBe(1f / LiftedPeak, 1e-6f, "premise: the peak alone divides the frame by its lifted star");
+        byPeak.NormFactor.ShouldBe(1f / declared.MaxValue, 1e-6f, "premise: the peak alone divides the frame by its lifted star");
     }
 
     // A unit-scale sky with planted Gaussian stars, the brightest lifted to `peak` as a deblur lifts one.
