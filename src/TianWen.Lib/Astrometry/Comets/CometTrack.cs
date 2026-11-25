@@ -81,15 +81,13 @@ public sealed record CometTrack(
         if (Math.Abs(siteLatDeg - SiteLatDeg) > SiteToleranceDeg || lonApart > SiteToleranceDeg)
         {
             return string.Create(System.Globalization.CultureInfo.InvariantCulture,
-                $"the track of {Designation} was asked from ({SiteLatDeg:F4}, {SiteLonDeg:F4}) and the frames were taken at ({siteLatDeg:F4}, {siteLonDeg:F4}): "
-                + "a comet's track is the one seen from the frames' own site");
+                $"the track of {Designation} was asked from ({SiteLatDeg:F4}, {SiteLonDeg:F4}) and the frames were taken at ({siteLatDeg:F4}, {siteLonDeg:F4}): a comet's track is the one seen from the frames' own site");
         }
 
         if (Samples[0].TimeUtc > firstExposureStart || Samples[^1].TimeUtc < lastExposureEnd)
         {
             return string.Create(System.Globalization.CultureInfo.InvariantCulture,
-                $"the track of {Designation} runs from {Samples[0].TimeUtc:u} to {Samples[^1].TimeUtc:u} and the frames from {firstExposureStart:u} to {lastExposureEnd:u}: "
-                + "it has to cover every frame");
+                $"the track of {Designation} runs from {Samples[0].TimeUtc:u} to {Samples[^1].TimeUtc:u} and the frames from {firstExposureStart:u} to {lastExposureEnd:u}: it has to cover every frame");
         }
 
         return null;
