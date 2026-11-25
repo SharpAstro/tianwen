@@ -472,7 +472,8 @@ Full rules: `docs/architecture/widgets-and-controls.md`, `docs/architecture/view
   waits at least 1 ms and loops. `docs/plans/web-host-carve-out.md`.
 - **Theme** (`GuiTheme`): a cache of palette colours keys on `GuiTheme.PaletteGeneration`; Night has zero blue and is
   judged at night; the accent is the colour of an action (`GoButtonBg`); a TUI row asks `TuiRowPalette`.
-- **Desktop shell:** the single-instance gate is `InstanceGate`; activation is `sdlWindow.Activate()`; a thumbnail
+- **Desktop shell:** the single-instance gate is `InstanceGate`; activation is `sdlWindow.Activate()`; an app's
+  identity is `DesktopAppIdentity`, claimed before its first window (one id for Windows and SDL); a thumbnail
   provider reads nothing in `Initialize`; every file in a macOS bundle's `Contents/MacOS` is signed.
 
 ### Layout and input (`DIR.Lib.Layout`)
