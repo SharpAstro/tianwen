@@ -1926,24 +1926,31 @@ public sealed class StackingPipeline(
             // made the layer BRIGHTER there. A comet residual cannot do that; it sweeps every track
             // position equally and must be flat. That measurement predates the normalisation fix and
             // has not been re-run against a normalised BayerDrizzle.
+            //
+            // The same rule holds for a star layer the comet's MODEL is subtracted from, and the mask's filter
+            // used to be the only one (it read `layerMask is not null && layerModel is null`): from 2026-08-26 a
+            // modelled star layer could pick TilePipelined, which never runs the subtraction, and on 10P on
+            // 2026-11-25 a host short of memory did, logged "the model subtraction touched NO pixels in any
+            // frame" and wrote no composite. And a comet layer stacked from per-frame starless plates must not
+            // be drizzled: drizzle clips each sample once, against its cell's mean and spread from one
+            // statistics pass, which the residue trail of a bright star (a few frames of many) inflates, where
+            // the debayered strategies clip iteratively. On 10P the drizzled starless layer kept that residue at
+            // -14.8 sigma along the track (chroma, 2.23% of the coma beyond 3) against -4.0 (0.31%) for a
+            // sigma-clipped one, and it came back as the coloured ring round the coma in the composite.
             var preferredStrategy = options.ForcedStrategy;
-            if (layerMask is not null && layerModel is null)
+            // useStarless only says "the starless plate where there is one": every primary layer passes it, a sidereal
+            // stack's too, so the plates exist only under RemoveStarsPerFrame.
+            var starless = useStarless && options.RemoveStarsPerFrame;
+            if (CometLayerExclusions(masked: layerMask is not null, modelled: layerModel is not null, starless) is { Count: > 0 } excluded)
             {
                 pool = (pool ?? IntegrationStrategySelector.DefaultStrategies())
-                    .Where(s => s.Kind is not IntegrationStrategyKind.TilePipelined
-                            and not IntegrationStrategyKind.TilePipelinedDrizzle
-                            and not IntegrationStrategyKind.BayerDrizzle)
+                    .Where(s => !excluded.ContainsKey(s.Kind))
                     .ToArray();
-                if (preferredStrategy is IntegrationStrategyKind.TilePipelined
-                    or IntegrationStrategyKind.TilePipelinedDrizzle
-                    or IntegrationStrategyKind.BayerDrizzle)
+                if (preferredStrategy is { } forced && excluded.TryGetValue(forced, out var why))
                 {
                     logger.LogWarning(
-                        "  [comet] --strategy {Kind} cannot build a masked layer correctly "
-                            + "(it either bypasses the mask, or is excluded pending re-validation "
-                            + "of the normalised-drizzle masked-layer measurement); letting the "
-                            + "selector pick for this layer",
-                        preferredStrategy);
+                        "  [comet] --strategy {Kind} cannot build this layer correctly ({Why}); letting the selector pick for this layer",
+                        preferredStrategy, why);
                     preferredStrategy = null;
                 }
             }
@@ -2705,6 +2712,42 @@ public sealed class StackingPipeline(
             rate.SampleCount, (track[^1].TimeUtc - track[0].TimeUtc).TotalHours,
             rate.PxPerHour.X, rate.PxPerHour.Y, rate.PxPerHour.Length(), rate.MaxResidualPx);
         return (rate, null);
+    }
+
+    /// <summary>
+    /// The integration strategies a comet layer must not be built by, each with the reason in words (#2489). A star
+    /// layer the comet is masked out of, or its model subtracted from, needs the frame producers that do it, and
+    /// TilePipelined and TilePipelinedDrizzle re-read each frame themselves and bypass them; a masked layer also keeps
+    /// BayerDrizzle out pending its re-validation; and a comet layer stacked from per-frame starless plates keeps both
+    /// drizzles out, whose one-pass clip keeps the trail residue the star remover leaves (on 10P, -14.8 sigma against
+    /// -4.0 for a sigma clip, and the coloured ring round the coma in the composite). Empty for any other layer.
+    /// </summary>
+    /// <param name="masked">The layer has the comet masked out (the fallback without a model).</param>
+    /// <param name="modelled">The layer has the comet's model subtracted from every frame.</param>
+    /// <param name="starless">The layer is stacked from per-frame starless plates.</param>
+    internal static IReadOnlyDictionary<IntegrationStrategyKind, string> CometLayerExclusions(bool masked, bool modelled, bool starless)
+    {
+        var excluded = new Dictionary<IntegrationStrategyKind, string>();
+        if (masked || modelled)
+        {
+            const string bypasses = "it re-reads each frame itself, so the comet would never be masked out of or subtracted from this layer";
+            excluded[IntegrationStrategyKind.TilePipelined] = bypasses;
+            excluded[IntegrationStrategyKind.TilePipelinedDrizzle] = bypasses;
+        }
+
+        if (masked && !modelled)
+        {
+            excluded[IntegrationStrategyKind.BayerDrizzle] = "a masked layer keeps it out pending re-validation of the normalised-drizzle measurement";
+        }
+
+        if (starless)
+        {
+            const string clipsOnce = "a drizzle clips each sample once, and keeps the trail residue the star remover leaves on the starless plates";
+            excluded.TryAdd(IntegrationStrategyKind.BayerDrizzle, clipsOnce);
+            excluded.TryAdd(IntegrationStrategyKind.TilePipelinedDrizzle, clipsOnce);
+        }
+
+        return excluded;
     }
 
     /// <summary>What <see cref="ScanFramesAsync"/> found: the frames a stack takes, in the order the folder gave them,

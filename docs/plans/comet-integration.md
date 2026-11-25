@@ -302,6 +302,14 @@ tests here show it does no structural harm and adds no noise; they do not compar
 against a debayer-first run, which would need a way to emit a debayered single sub (no CLI does today).
 The visual check was clean and the comet survived, so this is a refinement rather than a risk.
 
+**Compatible, but not for the comet LAYER (2026-11-25).** The plates are structurally sound; what goes wrong is the
+integration of them. Drizzle clips each sample once, against its cell's mean and spread from one statistics pass, and
+the residue trail a bright star leaves on the comet grid (a few frames of many) inflates that spread, so it survives;
+a debayered sigma clip iterates and takes most of it. On 10P the drizzled starless layer read -14.8 sigma of trail
+chroma along the track against -4.0 for a sigma-clipped one, and it came back as a coloured ring round the coma. A
+starless comet layer is no longer drizzled (`StackingPipeline.CometLayerExclusions`); see "The first run through the
+workbench step" at the end.
+
 ### `sxt` must be handed `[0, 1]`, and on ADU it fails SILENTLY (measured 2026-08-25)
 
 Every prior caller of `IStarRemover` was `SharpenPipeline` on a MASTER, which is unit-scaled by the
@@ -1485,3 +1493,56 @@ Scripts: `halo_probe.py` (annular profiles + 1:1 panel), `halo_deep.py` (binned 
 three layers and the difference, per channel), `halo_map.py` (40 px cell deviation maps of star layer
 and composite against the track, and the model's edge sectors), all in the session scratchpad; panels
 at `runs/swan-halo-probe.png`, `runs/swan-halo-deep.png`, `runs/swan-halo-map.png`.
+
+## The first run through the workbench step, and what it found (2026-11-25)
+
+Tracked by #2489 (the step) and #2521 (the one straight-line rate per group).
+
+The comet-stack step (#2517, #2518) was run on 10P's real night for the first time, on the laptop, and its composite
+was worse than the one the owner made in August (`10pcompositecolour1to1.png`, 2026-08-27). Three runs, each read with
+the same measure, found three separate things.
+
+| run | star removal | comet layer | star layer | what showed |
+|---|---|---|---|---|
+| 1, step defaults | none | BayerDrizzle | BayerDrizzle | a dark streak beside each bright star near the coma |
+| 2, step, `removeStars` | per frame (mosaic) | BayerDrizzle | BayerDrizzle | a green and magenta pair at each bright star: a coloured ring |
+| 3, `stack --remove-stars --no-bayer-drizzle` | per frame (mosaic) | FootprintStaged | **TilePipelined** | "the model subtraction touched NO pixels in any frame", no composite |
+
+- **Run 1 is the known trap** (the third row of "Where the model comes from"): with no per-frame removal the model is
+  the comet master less its own `sxt`, which keeps trail flux, and subtracted at every frame's position it digs the
+  streaks. The step's default does not remove stars per frame.
+- **Run 2: a drizzled starless layer keeps the remover's residue.** `sxt` on a mosaic leaves a channel-lopsided residue
+  on every bright star (red up, green down), and drizzle's one-pass clip does not take its trail out of the comet
+  layer: **-14.8 sigma** of chroma along the track against **-4.0** for the sigma-clipped layer of run 3 (2.23% of the
+  coma beyond 3 sigma against 0.31%). The model carries it, the star layer gets the complement subtracted along the
+  track (green), and the composite adds it back once (magenta). August's starless layers were stacked TilePipelined
+  and then with `--no-bayer-drizzle`, which is why they were clean.
+- **Run 3: a modelled star layer could pick a strategy that never subtracts.** The filter that keeps TilePipelined and
+  TilePipelinedDrizzle (which re-read every frame themselves, past the producers that mask or subtract) out of a star
+  layer was written for the mask, as `layerMask is not null && layerModel is null`, when the model replaced the mask on
+  2026-08-26. It never applied to a modelled layer again. August's runs picked InRamAllFrames; on a host with 1 to 2 GB
+  free the selector picked TilePipelined, and the star layer came out untouched with no composite.
+
+**Fixed in one place, `StackingPipeline.CometLayerExclusions`:** a masked or modelled star layer keeps out both
+strategies that bypass the producers (a masked one also BayerDrizzle, as before), and a comet layer stacked from
+per-frame starless plates keeps out both drizzles. A stated `--strategy` the layer cannot use is dropped for that layer
+with the reason in words. Pinned by `CometLayerStrategyTests`.
+
+**The measure, `CometResidue`** (ported from the session's `ring_probe.py`): each plane detrended by its own annular
+median round the body, star cores masked, chroma (green less the mean of red and blue) and luminance averaged over
+21 px along the drift, and the extremes of that line in sky sigma; plus the first harmonic of the model's sector
+medians at its edge, the statistic that found SWAN's half-ring. A broad percentile over the disc does not separate the
+runs (a trail is a few hundred pixels of a third of a million); along the track it does:
+
+| reading, sky sigma | run 1 | run 2 |
+|---|---|---|
+| star layer, luminance along the track, 0.01th pct | **-3.69** (the streaks) | -0.92 |
+| star layer, chroma along the track, 99.99th pct | +1.32 | **+4.88** (green) |
+| model, chroma along the track, 0.01th pct | -1.82 | **-7.94** (magenta) |
+
+Pinned on synthetic plates by `CometResidueTests` (a clean coma, a trail pair, a dark streak, a slope cut at the reach).
+
+**Still to settle:** whether the step's `removeStars` should default on, since without it the composite is the trap;
+and the colour. SPCC on run 2's composite fitted (0.414, 1.000, 1.077) where August's picture says (0.969, 1.000, 1.209),
+and the same render with August's triple is brown where August's is neutral, so the composite's colour has moved since
+August, not only the fit (the normaliser floor and the AHD changes of #1991 are the candidates; #842).
