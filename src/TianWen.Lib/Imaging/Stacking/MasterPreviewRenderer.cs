@@ -601,7 +601,8 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
             lumaStats: null,
             imageMaxValue: renderImage.MaxValue,
             whiteBalance: wbGains,
-            noiseScale: renderImage.ImageMeta.NoiseReduction);
+            noiseScale: renderImage.ImageMeta.NoiseReduction,
+            imageUnitReferred: renderImage.IsUnitReferred);
         if (bgGains is { } bg2)
         {
             uniforms = uniforms with { BackgroundNeutralization = bg2 };

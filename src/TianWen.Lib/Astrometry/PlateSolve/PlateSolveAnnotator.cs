@@ -75,7 +75,8 @@ public static class PlateSolveAnnotator
             StretchParameters.Default,
             perChannelStats,
             lumaStats: null,
-            imageMaxValue: image.MaxValue);
+            imageMaxValue: image.MaxValue,
+            imageUnitReferred: image.IsUnitReferred);
 
         using var renderer = new RgbaImageRenderer((uint)width, (uint)height);
         image.RenderStretchedRgba(uniforms, renderer.Surface.Pixels.AsSpan());

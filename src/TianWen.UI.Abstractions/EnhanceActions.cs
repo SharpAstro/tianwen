@@ -42,7 +42,7 @@ public static class EnhanceActions
     {
         var starless = result.DenoisedStarless ?? result.DeconvolvedStarless ?? result.Starless;
         var stars = result.SharpenedStars ?? result.StarsOnly;
-        if (starless is null || stars is null || final.ChannelCount < 3 || !final.HasUnitScalePeak
+        if (starless is null || stars is null || final.ChannelCount < 3 || !final.IsUnitReferred
             || starless.Width != final.Width || starless.Height != final.Height
             || stars.Width != final.Width || stars.Height != final.Height)
         {

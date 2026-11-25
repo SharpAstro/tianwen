@@ -34,6 +34,11 @@ public static class StretchSolver
     /// does not scale the stats, so the curve can't re-absorb it), while the AUTO
     /// calibration keeps scaling the stats to preserve a neutral background.
     /// </para>
+    /// <para>
+    /// <paramref name="imageUnitReferred"/> is the image's own answer (<c>Image.IsUnitReferred</c>), for an
+    /// image that says it is unit-referred whatever its peak (a deblurred one, #2504): such an image is
+    /// read at face value, as its histogram is. Without it the peak decides, as it always did.
+    /// </para>
     /// </summary>
     public static StretchUniforms ComputeStretchUniforms(
         StretchMode mode,
@@ -45,7 +50,8 @@ public static class StretchSolver
         (float R, float G, float B)? lumaWeights = null,
         (float R, float G, float B)? shaderWhiteBalance = null,
         (float R, float G, float B)? backgroundNeutralization = null,
-        double? noiseScale = null)
+        double? noiseScale = null,
+        bool imageUnitReferred = false)
     {
         // The frame's measured noise times how much an enhance took out of it (ImageMeta.NoiseReduction), so the black point
         // is sized by the data's real depth and not by what a denoiser left: every mode below reads its MAD through this.
@@ -89,7 +95,7 @@ public static class StretchSolver
             { LumaWeights = weights, WhiteBalance = shaderWb };
         }
 
-        var normFactor = Image.IsUnitScalePeak(imageMaxValue) ? 1f : 1f / imageMaxValue;
+        var normFactor = imageUnitReferred || Image.IsUnitScalePeak(imageMaxValue) ? 1f : 1f / imageMaxValue;
         var factor = parameters.Factor;
         var clipping = parameters.ShadowsClipping;
         var wb = whiteBalance ?? (1f, 1f, 1f);

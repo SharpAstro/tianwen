@@ -868,7 +868,7 @@ public sealed class AstroImageDocument : IPreviewSource
 
         // Read BEFORE the in-place scaling below, which spends it: the count a sample of 1 stands for, so the
         // pixel readout quotes the file's own counts. Null for a frame already on [0, 1], which has none.
-        float? fullScaleAdu = image.HasUnitScalePeak || image.UnitScaleDivisor <= 0f ? null : image.UnitScaleDivisor;
+        float? fullScaleAdu = image.IsUnitReferred || image.UnitScaleDivisor <= 0f ? null : image.UnitScaleDivisor;
 
         DebayerAlgorithm actualAlgorithm;
         if (image.ImageMeta.SensorType is SensorType.RGGB && algorithm is not DebayerAlgorithm.None)
@@ -876,7 +876,7 @@ public sealed class AstroImageDocument : IPreviewSource
             // Normalize to [0,1] but don't debayer: GPU shader handles debayer. Asks Image for the
             // verdict rather than re-spelling it, so this and the histogram's float path cannot
             // disagree about what counts as already-normalised.
-            viewImage = image.HasUnitScalePeak
+            viewImage = image.IsUnitReferred
                 ? image
                 : image.ScaleFloatValuesToUnitInPlace();
             actualAlgorithm = algorithm;
@@ -884,7 +884,7 @@ public sealed class AstroImageDocument : IPreviewSource
         else
         {
             // Mono/color: normalize in place (no extra allocation)
-            viewImage = image.HasUnitScalePeak
+            viewImage = image.IsUnitReferred
                 ? image
                 : image.ScaleFloatValuesToUnitInPlace();
             actualAlgorithm = DebayerAlgorithm.None;
@@ -979,7 +979,7 @@ public sealed class AstroImageDocument : IPreviewSource
 
         // The factor the adoption below multiplies every sample by, read BEFORE it spends the image: the readout
         // reads the file's samples through the same number.
-        float? unitScale = rawImage.HasUnitScalePeak || rawImage.UnitScaleDivisor <= 0f ? null : 1.0f / rawImage.UnitScaleDivisor;
+        float? unitScale = rawImage.IsUnitReferred || rawImage.UnitScaleDivisor <= 0f ? null : 1.0f / rawImage.UnitScaleDivisor;
 
         var document = await AdoptImageAsync(rawImage, algorithm, fileWcs, filePath, cancellationToken: cancellationToken);
         if (document.InteriorHolesFilled == 0 && ReadoutTileSources.TryOpen(filePath, unitScale, out var tiles)
@@ -1285,7 +1285,8 @@ public sealed class AstroImageDocument : IPreviewSource
         // longer arrived.
         // Sized by the data's real noise: an enhanced frame's measured noise times what the enhance took out of it.
         var uniforms = ComputeStretchUniforms(mode, new StretchParameters(factor, clipping), stats, luma,
-            Basis.UnstretchedImage.MaxValue, autoWb, weights, shaderWb, bgNeut, Basis.UnstretchedImage.ImageMeta.NoiseReduction);
+            Basis.UnstretchedImage.MaxValue, autoWb, weights, shaderWb, bgNeut, Basis.UnstretchedImage.ImageMeta.NoiseReduction,
+            Basis.UnstretchedImage.IsUnitReferred);
         return WithDisplayOptions(uniforms, lumaBlend, normalize, curvesMode, curveLut, curvesBoost, curvesMidpoint, hdrAmount, hdrKnee);
     }
 
@@ -1340,11 +1341,12 @@ public sealed class AstroImageDocument : IPreviewSource
         (float R, float G, float B)? lumaWeights = null,
         (float R, float G, float B)? shaderWhiteBalance = null,
         (float R, float G, float B)? backgroundNeutralization = null,
-        double? noiseScale = null)
+        double? noiseScale = null,
+        bool imageUnitReferred = false)
     {
         return StretchSolver.ComputeStretchUniforms(
             mode, parameters, perChannelStats, lumaStats, imageMaxValue,
-            whiteBalance, lumaWeights, shaderWhiteBalance, backgroundNeutralization, noiseScale);
+            whiteBalance, lumaWeights, shaderWhiteBalance, backgroundNeutralization, noiseScale, imageUnitReferred);
     }
 
     /// <summary>

@@ -509,6 +509,9 @@ public partial class Image
         return double.IsNaN(value) || double.IsInfinity(value) ? null : (int)Math.Round(value);
     }
 
+    /// <summary>The card a file says its samples are on a unit scale with, whatever its peak (<see cref="ImageMeta.UnitReferred"/>, #2504).</summary>
+    internal const string UnitReferredCard = "UNITREF";
+
     // Shared metadata parse: pulled out of TryReadFitsFile so the header-only
     // path uses the same logic. Min/max value computation stays in the pixel
     // read path because the header DATAMIN/DATAMAX fields are often missing or
@@ -725,6 +728,8 @@ public partial class Image
                 ? hdu.Header.GetDoubleValue(Planetary.ColourBalance.SaturationCard, 1) : null,
             // Ours (ImageMeta.FluxScale): absent is 1, a value that is not a positive number is not a scale.
             FluxScale = hdu.Header.GetDoubleValue("FLUXSCAL", double.NaN) is var fluxScale && fluxScale > 0 ? fluxScale : null,
+            // Ours (ImageMeta.UnitReferred, #2504): absent is not declared, and the peak decides.
+            UnitReferred = hdu.Header.GetBooleanValue(UnitReferredCard, false),
             // Ours (ImageMeta.NoiseReduction): absent is none, a value below 1 is not a reduction.
             NoiseReduction = hdu.Header.GetDoubleValue("NOISERED", double.NaN) is var noiseReduction && noiseReduction >= 1 ? noiseReduction : null,
             // Ours (ImageMeta.LimbEdge, #1349): absent, or not a number, is none read.
@@ -1187,6 +1192,10 @@ public partial class Image
         if (imageMeta.FluxScale is { } fluxScale and > 0)
         {
             AddHeaderValueIfHasValue("FLUXSCAL", fluxScale, "values per count taken (a linear fit's slope)");
+        }
+        if (imageMeta.UnitReferred)
+        {
+            header.AddValue(UnitReferredCard, true, "samples on a unit scale; highlights may exceed 1");
         }
         if (imageMeta.LimbEdge is { } limbEdge && double.IsFinite(limbEdge))
         {

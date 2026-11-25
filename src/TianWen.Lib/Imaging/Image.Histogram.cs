@@ -1052,7 +1052,7 @@ public partial class Image
         // a normalised peak was guaranteed to be exactly 1.0 (full-scale normalisation via
         // SensorFullScaleAdu can leave the observed peak below 1.0). ADU images (MaxValue > 1)
         // keep the observed-peak divisor, matching the shader's NormFactor = 1/MaxValue.
-        var unitDivisor = HasUnitScalePeak ? 1f : MaxValue;
+        var unitDivisor = IsUnitReferred ? 1f : MaxValue;
         var pedestal = MinValue / unitDivisor;
         // The same per-colour walk Histogram takes (CfaPhaseStarts / CfaStep). Note the fixed grid from
         // (0, 0) at an even stride sits on ONE CFA phase of a mosaic: without `cfa`, a mosaic's masked

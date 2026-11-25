@@ -71,6 +71,10 @@ public partial class Image
         // image that still carries an ADU-domain SensorFullScaleAdu (e.g. a third-party float FITS
         // whose SATURATE card was never rescaled with the data) must pass through unscaled rather
         // than be divided again into a near-black TIFF.
+        // The peak, not Image.IsUnitReferred, on purpose: the question here is whether the samples fit the
+        // [0, 1] a float TIFF holds as they are. A unit-referred image whose deblurred stars stand above 2.0
+        // (#2504) does not, so it is divided by its peak into the container, where ScaleFloatValuesToUnit
+        // leaves it on its own scale.
         var scale = !source.HasUnitScalePeak && source.UnitScaleDivisor > 0f ? 1f / source.UnitScaleDivisor : 1f;
 
         // Interleave channel-planar → pixel-interleaved for the TIFF strip. Each

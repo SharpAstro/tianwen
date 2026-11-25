@@ -165,7 +165,8 @@ namespace TianWen.Lib.Imaging
                 stats,
                 lumaStats: null,
                 small.MaxValue,
-                noiseScale: meta.NoiseReduction);
+                noiseScale: meta.NoiseReduction,
+                imageUnitReferred: small.IsUnitReferred);
         }
 
         /// <summary>Sniffs the container and decodes one frame; internal so the tests can pin the dispatch.</summary>

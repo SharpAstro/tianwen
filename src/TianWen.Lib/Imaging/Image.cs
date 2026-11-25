@@ -401,7 +401,7 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
             return false;
         }
 
-        var scaled = read.HasUnitScalePeak ? read : read.ScaleFloatValuesToUnitInPlace();
+        var scaled = read.IsUnitReferred ? read : read.ScaleFloatValuesToUnitInPlace();
         var fresh = scaled.ResidentPlanes();
 
         var snapshot = _planes;
@@ -1228,7 +1228,7 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
     /// image is already denormalized or not in Float32 bit depth, the original image is returned unchanged.</returns>
     public Image ScaleFloatValues(float newMaxValue, float missingValue = float.NaN)
     {
-        if (BitDepth != BitDepth.Float32 || (newMaxValue != MaxValue && !HasUnitScalePeak))
+        if (BitDepth != BitDepth.Float32 || (newMaxValue != MaxValue && !IsUnitReferred))
         {
             return ScaleFloatValuesToUnit().ScaleFloatValues(newMaxValue);
         }
@@ -1262,8 +1262,10 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
     {
         // NO-OP for already normalized images
         // Already unit-referred: return the image untouched rather than paying a full pass to divide
-        // by something indistinguishable from 1. On a 25 MP master that pass is not free.
-        if (HasUnitScalePeak)
+        // by something indistinguishable from 1. On a 25 MP master that pass is not free. A declared
+        // unit image whose highlights stand above 1 (a deblur's, #2504) is on its scale already too:
+        // dividing it by its own peak would put every step after it on another.
+        if (IsUnitReferred)
         {
             return this;
         }
@@ -1360,15 +1362,33 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
     private const float UnitScaleTolerance = 1.0f;
 
     /// <summary>
-    /// Is the peak at or near 1.0 -- i.e. are the samples unit-referred rather than ADU?
+    /// Are the samples on a unit scale (1.0 is full scale) rather than ADU? The image's metadata says so
+    /// (<see cref="ImageMeta.UnitReferred"/>, the file's <c>UNITREF</c> card), or else its peak does
+    /// (<see cref="HasUnitScalePeak"/>).
     /// </summary>
     /// <remarks>
-    /// The ONE answer to that question. It used to be asked in two places in two spellings --
+    /// <para>The ONE answer to that question. It used to be asked in two places in two spellings --
     /// <c>Image.Histogram</c>'s <c>MaxValue &lt;= 1.0f</c> and
     /// <c>AstroImageDocument.AdoptImageAsync</c>'s <c>MaxValue &gt; 1.0f + float.Epsilon</c> -- which
     /// agreed only because they were exact complements of an exact test. Give a tolerance to one and
     /// not the other and a band opens up where an image is left un-normalised AND refused the histogram
-    /// rescale, which fails the way described on <see cref="IsUnitScaledFloat"/>.
+    /// rescale, which fails the way described on <see cref="IsUnitScaledFloat"/>.</para>
+    /// <para>It was then asked of the peak alone, as <see cref="HasUnitScalePeak"/>, and a peak cannot
+    /// tell a deblurred star from ADU: 10P/Tempel 2's master came back from BlurXTerminator peaking at
+    /// 2.995, was read as ADU, and showed no stars (#2504). So the peak is now the fallback for an
+    /// image that does not say, and this is the question every consumer asks.</para>
+    /// </remarks>
+    internal bool IsUnitReferred => imageMeta.UnitReferred || HasUnitScalePeak;
+
+    /// <summary>
+    /// Is the peak at or near 1.0? The guess at <see cref="IsUnitReferred"/> for an image whose
+    /// metadata does not say, and nothing more: a unit-referred image whose highlights stand above
+    /// 2.0 does not have a unit-scale peak, and this says so.
+    /// </summary>
+    /// <remarks>
+    /// Ask <see cref="IsUnitReferred"/> whether samples are unit-referred or ADU. Ask this only where
+    /// the question really is the peak: whether the samples fit a <c>[0, 1]</c> container as they are
+    /// (the float TIFF export).
     /// </remarks>
     internal bool HasUnitScalePeak => IsUnitScalePeak(MaxValue);
 
@@ -1391,7 +1411,28 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
     /// <see cref="Background"/> reports a background of 0, so <c>FindStarsAsync</c> takes its "abnormal
     /// file" path and returns NO stars. No error, no warning, an empty list.
     /// </remarks>
-    internal bool IsUnitScaledFloat => HasUnitScalePeak && (BitDepth is BitDepth.Float32 || samplesAreUnitReferred);
+    internal bool IsUnitScaledFloat => IsUnitReferred && (BitDepth is BitDepth.Float32 || samplesAreUnitReferred);
+
+    /// <summary>
+    /// This image with <see cref="ImageMeta.UnitReferred"/> set when it is unit-referred by its peak and does not yet say
+    /// so, so whatever is made from it on its scale, and written, says so too (#2504); otherwise this image itself.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Frame ownership: a CONSUMED input</b> when a new image comes back: the result takes this image's planes
+    /// and their buffers as they are, so release only the result and do not use this image again.</para>
+    /// <para>Why at the read and not at the write: a step that lifts its input's highlights above 2.0 (a deblur) cannot
+    /// tell from its result's peak which scale it is on. Its input still could, and every step carries its input's
+    /// metadata onto its result (<c>OperationInput.TryRead</c> calls this).</para>
+    /// </remarks>
+    internal Image DeclaringUnitReference()
+    {
+        if (imageMeta.UnitReferred || !HasUnitScalePeak || BitDepth != BitDepth.Float32)
+        {
+            return this;
+        }
+
+        return new Image(Planes, BitDepth, Pedestal, imageMeta with { UnitReferred = true }, SamplesAreUnitReferred, sourceRaster);
+    }
 
     /// <summary>
     /// The channel to detect stars in: green on a 3-channel image, channel 0 otherwise.
@@ -1463,7 +1504,7 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
 
         // Already unit-referred: return the image untouched rather than paying a full pass to divide
         // by something indistinguishable from 1. On a 25 MP master that pass is not free.
-        if (HasUnitScalePeak)
+        if (IsUnitReferred)
         {
             return this;
         }
