@@ -168,6 +168,21 @@ Three decisions worth not re-litigating:
 `SITEELEV` now round-trips through `ImageMeta.SiteElevation`; the Horizons query already took an
 elevation, so reading it beat passing a zero that looks like a measurement.
 
+### The track as a file (#2489, 2026-11-25)
+
+`tianwen comet track <frames> -o <file>` asks Horizons ONCE for the night (every light's exposure under the folder,
+the frames' own site, the same request rule as above, `CometTrackFetch`) and writes the answer as a file
+(`CometTrack`: the designation, the site and the samples, nothing about when it was fetched). `stack --comet-track
+<file>` then registers on it with no network: the reference frame is still plate-solved to project it, so the star
+layer and the composite are made as with `--comet`, which `--comet-rate` (a bare rate, no position) cannot give
+offline. A track from another site, or not covering every frame, skips the group with the reason
+(`CometTrack.RefusalFor`). It is how the workbench's `comet-stack` step takes its comet, by the owner's call: a step's
+key is fixed before it runs, and Horizons' answer is not.
+
+The same leg split the reference frame's solve from the master's (`StackingOptions.SolveMaster`). The catalogue's
+presence was the one switch for both, so `--no-plate-solve --comet` could solve no reference, derived no rate and
+skipped every group; a comet run now gets the catalogue under `--no-plate-solve` and only the masters stay unsolved.
+
 **Reading the body off `OBJECT` needed a parser fix, and it also fixed the search box** -- a separate
 function that would otherwise have made the leniency look done while still failing.
 `CatalogUtils.TryGuessCatalogFormat` decides a digit-leading string is a comet via `IsNumberedShape`,

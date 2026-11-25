@@ -334,5 +334,21 @@ public sealed record StackingOptions(
     /// follows from its frames and its settings and one step key never holds two masters (#2467).
     /// </summary>
     public bool NominalProbe { get; init; }
+
+    /// <summary>
+    /// The comet's track as a file (<see cref="Astrometry.Comets.CometTrack"/>, <c>--comet-track</c>): the run registers on
+    /// the body by it and asks no network. The reference frame is still plate-solved, to project the track onto its pixels.
+    /// It names its own comet, so it is not given with <see cref="CometDesignation"/>; <see cref="CometRatePxPerHour"/>
+    /// still wins over it, as over a designation. Null asks Horizons where a designation is given, as before.
+    /// </summary>
+    public Astrometry.Comets.CometTrack? CometTrack { get; init; }
+
+    /// <summary>
+    /// Plate-solve each finished master, where the host handed the pipeline a catalogue. ON by default. Off leaves a
+    /// master unsolved and still lets a comet run solve its REFERENCE frame, which it needs to place the comet's track:
+    /// the verb's <c>--no-plate-solve</c>, and a workbench step, whose solve is a step of its own. Before this the two
+    /// solves were one switch, the catalogue's presence, so <c>--no-plate-solve --comet</c> could derive no rate.
+    /// </summary>
+    public bool SolveMaster { get; init; } = true;
 }
 

@@ -137,6 +137,7 @@ var rootCommand = new RootCommand
             // GetService, not GetRequiredService: --remove-stars is the only thing that needs it, and
             // a host with no AI backend must still be able to run an ordinary stack.
             services.GetService<TianWen.Lib.Imaging.Enhancement.IStarRemover>()).Build(),
+        new CometSubCommand(consoleHost, services.GetRequiredService<ILogger<CometSubCommand>>()).Build(),
         new Command("planetary", "Planetary lucky-imaging tools: stack, sharpen, compose, de-rotate, measure and restore SER captures of Jupiter, Saturn and the Moon (#1276).")
         {
             Subcommands =

@@ -1180,9 +1180,12 @@ public sealed class StackingPipeline(
         // construction (a rate is a difference, and the flag states only the difference), so that
         // path can register on the comet but cannot mask it out of the companion layer.
         CometRate? cometFit = null;
-        if (cometRate is null && options.CometDesignation is not null)
+        // Why a track given as a file cannot serve these frames (another site, another night), said in the skip.
+        string? cometTrackRefusal = null;
+        // A track given as a file (CometTrack) is the comet named as surely as a designation is.
+        if (cometRate is null && (options.CometTrack is not null || options.CometDesignation is not null))
         {
-            cometFit = await TryResolveCometRateAsync(lightList, referenceRaw, searchHint, ct);
+            (cometFit, cometTrackRefusal) = await TryResolveCometRateAsync(lightList, referenceRaw, searchHint, ct);
             cometRate = cometFit?.PxPerHour;
             if (cometRate is null)
             {
@@ -1197,11 +1200,12 @@ public sealed class StackingPipeline(
                 // Found on C/2025 R2 (SWAN), where the designation was being sent to Horizons in its
                 // compact form and rejected. The run went on to spend its whole integration
                 // producing a duplicate of a master that already existed.
-                var wanted = string.IsNullOrWhiteSpace(options.CometDesignation)
+                var wanted = options.CometTrack?.Designation ?? (string.IsNullOrWhiteSpace(options.CometDesignation)
                     ? referenceRaw.ImageMeta.ObjectName
-                    : options.CometDesignation;
-                var reason = $"comet registration was requested for \"{wanted}\" but no rate could be derived; "
-                    + "pass --comet-rate dx,dy to supply one, or drop --comet to stack star-aligned on purpose";
+                    : options.CometDesignation);
+                var reason = $"comet registration was requested for \"{wanted}\" but no rate could be derived"
+                    + (cometTrackRefusal is { } refused ? $" ({refused})" : "")
+                    + "; pass --comet-rate dx,dy to supply one, or drop --comet to stack star-aligned on purpose";
                 logger.LogWarning("  [skip] {Reason}", reason);
                 return new GroupResult(slug, lightList.Count, 0, Result: null, MasterFitsPath: null,
                     PreviewPngPath: null, Elapsed: groupSw.Elapsed, SkipReason: reason,
@@ -2160,7 +2164,9 @@ public sealed class StackingPipeline(
                 : "";
             var masterPath = Path.Combine(outputDir, $"master_{slug}{layerSuffix}{strategySuffix}.fits");
             var refImageDim = referenceRaw.GetImageDim();
-            var postProcessor = new MasterPostProcessor(logger, catalogDb, options.Enhance ? sharpenPipeline : null, enhanceProgress);
+            // The catalogue solves the master only where the run asks for that: a comet run may hold one for its
+            // reference frame alone (StackingOptions.SolveMaster).
+            var postProcessor = new MasterPostProcessor(logger, options.SolveMaster ? catalogDb : null, options.Enhance ? sharpenPipeline : null, enhanceProgress);
             var postStart = StageTimings.Start();
             var postResult = await postProcessor.WriteMasterAsync(
                 intResult, masterPath, searchHint, refImageDim, referenceRaw.ImageMeta, statsRect, selection.Chosen.Kind,
@@ -2244,7 +2250,7 @@ public sealed class StackingPipeline(
             }
             var composite = IntegratedMaster.Composite(starMaster, planes);
             var path = Path.Combine(outputDir, $"master_{slug}_composite.fits");
-            var postProcessor = new MasterPostProcessor(logger, catalogDb, options.Enhance ? sharpenPipeline : null, enhanceProgress);
+            var postProcessor = new MasterPostProcessor(logger, options.SolveMaster ? catalogDb : null, options.Enhance ? sharpenPipeline : null, enhanceProgress);
             await postProcessor.WriteMasterAsync(
                 starLayer with { Master = composite }, path, searchHint, referenceRaw.GetImageDim(), referenceRaw.ImageMeta,
                 layerStatsRect, layerStrategy,
@@ -2269,6 +2275,7 @@ public sealed class StackingPipeline(
         }
 
         string? compositePath = null;
+        string? starLayerPath = null;
 
         // The primary layer: comet-aligned when a rate is in play, an ordinary star stack otherwise.
         // Never masked -- on a comet-aligned canvas the body is the one thing that must survive.
@@ -2276,10 +2283,10 @@ public sealed class StackingPipeline(
             ? new AlignmentProvenance(
                 "Comet",
                 // A bare --comet reads the body from the frames' own OBJECT card, so fall back to it
-                // rather than leaving TRACKOBJ absent on exactly the runs that used it.
-                string.IsNullOrWhiteSpace(options.CometDesignation)
+                // rather than leaving TRACKOBJ absent on exactly the runs that used it. A track file names its own.
+                options.CometTrack?.Designation ?? (string.IsNullOrWhiteSpace(options.CometDesignation)
                     ? (string.IsNullOrWhiteSpace(referenceRaw.ImageMeta.ObjectName) ? null : referenceRaw.ImageMeta.ObjectName)
-                    : options.CometDesignation,
+                    : options.CometDesignation),
                 appliedDrift,
                 options.CometRatePxPerHour is not null ? "Manual" : "Horizons")
             : AlignmentProvenance.Sidereal;
@@ -2425,6 +2432,8 @@ public sealed class StackingPipeline(
                 var starLayer = await IntegrateLayerAsync(
                     starTransforms, model is null ? mask : null, model,
                     useStarless: false, layerSuffix: "_stars", AlignmentProvenance.Sidereal, ct);
+                // Wherever the layer was written it is a result of the run, even one that warns below.
+                starLayerPath = starLayer?.MasterPath;
                 if (starLayer is not { } star)
                 {
                     logger.LogWarning("  [comet] star layer skipped: {Reason}",
@@ -2551,6 +2560,7 @@ public sealed class StackingPipeline(
         {
             // What an unstated strategy resolved to, and by which rule, so a line can say it (the verb's and a step's).
             Strategy = primary.Strategy,
+            StarLayerFitsPath = starLayerPath,
             StrategyFrom = primary.Strategy == options.ForcedStrategy ? "stated"
                 : options.NominalProbe ? "chosen for the nominal computer" : "chosen for this computer",
         };
@@ -2649,7 +2659,9 @@ public sealed class StackingPipeline(
         return byEpoch;
     }
 
-    private async Task<CometRate?> TryResolveCometRateAsync(
+    /// <returns>The fit, or null; and where a track given as a file (<see cref="StackingOptions.CometTrack"/>) cannot
+    /// serve these frames, why, in words for the group's skip.</returns>
+    private async Task<(CometRate? Fit, string? TrackRefusal)> TryResolveCometRateAsync(
         IReadOnlyList<FrameInfo> lightList,
         Image referenceRaw,
         WCS? searchHint,
@@ -2658,7 +2670,7 @@ public sealed class StackingPipeline(
         if (catalogDb is not { } db)
         {
             logger.LogWarning("  [comet] no catalog DB, so the reference frame cannot be plate-solved");
-            return null;
+            return (null, null);
         }
 
         // The window spans every frame in the group, not just the reference: the compose measures
@@ -2674,14 +2686,29 @@ public sealed class StackingPipeline(
         }
 
         var meta = referenceRaw.ImageMeta;
-        if (CometTrackRequest.TryBuild(
-                options.CometDesignation, meta.ObjectName,
-                meta.Latitude, meta.Longitude, meta.SiteElevation, first, last) is not { } request)
+        // A track given as a file is checked against these frames before anything is solved: asked from their
+        // site, and covering their night. It is the comet's own, so no designation is read off the frames.
+        CometTrackRequest? request = null;
+        if (options.CometTrack is { } given)
         {
-            logger.LogWarning(
-                "  [comet] no ephemeris request from OBJECT=\"{Object}\" at SITELAT={Lat} SITELONG={Lon}: need a comet designation and a known site",
-                meta.ObjectName, meta.Latitude, meta.Longitude);
-            return null;
+            if (given.RefusalFor(meta.Latitude, meta.Longitude, first, last) is { } refusal)
+            {
+                logger.LogWarning("  [comet] {Refusal}", refusal);
+                return (null, refusal);
+            }
+        }
+        else
+        {
+            request = CometTrackRequest.TryBuild(
+                options.CometDesignation, meta.ObjectName,
+                meta.Latitude, meta.Longitude, meta.SiteElevation, first, last);
+            if (request is null)
+            {
+                logger.LogWarning(
+                    "  [comet] no ephemeris request from OBJECT=\"{Object}\" at SITELAT={Lat} SITELONG={Lon}: need a comet designation and a known site",
+                    meta.ObjectName, meta.Latitude, meta.Longitude);
+                return (null, null);
+            }
         }
 
         // Tycho-2 is what the solver matches against; the CLI kicks this off at startup so it has
@@ -2693,34 +2720,49 @@ public sealed class StackingPipeline(
         if (solved.Solution is not { } referenceWcs)
         {
             logger.LogWarning("  [comet] the reference frame did not plate-solve, so the ephemeris cannot be projected");
-            return null;
+            return (null, null);
         }
         logger.LogInformation("  [comet] reference solved in {ElapsedMs} ms",
             (long)Stopwatch.GetElapsedTime(solveStart).TotalMilliseconds);
 
-        var track = await new HorizonsObserverSource(logger).TryFetchTrackAsync(
-            request.Designation, request.SiteLatDeg, request.SiteLonDeg, request.SiteElevMetres,
-            request.Start, request.Stop, request.Step, ct);
-        if (track.Length < 2)
+        // The track: the file's, or Horizons' answer to the request built above. Either way the same samples go to the
+        // same fit, so a track written by `tianwen comet track` places the comet as a live fetch of the same window does.
+        ImmutableArray<EphemerisSample> track;
+        string designation;
+        double siteLat, siteLon, siteElev;
+        if (options.CometTrack is { } file)
         {
-            logger.LogWarning("  [comet] Horizons returned {Count} usable positions for {Designation}",
-                track.Length, request.Designation);
-            return null;
+            (track, designation, siteLat, siteLon, siteElev) = (file.Samples, file.Designation, file.SiteLatDeg, file.SiteLonDeg, file.SiteElevMetres);
+            logger.LogInformation("  [comet] the track of {Designation} from its file: {Count} samples, no network asked", designation, track.Length);
+        }
+        else
+        {
+            var asked = request ?? throw new InvalidOperationException("a comet run with no track file builds its Horizons request before solving");
+            track = await new HorizonsObserverSource(logger).TryFetchTrackAsync(
+                asked.Designation, asked.SiteLatDeg, asked.SiteLonDeg, asked.SiteElevMetres,
+                asked.Start, asked.Stop, asked.Step, ct);
+            (designation, siteLat, siteLon, siteElev) = (asked.Designation, asked.SiteLatDeg, asked.SiteLonDeg, asked.SiteElevMetres);
+            if (track.Length < 2)
+            {
+                logger.LogWarning("  [comet] Horizons returned {Count} usable positions for {Designation}",
+                    track.Length, asked.Designation);
+                return (null, null);
+            }
         }
 
         if (CometRateSolver.SolveCanvasRatePxPerHour(referenceWcs, track.AsSpan()) is not { } rate)
         {
             logger.LogWarning("  [comet] the track could not be fitted to a rate");
-            return null;
+            return (null, null);
         }
 
         logger.LogInformation(
             "  [comet] {Designation} from ({Lat:F4}, {Lon:F4}, {Elev:F0} m): {Count} samples over {Hours:F2} h -> "
                 + "rate ({Vx:F3}, {Vy:F3}) px/hr, |v|={Mag:F2} px/hr, straightness residual {Residual:F3} px",
-            request.Designation, request.SiteLatDeg, request.SiteLonDeg, request.SiteElevMetres,
-            rate.SampleCount, (request.Stop - request.Start).TotalHours,
+            designation, siteLat, siteLon, siteElev,
+            rate.SampleCount, (track[^1].TimeUtc - track[0].TimeUtc).TotalHours,
             rate.PxPerHour.X, rate.PxPerHour.Y, rate.PxPerHour.Length(), rate.MaxResidualPx);
-        return rate;
+        return (rate, null);
     }
 
     /// <summary>

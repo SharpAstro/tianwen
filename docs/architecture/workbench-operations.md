@@ -164,6 +164,7 @@ its own image, and every setting at its default. An edit names an operation by i
 | `planetary-compose` | stored; the luminance as an extra result, where there is one | `planetary compose` | the other mono stacks, any number, as a set |
 | `planetary-sharpen` | stored | `planetary sharpen --auto` | none. Its own image is a planetary master |
 | `stack` | stored; each group's master a result named by the run | `stack` | none. Its own image is a folder of frames |
+| `comet-stack` | stored; each group's comet master, star layer and composite results named by the run | `stack --comet-track` | optionally `track`: the comet's track, a file (left out, `rateX` and `rateY` place the comet). Its own image is a folder of frames |
 
 - **An optional image comes last** (`OperationInputRole.Optional`): an edit that names fewer images leaves the last ones
   out. `luminance` takes two, or five with its three measure copies; any other number is refused.
@@ -432,6 +433,45 @@ store.
 
 `WorkbenchStackTests` holds the step's master and its maps to the verb's, to the byte.
 
+## A comet's night stacked on the comet
+
+`comet-stack` (`CometStackOperation`, #2489) is `tianwen stack --comet-track` as a step: the frames registered on the
+comet, so it integrates sharp and the stars trail, and in the same run the same frames registered on the stars with the
+comet taken out (the star layer) and the two put together (the composite). Its image is a folder of frames, as
+`stack`'s is; each group gives the comet master under the group's name, the star layer under the name with `_stars`
+and the composite with `_composite`, each with its sidecars (the verb's `master_<group>.fits`,
+`master_<group>_stars.fits`, `master_<group>_composite.fits`).
+
+- **The comet's track is a file, never a question asked while the step runs** (the owner's call of 2026-11-25). A step's
+  key is fixed before it runs and its result is reused under it; JPL Horizons' answer is not fixed (an orbit is
+  revised, a run with no network gets none). So the track is an original of the project, read by its bytes like any
+  other, and the step takes it as its `track` input: one key always means one ephemeris. `tianwen comet track <frames>
+  -o <file>` asks Horizons once, from the frames' own site over the whole night (`CometTrackFetch`), and writes it
+  (`CometTrack`). Nothing in the file says when it was fetched, so asking again for an answer that has not changed
+  keeps every key.
+- **A track is refused for frames it was not asked for** (`CometTrack.RefusalFor`): from another site (diurnal parallax
+  moved 10P by 2.7 px across a night) or not covering every frame. The group is skipped with the reason, as any
+  group the stack cannot make.
+- **The reference frame is plate-solved, and nothing else is.** The track is projected onto the reference frame's
+  pixels through its plate solution, so the step needs the star catalogue (it is not served without one); no master
+  is solved (`StackingOptions.SolveMaster` off), as no step's master is. The verb had one switch for both, the
+  catalogue's presence, so `--no-plate-solve --comet` derived no rate and skipped every group; it now hands the
+  catalogue to a comet run and leaves only the masters unsolved.
+- **Or a rate** (`rateX`, `rateY`, the verb's `--comet-rate`), with no track. A rate carries no position, so a step
+  with one makes no star layer and no composite, and refuses the star layer's settings as changing nothing.
+- **Its settings are `stack`'s and the comet run's** (`CometStackSettings` derives from `StackSettings`):
+  `starLayer`, `composite`, `maskArcsec`, `rateX`, `rateY`. The verb builds its options from the same settings
+  (`CometStackOperation.OptionsOf`), and the step's line is `stack`'s line with the comet's options after it
+  (`StackOperation.LineOf`).
+- **What serves it is in its key**: where a star remover serves, the star layer SUBTRACTS the body it took out of the
+  comet master and the composite adds it back; where none does, the star layer EXCLUDES a disc around the body and
+  there is no composite. Different pixels, so the key says which, and the remover's model.
+
+`WorkbenchCometStackTests` builds a comet's night (the fake camera's field, which plate-solves, with a comet moving
+across it, and its track made through the first frame's solution), and holds the step's comet master and star layer
+to the verb's, to the byte; the master's header says it was registered on the comet at the track's rate.
+`CometTrackTests` holds the file, its refusals, the request and the fetch.
+
 ## An image that starts from another
 
 A project's image is a file, or it starts from another image of the project (`from`): that image as its own edits
@@ -599,7 +639,7 @@ version ("rc-astro 2.6.11").
 
 ## Not here yet
 
-Each is a later phase (W2 to W9), or the comet run (#2489), which is outside W1, and none is assumed by the code above.
+Each is a later phase (W2 to W9), or the rest of the comet run (#2489), and none is assumed by the code above.
 
 - **Operations.** None of W1's is left to wrap: every colour step of #2465 is here, so is the canonical enhance
   (#2466), so are the planetary steps (#2468: by the owner's call of 2026-11-23 the stack, the compose and the
@@ -609,8 +649,11 @@ Each is a later phase (W2 to W9), or the comet run (#2489), which is outside W1,
   against OPAL's maps and not what balances a master; the balance is inside the stack and the compose. A look
   (`planetary look`) is a rendering of the linear master and never a new master, so it goes with how a result is
   shown and exported.
-- **A comet run as a step** (#2489): `--comet`, `--remove-stars` and `--manifest` are not W1: they are their own
-  issue, by the owner's call of 2026-11-23, and none of them is a setting of `stack`.
+- **The rest of a comet run as a step** (#2489, its second leg). The comet's registration, the star layer and the
+  composite are `comet-stack` (above). Not yet: the stars removed from every frame (`--remove-stars`, with the
+  remover's model in the key), a run driven by an earlier run's manifest (`--manifest`: an image that starts from a
+  stack's result and takes its manifest, which the store keeps beside each master), and a white balance taken from
+  another master (`--inherit-wb`: a second input).
 - **What a stack keeps between its runs.** A `stack` step that runs again builds its calibration masters again, and
   judges cloud without the clear nights a rig keeps. The masters and what each light takes, and the subs' table
   with its gates, are W4's (#1644); a stack re-integrated from its manifest is W5's (#1645).

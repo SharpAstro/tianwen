@@ -363,7 +363,9 @@ Full rules: `docs/architecture/workbench-operations.md`; the design: `docs/plans
   of its own, so nothing takes the step itself.
 - **A step never asks what this computer remembers** (a camera's last telescope, the viewer's clear nights): its
   result follows from its inputs and its settings. The verb has an option that leaves the memory out
-  (`--no-telescope-memory`, `--no-clear-night-references`), and the step's command line says it.
+  (`--no-telescope-memory`, `--no-clear-night-references`), and the step's command line says it. **Nor does it ask
+  the network**: a comet's ephemeris is a track file (`CometTrack`, written by `tianwen comet track`), an original read
+  by its bytes, never Horizons asked mid-step (`comet-stack`, #2489).
 - A stored step reads files and writes one; only a derived step (crop) hands its result on, in memory, to the step
   after it. A step that writes no pixels (`IFindingOperation`, the plate solve) keeps its finding in the store under
   `StepKey.OfFinding` and hands on its input with the finding applied; a plate solution kept as a file is
