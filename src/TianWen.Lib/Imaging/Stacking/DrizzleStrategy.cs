@@ -108,8 +108,8 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
     /// <summary>Phase-1 drizzle at scale=10 is roughly forward-bilinear --
     /// fidelity is comparable to <see cref="InRamAllFramesStrategy"/> (1.00)
     /// on Bayer inputs that would otherwise be debayered. We score it lower
-    /// (0.92) so a future selector that scores it head-to-head doesn't
-    /// jump to drizzle without explicit user opt-in.</summary>
+    /// (0.92) so it ranks just below <see cref="InRamAllFramesStrategy"/> (1.00)
+    /// when both can run; the selector picks it only where <c>CanRun</c> is true.</summary>
     public double FidelityScore => 0.92;
 
     public bool SupportsLiveStacking => false;

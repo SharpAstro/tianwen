@@ -1611,7 +1611,7 @@ public sealed class StackingPipeline(
                 matched.Count, starlessDir, reusedPlates, (long)Stopwatch.GetElapsedTime(starlessStart).TotalMilliseconds);
         }
 
-        // BayerDrizzle is opt-in only (--strategy BayerDrizzle). Gate up
+        // A FORCED BayerDrizzle (--strategy BayerDrizzle; the selector may also pick it at scale). Gate up
         // front so we fail fast with a clear reason rather than producing
         // a NaN-riddled master at low frame count or on a Mono / Color
         // sensor where the per-pixel Bayer dispatch is meaningless. Both
