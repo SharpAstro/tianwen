@@ -164,7 +164,7 @@ its own image, and every setting at its default. An edit names an operation by i
 | `planetary-compose` | stored; the luminance as an extra result, where there is one | `planetary compose` | the other mono stacks, any number, as a set |
 | `planetary-sharpen` | stored | `planetary sharpen --auto` | none. Its own image is a planetary master |
 | `stack` | stored; each group's master a result named by the run | `stack` | none. Its own image is a folder of frames |
-| `comet-stack` | stored; each group's comet master, star layer and composite results named by the run | `stack --comet-track` | optionally `track`: the comet's track, a file (left out, `rateX` and `rateY` place the comet). Its own image is a folder of frames |
+| `comet-stack` | stored; each group's comet master, star layer and composite results named by the run | `stack --comet-track` | optionally `track`: the comet's track, a file (left out, `rateX` and `rateY` place the comet); then optionally `follows`: an earlier stack's master, its manifest driving the run. Its own image is a folder of frames |
 
 - **An optional image comes last** (`OperationInputRole.Optional`): an edit that names fewer images leaves the last ones
   out. `luminance` takes two, or five with its three measure copies; any other number is refused.
@@ -464,20 +464,37 @@ and the composite with `_composite`, each with its sidecars (the verb's `master_
 - **Or a rate** (`rateX`, `rateY`, the verb's `--comet-rate`), with no track. A rate carries no position, so a step
   with one makes no star layer and no composite, and refuses the star layer's settings as changing nothing.
 - **Its settings are `stack`'s and the comet run's** (`CometStackSettings` derives from `StackSettings`):
-  `starLayer`, `composite`, `maskArcsec`, `rateX`, `rateY`. The verb builds its options from the same settings
-  (`CometStackOperation.OptionsOf`), and the step's line is `stack`'s line with the comet's options after it
-  (`StackOperation.LineOf`).
+  `starLayer`, `composite`, `maskArcsec`, `rateX`, `rateY`, `removeStars`, `starRemovalMode`, `inheritWhiteBalance`.
+  The verb builds its options from the same settings (`CometStackOperation.OptionsOf`), and the step's line is
+  `stack`'s line with the comet's options after it (`StackOperation.LineOf`).
+- **The comet layer, each frame's stars removed** (`removeStars`, the verb's `--remove-stars`): the stars are taken
+  out of every frame after registration and before integration, so the comet master has no star trails. It needs a
+  star remover that serves (the step is not served without one), and `starRemovalMode` says how a Bayer frame is
+  handed to it, which changes nothing without `removeStars` and is refused there.
+- **A run that follows another** (the owner's call of 2026-11-25): the step's second extra image, after the track, is
+  an earlier stack's master. Its manifest, which the store keeps beside each master under the result's name, drives
+  the run (`--manifest`: the frames, the reference and each frame's star transform), so a starless comet layer shares
+  the comet stack's canvas; with `inheritWhiteBalance` its white balance is taken too (`--inherit-wb`), which a
+  starless plate cannot solve for itself. One image for both, since in practice they are the same master. The
+  inputs are by place, so a run that follows names its track first and a bare rate cannot follow; a master named
+  where the track goes, one with no manifest beside it, and a balance asked of no master or of one that states none
+  are each refused in words before a frame is read. A master given as an original (a file the verb wrote) is keyed
+  by its bytes, and its manifest is taken as it stands beside it.
 - **What serves it is in its key**: where a star remover serves, the star layer SUBTRACTS the body it took out of the
   comet master and the composite adds it back; where none does, the star layer EXCLUDES a disc around the body and
   there is no composite. Different pixels, so the key says which, and the remover's model. It is asked for a mono
-  master and a colour one, as the pipeline asks it of each master, since the frames are not read to plan a step.
+  master and a colour one, as the pipeline asks it of each master, since the frames are not read to plan a step. With
+  `removeStars` the key names the remover that takes each frame's stars too.
 
 `WorkbenchCometStackTests` builds a comet's night (the fake camera's field, which plate-solves, with a comet moving
 across it, and its track made through the first frame's solution), and holds the step's comet master and star layer
 to the verb's, to the byte; the master's header says it was registered on the comet at the track's rate (Heavy, by
-its 57 to 69 s on CI). On a small night and from a status, it holds that the key moves with the track's bytes and with
-what serves the star layer, and that a track from another site reaches the person as the step's refusal.
-`CometTrackTests` holds the file, its refusals, the bracketing samples, the request, the fetch and the verb.
+its 57 to 69 s on CI). On the same night the comet layer that follows the verb's comet master, each frame's stars
+removed by a stand-in remover, is the verb's file to the byte too. On a small night and from a status, it holds that
+the key moves with the track's bytes and with what serves the star layer, and that a track from another site reaches
+the person as the step's refusal; a following run's line resolves through the verb to the step's options, the
+inherited balance included, and each of its refusals is held. `CometTrackTests` holds the file, its refusals, the
+bracketing samples, the request, the fetch and the verb.
 
 ## An image that starts from another
 
@@ -646,7 +663,7 @@ version ("rc-astro 2.6.11").
 
 ## Not here yet
 
-Each is a later phase (W2 to W9), or the rest of the comet run (#2489), and none is assumed by the code above.
+Each is a later phase (W2 to W9), and none is assumed by the code above.
 
 - **Operations.** None of W1's is left to wrap: every colour step of #2465 is here, so is the canonical enhance
   (#2466), so are the planetary steps (#2468: by the owner's call of 2026-11-23 the stack, the compose and the
@@ -656,11 +673,6 @@ Each is a later phase (W2 to W9), or the rest of the comet run (#2489), and none
   against OPAL's maps and not what balances a master; the balance is inside the stack and the compose. A look
   (`planetary look`) is a rendering of the linear master and never a new master, so it goes with how a result is
   shown and exported.
-- **The rest of a comet run as a step** (#2489, its second leg). The comet's registration, the star layer and the
-  composite are `comet-stack` (above). Not yet: the stars removed from every frame (`--remove-stars`, with the
-  remover's model in the key), a run driven by an earlier run's manifest (`--manifest`: an image that starts from a
-  stack's result and takes its manifest, which the store keeps beside each master), and a white balance taken from
-  another master (`--inherit-wb`: a second input).
 - **What a stack keeps between its runs.** A `stack` step that runs again builds its calibration masters again, and
   judges cloud without the clear nights a rig keeps. The masters and what each light takes, and the subs' table
   with its gates, are W4's (#1644); a stack re-integrated from its manifest is W5's (#1645).

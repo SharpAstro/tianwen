@@ -588,14 +588,16 @@ them:
    step reads, so as an edit it would only re-key every step after it. It is one of [the facts a gate may
    test](#the-facts-a-gate-may-test), which W9 owns.
 
-**The comet run after W1** (#2489). Its first leg is built (2026-11-25): `comet-stack`, the frames registered on the
-comet with the star layer and the composite beside each group's master, at parity with `tianwen stack --comet-track`.
-**Decided by the owner on 2026-11-25: the comet's track is a file**, never a question a step asks Horizons while it
-runs, since a step's key is fixed before it runs and Horizons' answer is not. `tianwen comet track` asks once and
-writes it; the project holds it as an original, read by its bytes, so the key holds the ephemeris and an offline run
-keeps its star layer. Left for the second leg: the stars removed from every frame (`--remove-stars`), a run driven by
-an earlier run's manifest (`--manifest`) and a white balance from another master (`--inherit-wb`). How the code does it:
-[workbench-operations.md](../architecture/workbench-operations.md), "A comet's night stacked on the comet".
+**The comet run after W1** (#2489), built in two legs on 2026-11-25. The first: `comet-stack`, the frames registered
+on the comet with the star layer and the composite beside each group's master, at parity with `tianwen stack
+--comet-track`. **Decided by the owner on 2026-11-25: the comet's track is a file**, never a question a step asks
+Horizons while it runs, since a step's key is fixed before it runs and Horizons' answer is not. `tianwen comet track`
+asks once and writes it; the project holds it as an original, read by its bytes, so the key holds the ephemeris and an
+offline run keeps its star layer. The second: the stars removed from every frame (`removeStars`, the comet layer), and
+**a run that follows another, decided by the owner the same day**: one image after the track, the earlier stack's
+master, whose manifest drives the run and whose white balance it takes where asked (`--manifest`, `--inherit-wb`). How
+the code does it: [workbench-operations.md](../architecture/workbench-operations.md), "A comet's night stacked on the
+comet".
 
 ### W2 The app's shell
 
