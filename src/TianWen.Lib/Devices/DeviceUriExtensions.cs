@@ -30,6 +30,9 @@ public static class DeviceUriExtensions
     /// <summary>The one comparer for <see cref="DeviceKey"/>s: ordinal, case-insensitive.</summary>
     public static StringComparer DeviceKeyComparer => StringComparer.OrdinalIgnoreCase;
 
+    // Each Uri's key, for as long as the Uri lives (DeviceKey).
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Uri, string> s_deviceKeys = new();
+
     extension(Uri uri)
     {
         /// <summary>
@@ -40,7 +43,13 @@ public static class DeviceUriExtensions
         /// mount-limit watcher compared whole URIs once and silently skipped any profile whose mount query
         /// had drifted from the connected one. Compare with <see cref="DeviceKeyComparer"/>.
         /// </summary>
-        public string DeviceKey => uri.GetLeftPart(UriPartial.Path);
+        /// <remarks>
+        /// Remembered per <see cref="Uri"/> instance: the key is asked for wherever a device's state is looked up, the
+        /// GUI's chrome does that for every device on every frame, and <c>GetLeftPart</c> builds a new string each
+        /// time (9% of everything a traced GUI's render thread allocated, 2026-11-25). A <see cref="Uri"/> does not
+        /// change, so its key does not either.
+        /// </remarks>
+        public string DeviceKey => s_deviceKeys.GetValue(uri, static u => u.GetLeftPart(UriPartial.Path));
 
         /// <summary>
         /// The device's MODEL, for a family whose ID ends in its serial port because the hardware has no identity of its own

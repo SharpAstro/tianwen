@@ -388,13 +388,15 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// The position, sexagesimal, as every other panel in this app states it; dashes where it is not known, as the Earth's is not
-        /// from the Earth (the orrery's panel, #1656).
+        /// The position, sexagesimal to a tenth of a second (the owner, 2026-11-25: a reader needs one digit, and the milliseconds of
+        /// a live position such as the zenith's changed on every frame); dashes where it is not known, as the Earth's is not from the
+        /// Earth (the orrery's panel, #1656).
         /// </summary>
         public static string CoordinateLine(in SkyMapInfoPanelData info)
             => double.IsNaN(info.RA) || double.IsNaN(info.Dec)
                 ? "RA -   Dec -"
-                : $"RA {CoordinateUtils.HoursToHMS(info.RA)}   Dec {CoordinateUtils.DegreesToDMS(info.Dec)}";
+                : $"RA {CoordinateUtils.HoursToHMS(info.RA, precision: SexagesimalPrecision.TenthSecond, modulo24: true)}   " +
+                  $"Dec {CoordinateUtils.DegreesToDMS(info.Dec, precision: SexagesimalPrecision.TenthSecond)}";
 
         /// <summary>
         /// Magnitude, surface brightness, B-V and angular size -- each omitted when the catalogue does

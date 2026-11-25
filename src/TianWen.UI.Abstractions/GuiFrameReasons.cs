@@ -95,8 +95,8 @@ public sealed class GuiFrameReasons
 /// not this either (<see cref="GuiFrameReasons.ClockTick"/>). What is left is content that is a function of "now":
 /// <list type="bullet">
 /// <item>a run's progress bars and countdowns, and a preview capture's: half a second;</item>
-/// <item>the sky as it drifts: the time it takes to move half a pixel on screen (<see cref="SkyDrift"/>), which is a
-/// second only in a field of a degree or so and a quarter of a minute in the atlas's opening view;</item>
+/// <item>the sky as it drifts: the time it takes to move a pixel on screen (<see cref="SkyDrift"/>), which is a
+/// second only in a field of a couple of degrees and a good part of a minute in the atlas's opening view;</item>
 /// <item>the ETA of a slew in flight: a second;</item>
 /// <item>the Live Session's timeline marker: half a minute;</item>
 /// <item>everything read to the minute (the top bar's night label and verdict, the planner's "now" line, the session's
@@ -121,8 +121,13 @@ public static class GuiTimeCadence
     /// <summary>How fast the sky turns at its fastest (the celestial equator), in arcseconds per second of time.</summary>
     public const double SkyArcsecPerSecond = 15.041;
 
-    /// <summary>How far the sky may drift on screen, in pixels, before the atlas owes a frame for it.</summary>
-    public const double SkyDriftPixels = 0.5;
+    /// <summary>
+    /// How far the sky may drift on screen, in pixels, before the atlas owes a frame for it. One pixel: the sky has to
+    /// move, and no sooner than it can be seen to (the owner, 2026-11-25: everything that needs updating should update
+    /// eventually, but not excessively so). It was half a pixel, a step an anti-aliased star field cannot show, at twice
+    /// the full frames: the whole map every 4 s in the opening view on a 1800 px window, where 8 s moves it one pixel.
+    /// </summary>
+    public const double SkyDriftPixels = 1.0;
 
     /// <summary>
     /// How long the sky takes to drift <see cref="SkyDriftPixels"/> on screen in a view of this field and height: the
@@ -179,4 +184,16 @@ public static class GuiTimeCadence
 
     /// <summary>Whether ANY frame may be narrowed on this tab: the same question as <see cref="ClockMayRepaintAlone"/>.</summary>
     public static bool MayNarrow(GuiTab tab) => ClockMayRepaintAlone(tab);
+
+    /// <summary>
+    /// How long until a focused field's caret next flips (DIR.Lib's <see cref="CaretBlink"/>, on the same clock and the
+    /// same arithmetic as <see cref="CaretBlink.PhaseAt(long, long)"/>): a need the clock brings, like its tick. A host
+    /// whose redraw check is not asked while nothing is owed has to be asked again by then, or the caret blinks late by
+    /// however long the check was left: a quarter of a second of jitter on a half-second blink.
+    /// </summary>
+    public static TimeSpan UntilCaretFlips(long timestamp, long ticksPerSecond)
+    {
+        var milliseconds = (long)(timestamp * (1000.0 / ticksPerSecond));
+        return TimeSpan.FromMilliseconds(CaretBlink.PhaseMilliseconds - (milliseconds % CaretBlink.PhaseMilliseconds));
+    }
 }

@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
 using TianWen.RemoteClient;
@@ -57,5 +58,40 @@ public class RemoteRigProfileTests(ITestOutputHelper output)
             SystemTimeProvider.Instance, NullLogger.Instance, ct).ShouldNotBeNull();
         (await bound.MaybeRefreshProfileAsync(ct)).ShouldBeTrue();
         bound.Context.RigProfile.ShouldNotBeNull().Data.ShouldNotBeNull().SiteLatitude.ShouldBe(-31.27);
+    }
+
+    /// <summary>
+    /// The window title names the profile of the rig on show from <see cref="HomeBoard.ViewedProfile"/> on every tab, while the
+    /// Home board's cards are built only on the Home tab: for a connected rig whose node said what it runs, both name it.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task TheTitleAndTheViewedRigsCardNameTheProfileItsNodeRuns()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var node = await NodeHarness.StartAsync(output, ct);
+        var running = At(Guid.NewGuid(), "Sydney rig", -33.87, 151.21);
+        await running.SaveAsync(node.External, ct);
+        (await NodeTestClients.ClientOf(node.Client).SetActiveProfileAsync(running.ProfileId, ct)).IsSuccess.ShouldBeTrue();
+
+        var binding = new RemoteRigBinding
+        {
+            BindingId = Guid.NewGuid(),
+            NodeId = "remote-rig-title-test",
+            Alias = "Title test rig",
+            LastAddress = node.Transport.BaseAddress.ToString(),
+        };
+        var contexts = new ViewContexts();
+        var rigs = new RemoteRigRegistry();
+        rigs.SetBindings([binding, binding with { BindingId = Guid.NewGuid(), NodeId = "another-rig", Alias = "Another rig" }]);
+        await using var rig = RemoteRigConnection.TryConnect(binding, contexts, peers: null, grants: null, SystemTimeProvider.Instance,
+            NullLogger.Instance, ct).ShouldNotBeNull();
+        rigs.Attach(rig);
+        (await rig.MaybeRefreshProfileAsync(ct)).ShouldBeTrue();
+        contexts.Activate(rig.Context).ShouldBeTrue();
+        var appState = new GuiAppState();
+
+        var viewed = HomeBoard.BuildCards(contexts, rigs, appState, DateTimeOffset.UtcNow).Where(static c => c.IsViewed).ShouldHaveSingleItem();
+        viewed.Subtitle.ShouldBe("Sydney rig", "the card names what the rig's node runs");
+        HomeBoard.ViewedProfile(contexts, rigs, appState).ShouldBe("Sydney rig", "and so does the window title");
     }
 }

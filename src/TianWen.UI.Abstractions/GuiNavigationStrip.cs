@@ -79,15 +79,30 @@ public sealed class GuiNavigationStrip<TSurface>(Renderer<TSurface> renderer) : 
     {
         BeginFrame();
 
+        // Two arrows, each lit or dimmed: the same tree until a step back or forward becomes possible or stops being
+        // so, and kept until then (KeptLayout). The navigation is in the key because the presses act on it.
         var navigation = Navigation;
-        var colors = ColorsFor(GuiTheme.Palette);
-        var strip = Layout.Builder.NavigationStrip(
-            navigation?.CanGoBack ?? false,
-            navigation?.CanGoForward ?? false,
-            () => navigation?.GoBack(),
-            () => navigation?.GoForward(),
-            colors,
-            MarkSize);
-        RenderLayout(strip, bounds);
+        var key = new StripKey(navigation?.CanGoBack ?? false, navigation?.CanGoForward ?? false, navigation);
+        if (!_kept.TryGet(key, bounds, Scale, FontPath, out var arranged))
+        {
+            arranged = _kept.Keep(key, bounds, Scale, FontPath, ArrangeLayout(
+                Layout.Builder.NavigationStrip(
+                    key.CanGoBack,
+                    key.CanGoForward,
+                    () => navigation?.GoBack(),
+                    () => navigation?.GoForward(),
+                    ColorsFor(GuiTheme.Palette),
+                    MarkSize),
+                bounds));
+        }
+
+        PaintLayout(arranged);
     }
+
+    private readonly record struct StripKey(bool CanGoBack, bool CanGoForward, IGuiNavigation? Navigation);
+
+    private KeptLayout<StripKey> _kept;
+
+    /// <summary>How many times the strip's tree was built (<see cref="KeptLayout{TKey}.Builds"/>).</summary>
+    internal int Builds => _kept.Builds;
 }

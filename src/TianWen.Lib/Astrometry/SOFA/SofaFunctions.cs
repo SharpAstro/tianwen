@@ -421,10 +421,14 @@ namespace TianWen.Lib.Astrometry.SOFA
         // =====================================================================
 
         /// <summary>Gregorian Calendar to Julian Date.</summary>
+        // Cal2jd's month lengths, once: a span literal in the method made a field-info object on every call of a debug
+        // build (RuntimeHelpers.CreateSpan), and the GUI converts a date on every frame (traced 2026-11-25).
+        private static readonly int[] s_cal2jdMonthLengths = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
         public static int Cal2jd(int iy, int im, int id, out double djm0, out double djm)
         {
             const int IYMIN = -4799;
-            ReadOnlySpan<int> mtab = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+            ReadOnlySpan<int> mtab = s_cal2jdMonthLengths;
 
             djm0 = DJM0;
             djm = 0;
@@ -523,56 +527,68 @@ namespace TianWen.Lib.Astrometry.SOFA
         /// For a given UTC date, calculate Delta(AT) = TAI - UTC.
         /// Includes full leap second table and pre-1972 drift terms.
         /// </summary>
+        // Dat's tables, once: as span literals in the method a debug build made a field-info object for each of them on
+        // every call (RuntimeHelpers.CreateSpan), and the GUI asks the leap seconds on every frame (traced 2026-11-25).
+        private static readonly double[] s_datDriftMjd0 =
+        [
+            37300.0, 37300.0, 37300.0, 37665.0, 37665.0,
+            38761.0, 38761.0, 38761.0, 38761.0, 38761.0,
+            38761.0, 38761.0, 39126.0, 39126.0
+        ];
+
+        private static readonly double[] s_datDriftRate =
+        [
+            0.0012960, 0.0012960, 0.0012960, 0.0011232, 0.0011232,
+            0.0012960, 0.0012960, 0.0012960, 0.0012960, 0.0012960,
+            0.0012960, 0.0012960, 0.0025920, 0.0025920
+        ];
+
+        private static readonly int[] s_datChangeYear =
+        [
+            1960, 1961, 1961, 1962, 1963, 1964, 1964, 1964,
+            1965, 1965, 1965, 1965, 1966, 1968, 1972, 1972,
+            1973, 1974, 1975, 1976, 1977, 1978, 1979, 1980,
+            1981, 1982, 1983, 1985, 1988, 1990, 1991, 1992,
+            1993, 1994, 1996, 1997, 1999, 2006, 2009, 2012,
+            2015, 2017
+        ];
+
+        private static readonly int[] s_datChangeMonth =
+        [
+            1, 1, 8, 1, 11, 1, 4, 9,
+            1, 3, 7, 9, 1, 2, 1, 7,
+            1, 1, 1, 1, 1, 1, 1, 1,
+            7, 7, 7, 7, 1, 1, 1, 7,
+            7, 7, 1, 7, 1, 1, 1, 7,
+            7, 1
+        ];
+
+        private static readonly double[] s_datChangeDelat =
+        [
+            1.4178180, 1.4228180, 1.3728180, 1.8458580, 1.9458580,
+            3.2401300, 3.3401300, 3.4401300, 3.5401300, 3.6401300,
+            3.7401300, 3.8401300, 4.3131700, 4.2131700,
+            10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0,
+            18.0, 19.0, 20.0, 21.0, 22.0, 23.0, 24.0, 25.0,
+            26.0, 27.0, 28.0, 29.0, 30.0, 31.0, 32.0, 33.0,
+            34.0, 35.0, 36.0, 37.0
+        ];
+
         public static int Dat(int iy, int im, int id, double fd, out double deltat)
         {
             // Release year for the table
             const int IYV = 2023;
 
             // Pre-1972 drift terms
-            ReadOnlySpan<double> driftMjd0 =
-            [
-                37300.0, 37300.0, 37300.0, 37665.0, 37665.0,
-                38761.0, 38761.0, 38761.0, 38761.0, 38761.0,
-                38761.0, 38761.0, 39126.0, 39126.0
-            ];
-            ReadOnlySpan<double> driftRate =
-            [
-                0.0012960, 0.0012960, 0.0012960, 0.0011232, 0.0011232,
-                0.0012960, 0.0012960, 0.0012960, 0.0012960, 0.0012960,
-                0.0012960, 0.0012960, 0.0025920, 0.0025920
-            ];
+            ReadOnlySpan<double> driftMjd0 = s_datDriftMjd0;
+            ReadOnlySpan<double> driftRate = s_datDriftRate;
 
             const int NERA1 = 14;
 
             // Leap second table (year, month, delat)
-            ReadOnlySpan<int> changeYear =
-            [
-                1960, 1961, 1961, 1962, 1963, 1964, 1964, 1964,
-                1965, 1965, 1965, 1965, 1966, 1968, 1972, 1972,
-                1973, 1974, 1975, 1976, 1977, 1978, 1979, 1980,
-                1981, 1982, 1983, 1985, 1988, 1990, 1991, 1992,
-                1993, 1994, 1996, 1997, 1999, 2006, 2009, 2012,
-                2015, 2017
-            ];
-            ReadOnlySpan<int> changeMonth =
-            [
-                1, 1, 8, 1, 11, 1, 4, 9,
-                1, 3, 7, 9, 1, 2, 1, 7,
-                1, 1, 1, 1, 1, 1, 1, 1,
-                7, 7, 7, 7, 1, 1, 1, 7,
-                7, 7, 1, 7, 1, 1, 1, 7,
-                7, 1
-            ];
-            ReadOnlySpan<double> changeDelat =
-            [
-                1.4178180, 1.4228180, 1.3728180, 1.8458580, 1.9458580,
-                3.2401300, 3.3401300, 3.4401300, 3.5401300, 3.6401300,
-                3.7401300, 3.8401300, 4.3131700, 4.2131700,
-                10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0,
-                18.0, 19.0, 20.0, 21.0, 22.0, 23.0, 24.0, 25.0,
-                26.0, 27.0, 28.0, 29.0, 30.0, 31.0, 32.0, 33.0,
-                34.0, 35.0, 36.0, 37.0
-            ];
+            ReadOnlySpan<int> changeYear = s_datChangeYear;
+            ReadOnlySpan<int> changeMonth = s_datChangeMonth;
+            ReadOnlySpan<double> changeDelat = s_datChangeDelat;
 
             int NDAT = changeYear.Length;
 

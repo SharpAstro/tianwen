@@ -18,9 +18,18 @@ layout(set = 0, binding = 0, std140) uniform SkyMapUBO {
 
 layout(push_constant) uniform PC {
     vec4 color;
+    // What of the line the ground leaves visible below the horizon (read by the fragment stage).
+    float belowHorizon;
 } pc;
 
 layout(location = 0) out vec4 vColor;
+// The vertex's altitude sine while the ground is drawn (horizonClip), else 1, so the fragment stage clips at the horizon.
+layout(location = 1) out float vSinAlt;
+// 1 at a projected vertex, 0 at a culled one. A line is dropped by the clipper only when BOTH ends are outside one clip
+// plane, so a segment with one culled end survives as a stray line from its other end towards the culled vertex's
+// out-of-volume position, straight across the view; anything short of 1 here is such a segment, and the fragment stage
+// discards it.
+layout(location = 2) out float vProjected;
 
 // Stereographic projection: camera-space unit vector to screen pixel position.
 // Returns vec3(screenX, screenY, cosD) where cosD <= -0.99 means antipode.
@@ -42,8 +51,16 @@ void main() {
         // Move to clip-space boundary so the line segment is clipped
         gl_Position = vec4(2.0, 2.0, 0.0, 1.0);
         vColor = vec4(0.0);
+        vSinAlt = 1.0;
+        vProjected = 0.0;
         return;
     }
+
+    vProjected = 1.0;
+
+    vSinAlt = ubo.horizonClip != 0
+        ? ubo.sinLat * aUnitPos.z + ubo.cosLat * (ubo.cosLST * aUnitPos.x + ubo.sinLST * aUnitPos.y)
+        : 1.0;
 
     // Same NDC-from-absolute-pixel mapping as the star shader -- see comment there.
     gl_Position = vec4(

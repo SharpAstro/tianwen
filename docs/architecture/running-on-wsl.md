@@ -122,7 +122,7 @@ TIANWEN_DATA_ROOT=$HOME/twd DISPLAY=:0 ./tianwen-gui
   real one off the window: a pointer moving over it is a frame per move, and shows in the log as `move=`.
 - Measured on the 10.1 release at 1200x800 (2026-11-16): every tab idled at 1 to 3 % of a core but the Sky Map,
   which sat at 15 %, a full frame a second for the sky's drift and another for the clock. The atlas is now drawn
-  when its sky has moved half a pixel (`GuiTimeCadence.SkyDrift`) and no time-driven frame is drawn faster than the
+  when its sky has moved a pixel (`GuiTimeCadence.SkyDrift`; half a pixel until 2026-11-25) and no time-driven frame is drawn faster than the
   renderer can afford (`GuiFrameScheduler.PacedForCost`), which measured 6 %.
 - **`TIANWEN_FRAME_LOG=2` writes a line per frame**: when it began (ms on a monotonic clock), the paint, the whole
   frame, the region it repainted, and the time before the paint and after it. What is left of the whole is the

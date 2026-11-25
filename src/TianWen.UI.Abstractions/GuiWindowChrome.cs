@@ -120,6 +120,9 @@ public sealed class GuiWindowChrome<TSurface> : CompositeWidget<TSurface>
     // .TabOrder) and only the per-item icon / enabled state varies.
     private readonly List<TabItem<GuiTab>> _sidebarItems = [];
 
+    // What each rail item was last written from (RenderSidebar).
+    private (string Icon, string Label, bool Locked, string? Reason)[] _sidebarItemsFor = [];
+
     // Stashed by Render, for the same reason _activeTab is: a press arrives BETWEEN frames, and the
     // rail's dispatch has to act on the state the frame was painted from. The hand-drawn sidebar
     // reached the same state through a closure captured per region per frame; one field is the same
@@ -143,7 +146,11 @@ public sealed class GuiWindowChrome<TSurface> : CompositeWidget<TSurface>
             : null;
 
     /// <summary>The action id a rail cell reports, which is what click-by-label drives a tab by.</summary>
-    private static HitResult.ButtonHit TabButton(GuiTab tab) => new HitResult.ButtonHit($"Tab:{tab}");
+    /// <remarks>Made once a tab: the regions are collected for every pointer move, and each cell's label was a new
+    /// string and a new hit every time.</remarks>
+    private static HitResult.ButtonHit TabButton(GuiTab tab) => s_tabButtons.GetOrAdd(tab, static t => new HitResult.ButtonHit($"Tab:{t}"));
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<GuiTab, HitResult.ButtonHit> s_tabButtons = new();
 
     /// <summary>
     /// <see cref="SelectTab"/> as a delegate, made ONCE. The item list is rebuilt every frame, so a
@@ -319,18 +326,35 @@ public sealed class GuiWindowChrome<TSurface> : CompositeWidget<TSurface>
     /// <b>ActiveAccent</b> is <see cref="GuiTheme.RailAccent"/>: the bar on the active cell's outer
     /// edge, so the tab you are on is told from a hovered one by a mark as well as by its plate.
     /// </remarks>
-    private static TabBarColors SidebarColors => new()
+    private static TabBarColors SidebarColors
     {
-        BarBackground = SidebarBg,
-        InactiveBackground = SidebarBg,
-        HoverBackground = HoverTabBg,
-        ActiveBackground = ActiveTabBg,
-        ActiveText = ActiveIcon,
-        InactiveText = IconColor,
-        DisabledText = LockedIcon,
-        Separator = SidebarBg,
-        ActiveAccent = GuiTheme.RailAccent,
-    };
+        get
+        {
+            // One set for a palette, made when the palette changes (GuiTheme.PaletteGeneration) and not for every frame.
+            if (s_sidebarColors is not { } colors || s_sidebarColorsGeneration != GuiTheme.PaletteGeneration)
+            {
+                colors = new()
+                {
+                    BarBackground = SidebarBg,
+                    InactiveBackground = SidebarBg,
+                    HoverBackground = HoverTabBg,
+                    ActiveBackground = ActiveTabBg,
+                    ActiveText = ActiveIcon,
+                    InactiveText = IconColor,
+                    DisabledText = LockedIcon,
+                    Separator = SidebarBg,
+                    ActiveAccent = GuiTheme.RailAccent,
+                };
+                s_sidebarColors = colors;
+                s_sidebarColorsGeneration = GuiTheme.PaletteGeneration;
+            }
+
+            return colors;
+        }
+    }
+
+    private static TabBarColors? s_sidebarColors;
+    private static int s_sidebarColorsGeneration = -1;
 
     /// <summary>
     /// Paints the navigation rail by handing <see cref="GuiAppState.TabOrder"/> to a configured
@@ -355,9 +379,19 @@ public sealed class GuiWindowChrome<TSurface> : CompositeWidget<TSurface>
         var sw = SidebarWidth;
         var noProfile = appState.ActiveProfile is null;
 
-        _sidebarItems.Clear();
-        foreach (var tab in GuiAppState.TabOrder)
+        // Why a locked tab is locked, which its tooltip says.
+        var lockReason = !noProfile ? "not while a session is running"
+            : appState.NeedsAProfile ? "create a profile first"
+            : appState.WaitingForLocalNode;
+        if (_sidebarItemsFor.Length != GuiAppState.TabOrder.Length)
         {
+            _sidebarItemsFor = new (string Icon, string Label, bool Locked, string? Reason)[GuiAppState.TabOrder.Length];
+            _sidebarItems.Clear();
+        }
+
+        for (var i = 0; i < GuiAppState.TabOrder.Length; i++)
+        {
+            var tab = GuiAppState.TabOrder[i];
             // One path with the window title: the mode-following Live Session glyph is resolved
             // inside TabTitleChrome (see LiveSessionIcon), never re-derived here.
             var (icon, label) = TabTitleChrome(tab, viewedLiveSession);
@@ -365,14 +399,21 @@ public sealed class GuiWindowChrome<TSurface> : CompositeWidget<TSurface>
             var locked = (noProfile && tab is not GuiTab.Equipment && (appState.NeedsAProfile || tab is not GuiTab.Home))
                       || (localLiveSession.IsRunning && tab is GuiTab.Equipment);
 
+            // An item is written when what it says changes, not for every frame: its tooltip is two strings put
+            // together, eight tabs' worth a frame otherwise, and the rail keeps its tree while its items are the same.
+            var itemFor = (icon, label, locked, locked ? lockReason : null);
+            if (i < _sidebarItems.Count && _sidebarItemsFor[i] == itemFor)
+            {
+                continue;
+            }
+
             // The tooltip carries the shortcut, and for a LOCKED tab it is the only place the reason
             // can be said at all -- the rail has room for a glyph and nothing else.
-            var shortcut = ChordLabel(TabChrome[tab].Shortcut);
             var tooltip = locked
-                ? $"{label} — {(!noProfile ? "not while a session is running" : appState.NeedsAProfile ? "create a profile first" : appState.WaitingForLocalNode)}"
-                : $"{label} ({shortcut})";
+                ? $"{label} — {lockReason}"
+                : $"{label} ({ChordLabel(TabChrome[tab].Shortcut)})";
 
-            _sidebarItems.Add(new TabItem<GuiTab>(label, tab)
+            var item = new TabItem<GuiTab>(label, tab)
             {
                 Icon = icon,
                 IsEnabled = !locked,
@@ -382,7 +423,16 @@ public sealed class GuiWindowChrome<TSurface> : CompositeWidget<TSurface>
                 // its chord inert without a guard beside the key.
                 Shortcut = TabChrome[tab].Shortcut,
                 OnSelect = _selectTab ??= SelectTab,
-            });
+            };
+            if (i < _sidebarItems.Count)
+            {
+                _sidebarItems[i] = item;
+            }
+            else
+            {
+                _sidebarItems.Add(item);
+            }
+            _sidebarItemsFor[i] = itemFor;
         }
 
         // The pointer, so the bar resolves its own hover rather than being told an index derived from
@@ -422,12 +472,121 @@ public sealed class GuiWindowChrome<TSurface> : CompositeWidget<TSurface>
         }
 
         var now = timeProvider.GetUtcNow().ToOffset(plannerState.SiteTimeZone);
-        // Invariant names: the clock's box is sized from an English sample (ClockWidthSample), and that box is what a
-        // clock frame repaints, so a locale's longer day or month name would be cut or left stale outside it.
-        var clockText = now.ToString("ddd d MMM HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
         var sessionRunning = localLiveSession.IsRunning;
         sessionState.IsSessionRunning = sessionRunning;
+        if (sessionRunning)
+        {
+            plannerState.Calendar.Popover.Close();
+        }
 
+        // The planned night's verdict, from the same summary the calendar cell reads.
+        NightVerdict? verdict = null;
+        var plannedNight = NightCalendarActions.PlanningEveningDate(plannerState, timeProvider);
+        if (plannerState.Calendar.Data.Nights.TryGetValue(plannedNight, out var plannedSummary))
+        {
+            verdict = NightVerdict.For(plannedSummary);
+        }
+
+        // Connect All's state (gate computed by EquipmentActions, shared with the equipment panel); not shown
+        // without a profile.
+        var connectAllStatus = appState.ActiveProfile?.Data is { } connectAllProfile
+            ? EquipmentActions.ComputeConnectAllStatus(
+                connectAllProfile, appState.LocalNode,
+                appState.LocalNode?.Listed ?? [], equipmentState.PendingTransitions,
+                equipmentState.IsDiscovering)
+            : default;
+
+        // The bar is the same tree until the planned night, the status message, Connect All's state or the day
+        // changes: the one thing in it that moves is the clock, and the clock is not in the tree. Its box is (sized from
+        // the widest text it can hold, so it stands still), and the time is drawn into that box by this method, every
+        // frame. Building the bar was 77 KB of every frame, the frames of a pan in a tab under it included (traced
+        // 2026-11-25); kept on the clock's second it was still 85 KB a second, so it is kept on none of the clock.
+        var barRect = new RectF32(SidebarWidth + 6f, 0f, w - (SidebarWidth + 6f) - 4f, sbh);
+        var key = new StatusBarKey(
+            now.Date.Ticks / TimeSpan.TicksPerDay, now.Offset, plannerState.PlanningDate, plannerState.AstroDark,
+            plannerState.AstroTwilight, sessionRunning, appState.StatusMessage, verdict, connectAllStatus,
+            plannerState, skyMapState, timeProvider);
+        if (!_keptStatusBar.TryGet(key, barRect, Scale, FontPath, out var arrangedBar))
+        {
+            var bar = BuildStatusBar(appState, plannerState, timeProvider, skyMapState, now, sessionRunning, verdict,
+                connectAllStatus, barRect, out var clockNode, out _keptClockWithDay);
+            arrangedBar = _keptStatusBar.Keep(key, barRect, Scale, FontPath, ArrangeLayout(bar, barRect));
+
+            // Where the engine put the clock: the box its text is drawn into, and for the frame that repaints the clock
+            // alone that box over the rows the bar's fill paints (the fill, painted first, is clipped to the same
+            // region, so it is repainted under it).
+            _keptClockBox = null;
+            foreach (var arranged in arrangedBar)
+            {
+                if (ReferenceEquals(arranged.Node, clockNode))
+                {
+                    _keptClockBox = new RectF32(arranged.Bounds.X, arranged.Bounds.Y, arranged.Bounds.Width, arranged.Bounds.Height);
+                    break;
+                }
+            }
+        }
+
+        PaintLayout(arrangedBar, drawFill: _drawStatusBarFill ??= DrawStatusBarFill);
+
+        if (_keptClockBox is { } clockBox)
+        {
+            // Written when its second changes, and drawn as the engine draws a run: at the tree's own size, against
+            // the box's far edge.
+            var clockFor = (now.Ticks / TimeSpan.TicksPerSecond, now.Offset, _keptClockWithDay);
+            if (_clockText is null || clockFor != _clockTextFor)
+            {
+                // Invariant names: the clock's box is sized from an English sample (ClockWidthSample), and that box is
+                // what a clock frame repaints, so a locale's longer day or month name would be cut or left stale
+                // outside it.
+                _clockText = now.ToString(_keptClockWithDay ? "ddd d MMM HH:mm:ss" : "HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+                _clockTextFor = clockFor;
+            }
+
+            DrawText(_clockText.AsSpan(), FontPath,
+                clockBox.X, clockBox.Y, clockBox.Width, clockBox.Height,
+                BaseFontSize * Scale.Y, StatusText, TextAlign.Far, TextAlign.Center);
+            ClockRect = GuiChromePixels.PaintedRows(clockBox);
+        }
+    }
+
+    // The clock as text, and the second, zone and form (with the day or without) it was written for.
+    private string? _clockText;
+
+    /// <summary>The time the clock last showed, as drawn.</summary>
+    internal string? ClockText => _clockText;
+    private (long Second, TimeSpan Offset, bool WithDay) _clockTextFor;
+
+    // The status message's warning mark: a keyed baked-icon Fill (SeverityMarks), centred in its slot.
+    private void DrawStatusBarFill(Layout.Content.Fill fill, RectF32 rect)
+    {
+        if (SeverityMarks.TryPlace(fill.Key, rect, out var mask, out var sq, out var ink))
+        {
+            DrawCoverageMask(mask, sq.X, sq.Y, sq.Width, ink);
+        }
+    }
+
+    private Action<Layout.Content.Fill, RectF32>? _drawStatusBarFill;
+
+    // Everything BuildStatusBar reads: the day (which "Tonight" is told from) and the zone it is told in, the planned
+    // night and its verdict, whether a session runs, the status message, Connect All's state, and the three objects its
+    // presses act on (a press runs frames after the tree was made). Not the time of day: the clock is drawn, not built.
+    private readonly record struct StatusBarKey(
+        long Day, TimeSpan Offset, DateTimeOffset? PlanningDate, DateTimeOffset AstroDark, DateTimeOffset AstroTwilight,
+        bool SessionRunning, string? StatusMessage, NightVerdict? Verdict, EquipmentActions.ConnectAllStatus ConnectAll,
+        PlannerState Planner, SkyMapState SkyMap, ITimeProvider Time);
+
+    private KeptLayout<StatusBarKey> _keptStatusBar;
+    private RectF32? _keptClockBox;
+    private bool _keptClockWithDay;
+
+    /// <summary>How many times the status bar's tree was built (<see cref="KeptLayout{TKey}.Builds"/>).</summary>
+    internal int StatusBarBuilds => _keptStatusBar.Builds;
+
+    // The bar's tree, the node of it that is the clock's box, and whether that box is the one with the day in it.
+    private Layout.Node BuildStatusBar(GuiAppState appState, PlannerState plannerState, ITimeProvider timeProvider,
+        SkyMapState skyMapState, DateTimeOffset now, bool sessionRunning, NightVerdict? plannedVerdict,
+        EquipmentActions.ConnectAllStatus ca, RectF32 barRect, out Layout.Node clockNode, out bool clockWithDay)
+    {
         // Date + night-window label string (data only): [<] date (HH:mm-HH:mm) [>].
         var planDate = plannerState.PlanningDate ?? now;
         var isTonight = !plannerState.PlanningDate.HasValue || planDate.Date == now.Date;
@@ -517,16 +676,10 @@ public sealed class GuiWindowChrome<TSurface> : CompositeWidget<TSurface>
         }
         var dateLabelFull = DateLabel(dateStr);
         var dateLabelShort = DateLabel(dateShort);
-        if (sessionRunning)
-        {
-            plannerState.Calendar.Popover.Close();
-        }
 
         Layout.Node verdictNode = Layout.Builder.Spacer().WFixed(0f);
-        var plannedNight = NightCalendarActions.PlanningEveningDate(plannerState, timeProvider);
-        if (plannerState.Calendar.Data.Nights.TryGetValue(plannedNight, out var plannedSummary))
+        if (plannedVerdict is { } verdict)
         {
-            var verdict = NightVerdict.For(plannedSummary);
             verdictNode = Layout.Builder.Text(verdict.Label, BaseFontSize * 0.9f,
                     NightCalendarActions.VerdictColour(verdict.Outlook),
                     TextAlign.Center, TextAlign.Center)
@@ -560,12 +713,7 @@ public sealed class GuiWindowChrome<TSurface> : CompositeWidget<TSurface>
         // the equipment panel). The trailing gap rides with the button so the clock stays flush right
         // when the button is absent.
         Layout.Node connectAll = Layout.Builder.Spacer().WFixed(0f);
-        if (appState.ActiveProfile?.Data is { } connectAllProfile)
         {
-            var ca = EquipmentActions.ComputeConnectAllStatus(
-                connectAllProfile, appState.LocalNode,
-                appState.LocalNode?.Listed ?? [], equipmentState.PendingTransitions,
-                equipmentState.IsDiscovering);
             if (ca.Visible)
             {
                 // Connect All was the loudest literal left in the chrome: a fixed green that ignored
@@ -598,10 +746,11 @@ public sealed class GuiWindowChrome<TSurface> : CompositeWidget<TSurface>
         // ALONE on a tick (#2130), which is only sound while its rectangle holds still, and a box that followed the
         // digits also moved Connect All beside it by a pixel or two every second. The time alone where the bar has no
         // room for the day beside it.
-        var clockWithDay = Layout.Builder.Text(clockText, BaseFontSize, StatusText, TextAlign.Far, TextAlign.Center, widthSample: ClockWidthSample)
+        // The box alone, with no text of its own: the time is drawn into it by RenderStatusBar, so that a second on the
+        // clock changes nothing the tree is made of.
+        var clockBoxWithDay = Layout.Builder.Text("", BaseFontSize, StatusText, TextAlign.Far, TextAlign.Center, widthSample: ClockWidthSample)
             .WAuto().HStar();
-        var clockTimeAlone = Layout.Builder.Text(now.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture),
-                BaseFontSize, StatusText, TextAlign.Far, TextAlign.Center, widthSample: ClockTimeWidthSample)
+        var clockTimeAlone = Layout.Builder.Text("", BaseFontSize, StatusText, TextAlign.Far, TextAlign.Center, widthSample: ClockTimeWidthSample)
             .WAuto().HStar();
 
         // The bar over the content area (right of the sidebar gutter, small right margin). Three equal zones while
@@ -611,7 +760,6 @@ public sealed class GuiWindowChrome<TSurface> : CompositeWidget<TSurface>
         // there is no room), the day beside the time, the day arrows (the calendar the label opens still changes the
         // night) and the night's verdict. Every step is decided on the engine's measurement of the row, never a width
         // written here.
-        var barRect = new RectF32(SidebarWidth + 6f, 0f, w - (SidebarWidth + 6f) - 4f, sbh);
         var available = new Layout.Size<float>(barRect.Width, barRect.Height);
         var groupGap = Layout.Builder.Spacer().WFixed(gapDu * 2f);
         // The last rung also drops the night's hours from the date label: a pinned date's label is the widest thing
@@ -634,7 +782,7 @@ public sealed class GuiWindowChrome<TSurface> : CompositeWidget<TSurface>
                     DateGroup(candidate.Arrows, candidate.Verdict, candidate.Hours),
                     groupGap,
                     connectAll,
-                    candidate.Day ? clockWithDay : clockTimeAlone)
+                    candidate.Day ? clockBoxWithDay : clockTimeAlone)
                 .WAuto().HStar();
             if (MeasureLayout(row, available).Width <= barRect.Width)
             {
@@ -643,11 +791,12 @@ public sealed class GuiWindowChrome<TSurface> : CompositeWidget<TSurface>
             }
         }
 
-        var clockNode = fit.Day ? clockWithDay : clockTimeAlone;
+        clockWithDay = fit.Day;
+        clockNode = fit.Day ? clockBoxWithDay : clockTimeAlone;
         var dateGroup = DateGroup(fit.Arrows, fit.Verdict, fit.Hours);
         var rightGroup = Layout.Builder.HStack(connectAll, clockNode).WAuto().HStar();
         var widestGroup = MathF.Max(MeasureLayout(dateGroup, available).Width, MeasureLayout(rightGroup, available).Width);
-        var bar = fit.Status && widestGroup <= barRect.Width / 3f
+        return fit.Status && widestGroup <= barRect.Width / 3f
             ? Layout.Builder.HStack(
                 Layout.Builder.HStack(StatusZone(shown: true, measuring: false)).WStar().HStar(),
                 Layout.Builder.HStack(Layout.Builder.Spacer().WStar(), dateGroup, Layout.Builder.Spacer().WStar()).WStar().HStar(),
@@ -655,26 +804,6 @@ public sealed class GuiWindowChrome<TSurface> : CompositeWidget<TSurface>
             : Layout.Builder.HStack(
                 Layout.Builder.HStack(StatusZone(fit.Status, measuring: false)).WStar().HStar(),
                 dateGroup, groupGap, rightGroup);
-        var arrangedBar = RenderLayout(bar, barRect, drawFill: (fill, rect) =>
-        {
-            // The status message's warning mark: a keyed baked-icon Fill (SeverityMarks), centred in its slot.
-            if (SeverityMarks.TryPlace(fill.Key, rect, out var mask, out var sq, out var ink))
-            {
-                DrawCoverageMask(mask, sq.X, sq.Y, sq.Width, ink);
-            }
-        });
-
-        // Where the engine put the clock, for the frame that repaints it alone: its own box, as arranged (the bar's
-        // fill, painted first, is clipped to the same region, so it is repainted under it).
-        foreach (var arranged in arrangedBar)
-        {
-            if (ReferenceEquals(arranged.Node, clockNode))
-            {
-                ClockRect = GuiChromePixels.PaintedRows(
-                    new RectF32(arranged.Bounds.X, arranged.Bounds.Y, arranged.Bounds.Width, arranged.Bounds.Height));
-                break;
-            }
-        }
     }
 
     /// <summary>No clock text is wider: a capital W or M and two of the widest lower-case letters bound every day and month name.</summary>

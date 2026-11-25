@@ -44,6 +44,12 @@
 .PARAMETER SyncValidation
     Add synchronisation-hazard validation (SDLVK_SYNC_VALIDATION=1). Implies -Validation; slower still.
 
+.PARAMETER Trace
+    Trace mode, for a "it feels slow / it stutters" report: every frame with its CPU and GPU time and, once a second, the
+    input dispatched by source (mouse, touch, pen, finger, wheel, key) with how long it queued (SDLVK_FRAME_LOG=1), and
+    every five seconds the frames' causes with what was on screen (TIANWEN_FRAME_LOG=1). All of it goes to the app's file
+    log under %LOCALAPPDATA%\TianWen\Logs\<date>\, so the answer is read from there rather than asked of the person.
+
 .PARAMETER NoBuild
     Start the last build as it is.
 
@@ -62,6 +68,9 @@
 
 .EXAMPLE
     pwsh -NoProfile -File tools/start-app.ps1 gui -Validation -SyncValidation
+
+.EXAMPLE
+    pwsh -NoProfile -File tools/start-app.ps1 gui -Trace
 #>
 [CmdletBinding()]
 param(
@@ -70,6 +79,7 @@ param(
     [ValidateSet('Debug', 'Release')] [string] $Configuration = 'Debug',
     [switch] $Validation,
     [switch] $SyncValidation,
+    [switch] $Trace,
     [switch] $NoBuild,
     [switch] $AllowSecondInstance,
     [switch] $NoColor
@@ -170,6 +180,13 @@ $quotedArgs = ($AppArgs | ForEach-Object { Format-Argument $_ }) -join ' '
 # Set for the app to inherit, and put back afterwards in case this script was run inside a session.
 $savedValidation = $env:SDLVK_VALIDATION
 $savedSyncValidation = $env:SDLVK_SYNC_VALIDATION
+$savedSdlFrameLog = $env:SDLVK_FRAME_LOG
+$savedFrameLog = $env:TIANWEN_FRAME_LOG
+if ($Trace) {
+    $env:SDLVK_FRAME_LOG = '1'
+    # Keep a level the caller already raised (2 adds the host's own line per frame).
+    if ($env:TIANWEN_FRAME_LOG -notin '1', '2') { $env:TIANWEN_FRAME_LOG = '1' }
+}
 
 # The app is for a person at a real terminal, not for the tool that launched it: an agent's shell sets NO_COLOR
 # to keep its own output plain, and the TUI inherited it and drew with no colour at all -- no selection bar, no
@@ -226,6 +243,8 @@ try {
 finally {
     $env:SDLVK_VALIDATION = $savedValidation
     $env:SDLVK_SYNC_VALIDATION = $savedSyncValidation
+    $env:SDLVK_FRAME_LOG = $savedSdlFrameLog
+    $env:TIANWEN_FRAME_LOG = $savedFrameLog
     $env:NO_COLOR = $savedNoColor
     $env:TIANWEN_LOCAL_ONLY = $savedLocalOnly
 }
@@ -238,7 +257,7 @@ if ($process.WaitForExit(3000)) {
     exit 1
 }
 
-Write-Host "$($spec.Exe) started detached ($Configuration$(if ($localOnly) { ', local-only' }))$(if ($Validation) { ', Vulkan validation on' })"
+Write-Host "$($spec.Exe) started detached ($Configuration$(if ($localOnly) { ', local-only' }))$(if ($Validation) { ', Vulkan validation on' })$(if ($Trace) { ', trace mode' })"
 Write-Host "pid:     $($process.Id)"
 Write-Host "stdout:  $stdout"
 Write-Host "stderr:  $stderr"

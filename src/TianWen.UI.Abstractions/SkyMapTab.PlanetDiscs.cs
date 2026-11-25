@@ -143,7 +143,7 @@ namespace TianWen.UI.Abstractions
 
         // The disc in place of the dot, when it is big enough and a sprite is in hand; false draws the dot.
         private bool TryDrawPlanetDisc(in PlanetAspect aspect, double ra, double dec, float sx, float sy, double ppr, float cx, float cy,
-            float dotRadius, bool belowHorizon, out float discRadius)
+            float dotRadius, out float discRadius)
         {
             var diameterPx = PlanetSpriteCache.DiscDiameterPx(aspect, ppr);
             discRadius = (float)(diameterPx / 2);
@@ -161,7 +161,7 @@ namespace TianWen.UI.Abstractions
             var night = GuiTheme.State == UiThemeState.Night ? GuiTheme.Palette.Accent : (RGBAColor32?)null;
             var pole = PlanetDiscSprite.PoleScreenAngle(aspect.PolePositionAngle, north, mirrored);
             if (PlanetSprites.Get(aspect, diameterPx, pole, mirrored, map, credit, SkyMapRenderer.GetPlanetColor(aspect.Planet), night,
-                    GuiTheme.PaletteGeneration, PlanetTextures.Version, belowHorizon) is not { } sprite)
+                    GuiTheme.PaletteGeneration, PlanetTextures.Version) is not { } sprite)
             {
                 return false;
             }

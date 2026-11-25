@@ -812,6 +812,24 @@ public static class SkyMapSearchActions
         var (clickRa, clickDec) = SkyMapProjection.UnprojectWithMatrix(
             clickScreenX, clickScreenY, viewMatrix, pixelsPerRadian, centerX, centerY);
 
+        // The ground is opaque while the horizon is drawn: nothing under it is drawn, so nothing under it answers a click
+        // or a hover (the owner, 2026-11-25). Asked of each OBJECT, never of the pointer: an object just above the horizon
+        // is drawn whole, the half of its marker that hangs below the line included, and a pointer there is on it. The
+        // zenith is the one the last frame was drawn with; there is no ground with no usable site, nor in a backdrop view
+        // (the orrery's stars at infinity), which is the rule the draw clips by (SkyMapUbo's horizonClip).
+        Vector3? groundZenith = skyMap is { ShowHorizon: true, Backdrop: null, Zenith: { } lastZenith } ? lastZenith : null;
+
+        bool UnderTheGround(double ra, double dec)
+        {
+            if (groundZenith is not { } up)
+            {
+                return false;
+            }
+
+            var (ux, uy, uz) = SkyMapState.RaDecToUnitVec(ra, dec);
+            return Vector3.Dot(new Vector3(ux, uy, uz), up) < 0f;
+        }
+
         // Walk a 3x3 window of spatial-index cells around the click. The index
         // cells are ~1 deg squares; at mid-FOV the click tolerance can span up
         // to ~1.5 cells, so a single-cell lookup misses objects one cell over.
@@ -889,6 +907,7 @@ public static class SkyMapSearchActions
         {
             if (!db.TryLookupByIndex(idx, out var o)) return;
             if (double.IsNaN(o.RA) || double.IsNaN(o.Dec)) return;
+            if (UnderTheGround(o.RA, o.Dec)) return;
 
             // Honour the same per-layer visibility the rendered overlay uses (mirrors
             // OverlayEngine.GatherSkyMapOverlayCandidates): dark nebulae follow the [D]
@@ -1086,6 +1105,10 @@ public static class SkyMapSearchActions
                             continue;
                         }
                     }
+                    if (UnderTheGround(ra, dec))
+                    {
+                        continue;
+                    }
                     if (!SkyMapProjection.ProjectWithMatrix(ra, dec, viewMatrix, pixelsPerRadian, centerX, centerY,
                             out var sx, out var sy))
                     {
@@ -1124,6 +1147,10 @@ public static class SkyMapSearchActions
         foreach (var marker in skyMap.GetPlanetPositionsCached(viewingUtc))
         {
             var (planetIdx, pRa, pDec) = marker;
+            if (UnderTheGround(pRa, pDec))
+            {
+                continue;
+            }
             if (!SkyMapProjection.ProjectWithMatrix(pRa, pDec, viewMatrix, pixelsPerRadian, centerX, centerY,
                     out var sx, out var sy))
             {
@@ -1175,6 +1202,7 @@ public static class SkyMapSearchActions
             {
                 var isPinned = pinnedCatalogIndices is not null && pinnedCatalogIndices.Contains(m.Index);
                 if (!SkyMapState.ShouldDrawCometMarker(skyMap.ShowComets, isPinned, m.VMag, cometLimit)) continue;
+                if (UnderTheGround(m.RA, m.Dec)) continue;
                 if (!SkyMapProjection.ProjectWithMatrix(m.RA, m.Dec, viewMatrix, pixelsPerRadian, centerX, centerY,
                         out var sx, out var sy))
                 {
@@ -1199,6 +1227,7 @@ public static class SkyMapSearchActions
         {
             var isPinned = pinnedCatalogIndices is not null && pinnedCatalogIndices.Contains(m.Index);
             if (!skyMap.ShouldDrawShowerRadiant(isPinned)) continue;
+            if (UnderTheGround(m.RA, m.Dec)) continue;
             if (!SkyMapProjection.ProjectWithMatrix(m.RA, m.Dec, viewMatrix, pixelsPerRadian, centerX, centerY,
                     out var sx, out var sy))
             {

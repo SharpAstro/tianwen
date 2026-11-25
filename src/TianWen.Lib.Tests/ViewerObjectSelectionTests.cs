@@ -144,10 +144,10 @@ namespace TianWen.Lib.Tests
 
             protected override void RenderObjectOverlay(
                 ICelestialObjectDB db, RectF32 contentRect,
-                float baseFontSize, SiteContext site, bool dimBelowHorizon, PlannerState plannerState,
+                float baseFontSize, SiteContext site, bool clipBelowHorizon, PlannerState plannerState,
                 bool showAllOverlays)
                 => RenderObjectOverlayPrimitive(db, contentRect, baseFontSize,
-                    site, dimBelowHorizon, plannerState, showAllOverlays);
+                    site, clipBelowHorizon, plannerState, showAllOverlays);
         }
 
         /// <summary>A frame whose reference pixel is at its own centre, pointed at the given sky position.</summary>

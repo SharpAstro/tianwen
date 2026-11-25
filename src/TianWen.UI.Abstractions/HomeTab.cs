@@ -37,8 +37,8 @@ namespace TianWen.UI.Abstractions
             // supplies the viewport and the user's choice, and decides nothing about shape itself.
             var scale = DpiScale > 0f ? DpiScale : 1f;
 
-            // The cards are built once per frame by the telemetry poll, so the tab neither reaches into the
-            // rig registry nor decides when a card is stale.
+            // The cards are built by the telemetry poll, right before every frame and only while this tab is on
+            // show, so the tab neither reaches into the rig registry nor decides when a card is stale.
             // One rule however many cards there are: a click selects the rig to look at, a double-click opens
             // it. A lone card once opened on a single click, which made the same gesture mean two things.
             RenderLayout(

@@ -55,6 +55,17 @@ the user first.
 **Environment reaches the app**, since it inherits the launcher's: anchor the clock with
 `TIANWEN_NOW=2026-06-21T22:00:00+10:00 pwsh -NoProfile -File tools/start-app.ps1 gui`.
 
+**Trace mode for "it feels slow / it stutters / touch lags" (`-Trace`).** It logs every frame (CPU phases and GPU time),
+once a second the input dispatched by source (mouse, touch-as-mouse, pen, finger, wheel, key) with how long it queued,
+and every five seconds the frames' causes with what was on screen (tab, atlas info panel, FOV, mode), all to
+`%LOCALAPPDATA%/TianWen/Logs/<date>/GUI_*.log`. Launch with it BEFORE the person reproduces, then read the answer from the
+log instead of asking which input or panel was in use. GPU time of OTHER processes (dwm, a remote desktop's display driver
+in `WUDFHost`) is not the app's to log: sample the `\GPU Engine(*)\Utilization Percentage` counters per pid for that.
+
+```
+pwsh -NoProfile -File tools/start-app.ps1 gui -Trace
+```
+
 **Vulkan validation is opt-in (SdlVulkan.Renderer 6.26+).** A plain Debug run is fast by default; the
 Khronos layer only loads with `SDLVK_VALIDATION=1` AND a Debug build (a Release/AOT build can never enable
 it). Use it ONLY when chasing a GPU/Vulkan bug (hazards, wedges, barrier issues); it CPU-validates every

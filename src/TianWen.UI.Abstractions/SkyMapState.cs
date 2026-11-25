@@ -417,45 +417,32 @@ namespace TianWen.UI.Abstractions
         public TimeSpan TimeOffset { get; set; }
 
         /// <summary>True when viewport changed and the cached texture must be re-rendered.</summary>
+        /// <remarks>
+        /// A <see cref="RedrawFlag"/>: a host that clears it after a frame (the setter's false) loses neither a load that
+        /// finished on another thread while that frame was drawn (a planet's texture, a picture, the star build: the
+        /// frame may have drawn the object already, without it) nor a frame asked for from inside the draw
+        /// (<see cref="RequestFollowingFrame"/>). Cleared with the rest, such a raise waited for the next frame anything
+        /// asked for: up to a second on a still map, and under a moving pointer the frames that repaint the highlight's
+        /// rectangle alone then drew the loaded picture inside that rectangle on some swapchain images and not on
+        /// others, which flickered (the first click on a planet, 2026-11-14, #2130).
+        /// </remarks>
         public bool NeedsRedraw
         {
-            get => _needsRedraw;
+            get => _redraw.IsRaised;
             set
             {
                 if (value)
                 {
-                    // Raised from another thread while a frame is being drawn: a load that finished (a planet's
-                    // texture, a picture, the star build). That frame may have drawn the object already, without it.
-                    if (_frameThread != 0 && Environment.CurrentManagedThreadId != _frameThread)
-                    {
-                        _raisedBehindFrame = true;
-                    }
-
-                    _needsRedraw = true;
-                    return;
+                    _redraw.Raise();
                 }
-
-                // The host's clear after a frame. What was raised behind that frame is not what it drew, so it stays
-                // for the next one. Cleared with the rest, it waited for the next frame anything asked for: up to a
-                // second on a still map, and under a moving pointer the frames that repaint the highlight's rectangle
-                // alone then drew the loaded picture inside that rectangle on some swapchain images and not on
-                // others, which flickered (the first click on a planet, 2026-11-14, #2130).
-                _frameThread = 0;
-                if (_raisedBehindFrame)
+                else
                 {
-                    _raisedBehindFrame = false;
-                    return;
+                    _redraw.ClearAfterFrame();
                 }
-
-                _needsRedraw = false;
             }
         }
 
-        // Benign races, all three: a raise that lands on either side of a write costs one frame more or is drawn by the
-        // frame in progress, and nothing here guards memory.
-        private volatile bool _needsRedraw = true;
-        private volatile bool _raisedBehindFrame;
-        private volatile int _frameThread;
+        private readonly RedrawFlag _redraw = new RedrawFlag(raised: true);
 
         /// <summary>
         /// Asks for the frame AFTER the one being drawn, from inside its draw: a texture uploaded in this frame is drawable
@@ -465,27 +452,31 @@ namespace TianWen.UI.Abstractions
         /// drew the new texture inside that rectangle on some swapchain images and not on others (the Sun flickered on
         /// its first click, 2026-11-14). Not for a standing reason to draw: each call buys one frame.
         /// </summary>
-        public void RequestFollowingFrame()
-        {
-            _raisedBehindFrame = _frameThread != 0;
-            _needsRedraw = true;
-        }
+        public void RequestFollowingFrame() => _redraw.RequestFollowingFrame();
 
         /// <summary>
         /// Called as a frame starts to draw this map, on the thread that draws it: what was raised before now is this
         /// frame's to draw, and what another thread raises from here until the host's clear is the next one's.
         /// </summary>
-        public void BeginDraw()
-        {
-            _raisedBehindFrame = false;
-            _frameThread = Environment.CurrentManagedThreadId;
-        }
+        public void BeginDraw() => _redraw.BeginDraw();
 
         /// <summary>
-        /// A STANDING reason to draw every frame, which no frame consumes: the orrery playing (its clock runs on the wall clock).
+        /// A STANDING reason to draw every frame, which no frame consumes: the orrery playing (its clock runs on the wall
+        /// clock), the layer palette's alpha on its way to or from its rest, and the roll easing back to level.
         /// <see cref="NeedsRedraw"/> cannot carry it, since a host clears that flag after the frame that set it.
         /// </summary>
-        public bool NeedsContinuousFrames => Orrery.IsOpen && Orrery.Playing;
+        /// <remarks>
+        /// The palette and the roll used to ask with exactly that flag, from inside the draw, each frame for the next.
+        /// The clear took it every time, so neither had a frame of its own: both moved one step whenever something else
+        /// drew, a step a second on a still map (2026-11-25).
+        /// </remarks>
+        public bool NeedsContinuousFrames
+            => (Orrery.IsOpen && Orrery.Playing)
+                // Asked of the state, so of a palette the search modal covers too: 0.4 s of frames at most, each time.
+                || (ShowLayerPalette && !Search.IsOpen && LayerPalette.IsFading)
+                // The roll on its way to level. Not while the orrery is open: the roll is advanced by the map's own
+                // frames, and none is drawn then, so the reason would stand for as long as the orrery did.
+                || (IsLevelling && !Orrery.IsOpen);
 
         /// <summary>
         /// F3 search modal + info panel state. Owned by the sky map (not cross-component)
@@ -544,10 +535,11 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// How stale a cached ephemeris may be before it is recomputed. Planets move at most ~0.5"/s
+        /// The SHORTEST a cached ephemeris stands before it is recomputed. Planets move at most ~0.5"/s
         /// (the Moon; the planets much slower) and comets are the same order even on a close approach,
         /// so at the tightest FOV this map offers a 1 s refresh is still sub-pixel -- already
-        /// over-accurate for a marker.
+        /// over-accurate for a marker. How long it stands in a wider view is
+        /// <see cref="EphemerisCacheTolerance"/>.
         /// </summary>
         /// <remarks>
         /// This is a TOLERANCE, and deliberately not the exact-equality key it replaced. That key was
@@ -564,10 +556,54 @@ namespace TianWen.UI.Abstractions
         /// </remarks>
         private static readonly TimeSpan EphemerisCacheRefreshInterval = TimeSpan.FromSeconds(1);
 
+        /// <summary>The longest a cached ephemeris stands, however wide the view: a magnitude and a phase move too.</summary>
+        internal static readonly TimeSpan EphemerisCacheLongestInterval = TimeSpan.FromSeconds(60);
+
+        // The fastest thing either cache holds, against the stars: the Moon at 0.55"/s, taken at 1"/s for its
+        // topocentric swing and for a comet on a close approach.
+        private const double FastestBodyRadPerSecond = 1.0 / 206264.8;
+
+        // How far a marker may sit from where its body is before the view could show the difference.
+        private const double EphemerisDriftTolerancePx = 0.25;
+
+        /// <summary>
+        /// How stale the cached planet and comet positions may be IN THIS VIEW: as long as the fastest body takes
+        /// to cross a quarter of a pixel at the view's scale, between a second and a minute. A second everywhere
+        /// recomputed nine planets and every comet for a sky that had not moved: at a 35 degree field the Moon
+        /// crosses a two-hundredth of a pixel a second, and the two sweeps were 70 percent of what an idle atlas
+        /// spent drawing, and the 10 ms frame a second that a pan or a hover hitched on (2026-11-25).
+        /// </summary>
+        /// <remarks>
+        /// A second, the old tolerance, whenever someone READS a body's numbers: the info panel of a planet or a
+        /// comet shows its coordinates to a tenth of a second, and they tick with the clock. And a second before
+        /// the view has been laid out, when there is no scale to judge by.
+        /// </remarks>
+        internal TimeSpan EphemerisCacheTolerance
+        {
+            get
+            {
+                if (Search.InfoPanel is { Index: { IsSolarSystemObject: true } })
+                {
+                    return EphemerisCacheRefreshInterval;
+                }
+
+                var height = LastContentRect.Height;
+                if (!(height > 0f) || !(FieldOfViewDeg > 0.0))
+                {
+                    return EphemerisCacheRefreshInterval;
+                }
+
+                var pixelsPerSecond = SkyMapProjection.PixelsPerRadian(height, FieldOfViewDeg) * FastestBodyRadPerSecond;
+                var seconds = EphemerisDriftTolerancePx / pixelsPerSecond;
+                return TimeSpan.FromSeconds(Math.Clamp(seconds,
+                    EphemerisCacheRefreshInterval.TotalSeconds, EphemerisCacheLongestInterval.TotalSeconds));
+            }
+        }
+
         // Planet positions at the current viewingTime, refreshed on the tolerance above (the planner
         // date shifting, or a time scrub, jumps far past it and so recomputes at once).
         private DateTimeOffset _planetCacheTime = DateTimeOffset.MinValue;
-        private readonly PlanetMarker[] _planetCache = new PlanetMarker[SkyMapRenderer.PlanetIndices.Length];
+        private PlanetMarker[] _planetCache = new PlanetMarker[SkyMapRenderer.PlanetIndices.Length];
         private int _planetCacheCount;
 
         /// <summary>
@@ -600,7 +636,7 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>
         /// Planet J2000 RA/Dec positions, physical aspects and live magnitudes at <paramref name="viewingTime"/>,
-        /// cached for <see cref="EphemerisCacheRefreshInterval"/>. Entries for bodies whose VSOP87a reduction
+        /// cached for <see cref="EphemerisCacheTolerance"/>. Entries for bodies whose VSOP87a reduction
         /// fails are omitted from the returned span.
         /// </summary>
         /// <remarks>
@@ -611,12 +647,46 @@ namespace TianWen.UI.Abstractions
         /// </remarks>
         public ReadOnlySpan<PlanetMarker> GetPlanetPositionsCached(DateTimeOffset viewingTime)
         {
-            if ((viewingTime - _planetCacheTime).Duration() < EphemerisCacheRefreshInterval)
+            // A refresh computed ahead (RefreshEphemeridesAhead) that has finished is the cache from here on.
+            if (_planetsAhead is { IsCompleted: true } ahead)
             {
+                _planetsAhead = null;
+                if (ahead.IsCompletedSuccessfully)
+                {
+                    var (markers, count, time) = ahead.Result;
+                    (_planetCache, _planetSpare) = (markers, _planetCache);
+                    _planetCacheCount = count;
+                    _planetCacheTime = time;
+                    PlanetCacheRebuilds++;
+                }
+            }
+
+            var tolerance = EphemerisCacheTolerance;
+            var age = (viewingTime - _planetCacheTime).Duration();
+            if (age < tolerance)
+            {
+                if (RefreshEphemeridesAhead && _planetsAhead is null && age >= tolerance * AheadAt)
+                {
+                    // Three quarters of the way to stale: the next positions, for an instant half the tolerance ahead,
+                    // on another thread, so no frame computes them (a sweep is 8 ms of a debug build's frame).
+                    var spare = _planetSpare;
+                    var at = viewingTime + (tolerance * AheadBy);
+                    _planetsAhead = Task.Run(() => (spare, ComputePlanets(at, spare), at));
+                }
+
                 return _planetCache.AsSpan(0, _planetCacheCount);
             }
 
+            // Stale and nothing ahead in hand: a jump in time (a scrub, another date), or nobody computes ahead.
             PlanetCacheRebuilds++;
+            _planetCacheCount = ComputePlanets(viewingTime, _planetCache);
+            _planetCacheTime = viewingTime;
+            return _planetCache.AsSpan(0, _planetCacheCount);
+        }
+
+        // The planets at one instant, into the given array; how many are there.
+        private static int ComputePlanets(DateTimeOffset viewingTime, PlanetMarker[] into)
+        {
             var count = 0;
             foreach (var idx in SkyMapRenderer.PlanetIndices)
             {
@@ -624,13 +694,27 @@ namespace TianWen.UI.Abstractions
                 {
                     PlanetAspect? aspect = PhysicalEphemeris.Supports(idx) ? PhysicalEphemeris.Compute(idx, viewingTime) : null;
                     var vmag = aspect is { } a ? (float)PlanetaryMagnitude.Apparent(a) : float.NaN;
-                    _planetCache[count++] = new PlanetMarker(idx, ra, dec, aspect, vmag);
+                    into[count++] = new PlanetMarker(idx, ra, dec, aspect, vmag);
                 }
             }
-            _planetCacheCount = count;
-            _planetCacheTime = viewingTime;
-            return _planetCache.AsSpan(0, count);
+            return count;
         }
+
+        /// <summary>
+        /// Whether the planet and comet positions are computed ahead, on another thread, before the cached ones go stale
+        /// (from three quarters of <see cref="EphemerisCacheTolerance"/>, for an instant half of it ahead), so that a frame
+        /// only computes them itself when the time jumps. Off by default: the browser build has no other thread, and the
+        /// tests count the sweeps a frame makes. The GPU atlas turns it on, whose frames paid for each sweep in one go:
+        /// 10 ms, every 35 s of a 60 degree view, the only paint over 8 ms left in a minute of panning (2026-11-25).
+        /// </summary>
+        public bool RefreshEphemeridesAhead { get; set; }
+
+        // How far into the tolerance a refresh ahead starts, and how far ahead of the frame that starts it it is computed for.
+        private const double AheadAt = 0.75;
+        private const double AheadBy = 0.5;
+
+        private PlanetMarker[] _planetSpare = new PlanetMarker[SkyMapRenderer.PlanetIndices.Length];
+        private Task<(PlanetMarker[] Markers, int Count, DateTimeOffset Time)>? _planetsAhead;
 
         /// <summary>The cached marker of <paramref name="index"/> at <paramref name="viewingTime"/>, by <see cref="GetPlanetPositionsCached"/>.</summary>
         public bool TryGetPlanetCached(CatalogIndex index, DateTimeOffset viewingTime, out PlanetMarker marker)
@@ -690,7 +774,7 @@ namespace TianWen.UI.Abstractions
         private CometElements[] _cometCandidates = [];
 
         // Per-viewingTime marker cache (positions + magnitudes for the candidate set), keyed on
-        // EphemerisCacheRefreshInterval + repository identity, mirroring the planet cache.
+        // EphemerisCacheTolerance + repository identity, mirroring the planet cache.
         // Zoom-independent: it holds every candidate with a finite magnitude, and each consumer
         // (draw / click / info panel) applies its own magnitude limit -- so zooming never invalidates it.
         private DateTimeOffset _cometCacheTime = DateTimeOffset.MinValue;
@@ -743,9 +827,33 @@ namespace TianWen.UI.Abstractions
 
             RebuildCometCandidatesIfNeeded(comets);
 
-            if ((viewingTime - _cometCacheTime).Duration() < EphemerisCacheRefreshInterval
-                && ReferenceEquals(comets, _cometCacheRepo))
+            // A sweep computed ahead (RefreshEphemeridesAhead) that has finished is the cache from here on, if it swept the
+            // candidates in hand.
+            if (_cometsAhead is { IsCompleted: true } ahead)
             {
+                _cometsAhead = null;
+                if (ahead.IsCompletedSuccessfully && ahead.Result is var (markers, count, time, swept)
+                    && ReferenceEquals(swept, _cometCandidates) && ReferenceEquals(comets, _cometCacheRepo))
+                {
+                    (_cometCache, _cometSpare) = (markers, _cometCache);
+                    _cometCacheCount = count;
+                    _cometCacheTime = time;
+                    CometCacheRebuilds++;
+                }
+            }
+
+            var tolerance = EphemerisCacheTolerance;
+            var age = (viewingTime - _cometCacheTime).Duration();
+            if (age < tolerance && ReferenceEquals(comets, _cometCacheRepo))
+            {
+                if (RefreshEphemeridesAhead && _cometsAhead is null && age >= tolerance * AheadAt)
+                {
+                    var candidates = _cometCandidates;
+                    var spare = _cometSpare.Length >= candidates.Length ? _cometSpare : new CometMarker[candidates.Length];
+                    var at = viewingTime + (tolerance * AheadBy);
+                    _cometsAhead = Task.Run(() => (spare, SweepComets(candidates, at, spare), at, candidates));
+                }
+
                 return _cometCache.AsSpan(0, _cometCacheCount);
             }
 
@@ -757,6 +865,16 @@ namespace TianWen.UI.Abstractions
 
             _cometCacheTime = viewingTime;
             _cometCacheRepo = comets;
+            _cometCacheCount = SweepComets(_cometCandidates, viewingTime, _cometCache);
+            return _cometCache.AsSpan(0, _cometCacheCount);
+        }
+
+        private CometMarker[] _cometSpare = [];
+        private Task<(CometMarker[] Markers, int Count, DateTimeOffset Time, CometElements[] Swept)>? _cometsAhead;
+
+        // The candidates' markers at one instant, into the given array (as long as the candidates); how many there are.
+        private static int SweepComets(CometElements[] candidates, DateTimeOffset viewingTime, CometMarker[] into)
+        {
 
             // ONE Earth ephemeris + time conversion for the whole sweep. Both depend on the instant
             // alone, and the Earth half is a ~3,500-term VSOP87a series against the few dozen
@@ -767,13 +885,12 @@ namespace TianWen.UI.Abstractions
             // gives the staleness check its jdTt: staleness is per element set, the instant is not.
             if (!CometEphemeris.TryGetEarthState(viewingTime, out var earth))
             {
-                _cometCacheCount = 0;
-                return default;
+                return 0;
             }
             var jdTt = earth.JdTt;
 
             var count = 0;
-            foreach (var el in _cometCandidates)
+            foreach (var el in candidates)
             {
                 if (el.CatalogIndex is not { } idx)
                 {
@@ -788,11 +905,10 @@ namespace TianWen.UI.Abstractions
                 // showing two comets from the same discoverer labelled both of them identically
                 // ("Tempel" is 9P, 10P and six others). The display form carries the designation.
                 var label = el.DisplayName;
-                _cometCache[count++] = new CometMarker(idx, ra, dec, (float)mag, label,
+                into[count++] = new CometMarker(idx, ra, dec, (float)mag, label,
                     PositionUncertain: el.IsElementSetStale(jdTt));
             }
-            _cometCacheCount = count;
-            return _cometCache.AsSpan(0, count);
+            return count;
         }
 
         /// <summary>
@@ -1814,6 +1930,43 @@ namespace TianWen.UI.Abstractions
         internal Vector3? Zenith { get; set; }
 
         /// <summary>
+        /// Whether any of a map <paramref name="viewportWidth"/> by <paramref name="viewportHeight"/> pixels lies below the local
+        /// horizon, for the view this frame's uniforms were written with (call after <see cref="SkyMapUbo.Write"/>). The ground
+        /// fill shades only below the horizon and discards every other pixel, so with the whole view above it the fill is a
+        /// full-window pass that changes nothing: 1 to 1.6 ms of a 2.2 to 3.3 ms frame on a laptop's Iris Xe at 2880 x 1814,
+        /// measured looking up near the zenith (2026-11-25). True when the zenith is not known, so nothing is skipped on a guess.
+        /// </summary>
+        public bool ViewReachesBelowHorizon(float viewportWidth, float viewportHeight)
+        {
+            if (Zenith is not { } zenith)
+            {
+                return true;
+            }
+
+            var (x, y, z) = ViewAxis;
+            return ReachesBelowHorizon(new Vector3(x, y, z), zenith, viewportWidth, viewportHeight,
+                SkyMapProjection.PixelsPerRadian(viewportHeight, FieldOfViewDeg));
+        }
+
+        /// <summary>
+        /// Whether the stereographic view about <paramref name="viewAxis"/> reaches below the horizon of <paramref name="zenith"/>:
+        /// the farthest a pixel lies from the centre is a corner, at 2 atan(halfDiagonal / 2 ppr) (the inverse the ground
+        /// fill's own shader takes), so the view is wholly above the horizon when the centre's altitude exceeds that, with
+        /// <see cref="HorizonFillSkipMarginRad"/> to spare.
+        /// </summary>
+        internal static bool ReachesBelowHorizon(Vector3 viewAxis, Vector3 zenith, float viewportWidth, float viewportHeight,
+            double pixelsPerRadian)
+        {
+            var halfDiagonal = 0.5 * Math.Sqrt((double)viewportWidth * viewportWidth + (double)viewportHeight * viewportHeight);
+            var cornerAngle = 2.0 * Math.Atan(halfDiagonal / (2.0 * pixelsPerRadian));
+            var centreAltitude = Math.Asin(Math.Clamp(Vector3.Dot(Vector3.Normalize(viewAxis), Vector3.Normalize(zenith)), -1f, 1f));
+            return centreAltitude - cornerAngle < HorizonFillSkipMarginRad;
+        }
+
+        /// <summary>Half a degree: the float precision of the shader's own altitude test, and then some.</summary>
+        private const double HorizonFillSkipMarginRad = 0.5 * Math.PI / 180.0;
+
+        /// <summary>
         /// The roll that puts <paramref name="zenith"/> straight up on screen at a centre, or null inside the lock
         /// cone, where the zenith is (almost) the view axis and names no up direction.
         /// </summary>
@@ -1845,9 +1998,9 @@ namespace TianWen.UI.Abstractions
         /// rotation, and the roll is what holds the sky still under the pointer.</para>
         /// <para><b>Horizon</b> keeps the horizon parallel to the window and pans as Stellarium's alt-az mode does
         /// (the owner, 2026-10-12 and 2026-10-19): the drag's angles move the view in azimuth and altitude, the altitude
-        /// stops at the zenith, and the frame is level throughout. Low in the sky the grabbed point stays close under the
-        /// pointer; near the zenith the view turns about it in proportion to the drag rather than spinning to keep the
-        /// point exact (<see cref="PanAzimuthScaleFloor"/>). With no usable zenith (no site) Horizon pans rigidly, as
+        /// stops at the zenith, and the frame is level throughout. Up to 80 degrees in a narrow field (lower in a wide one) the
+        /// grabbed point stays close under the pointer; above that the view turns about the zenith in proportion to the drag
+        /// rather than spinning to keep the point exact (<see cref="PanAzimuthScaleFloor"/>). With no usable zenith (no site) Horizon pans rigidly, as
         /// Equatorial does.</para>
         /// </remarks>
         public void Pan(Vector3 grabbed, Vector3 underPointer)
@@ -1864,7 +2017,7 @@ namespace TianWen.UI.Abstractions
             }
 
             var (ra, dec, roll) = Mode == SkyMapMode.Horizon && Zenith is { } zenith
-                ? PanAltAz(grabbed, underPointer, startForward, startRight, zenith)
+                ? PanAltAz(grabbed, underPointer, startForward, startRight, zenith, FieldOfViewDeg)
                 : RigidPan(grabbed, underPointer, startForward, startRight);
 
             CenterRA = ra;
@@ -1875,7 +2028,7 @@ namespace TianWen.UI.Abstractions
         }
 
         private static (double RaHours, double DecDeg, double Roll) PanAltAz(
-            Vector3 grabbed, Vector3 underPointer, Vector3 startForward, Vector3 startRight, Vector3 zenith)
+            Vector3 grabbed, Vector3 underPointer, Vector3 startForward, Vector3 startRight, Vector3 zenith, double fovDeg)
         {
             // Stellarium's alt-az pan (the owner, 2026-10-19): the drag's angles in the camera the press found move the view in
             // azimuth and altitude, and the altitude STOPS at the zenith. It replaced a solve for the level frame that kept the
@@ -1896,7 +2049,7 @@ namespace TianWen.UI.Abstractions
             var sideways = Sideways(grabbed) - Sideways(underPointer);
             var upward = Upward(grabbed) - Upward(underPointer);
             var alt = Math.Clamp(alt0 + upward, -Math.PI / 2, Math.PI / 2);
-            var az = az0 + (sideways / Math.Max(cosAlt0, PanAzimuthScaleFloor));
+            var az = az0 + (sideways / Math.Max(cosAlt0, PanAzimuthScaleFloor(fovDeg)));
 
             var (sinAz, cosAz) = Math.SinCos(az);
             var (sinAlt, cosAlt) = Math.SinCos(alt);
@@ -1915,11 +2068,31 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// The least the azimuth's step is divided by in an alt-az pan: the cosine of the altitude, which keeps a sideways drag
-        /// under the pointer at the centre, down to that of 60 degrees. Above it a sideways drag turns the azimuth by at most twice
-        /// its own angle, so the view turns about the zenith steadily, as Stellarium's does, instead of the half turn exactness asks.
+        /// The least the azimuth's step is divided by in an alt-az pan of a view <paramref name="fovDeg"/> high. The divisor is
+        /// the cosine of the altitude, which keeps a sideways drag under the pointer at the centre; this floor stops it at the
+        /// larger of cos(80 deg) and the sine of half the field. Above that a sideways drag turns the azimuth by at most 1/floor
+        /// times its own angle, so the view turns about the zenith steadily, as Stellarium's does, instead of the half turn
+        /// exactness asks.
         /// </summary>
-        private const double PanAzimuthScaleFloor = 0.5;
+        /// <remarks>
+        /// <para>
+        /// The two bounds answer two complaints. It was cos(60 deg), 0.5, at every field until the owner felt the drag as
+        /// resistance near the zenith (2026-11-25): the sky under the pointer moved at 68 percent of a sideways drag at 70
+        /// degrees, 35 at 80 and 17 at 85; with cos(80 deg) it keeps up to 80 and moves at 50 percent at 85.
+        /// </para>
+        /// <para>
+        /// But 1/cos(80 deg) is 5.8 times the drag, and with the zenith on screen in a WIDE field that spun the stars at the
+        /// window's edge three to five times faster than the pointer (a 300 px drag turned a 90 degree field by 90 degrees). A
+        /// star half a field from the zenith moves by the azimuth's turn times sin(fov/2), so a floor of sin(fov/2) holds the
+        /// edge to the pointer's own speed: 5.3 times the drag at a 21.8 degree field, 2 at 60 and 1.4 at 90. A narrow field,
+        /// below 20 degrees, keeps cos(80 deg).
+        /// </para>
+        /// </remarks>
+        internal static double PanAzimuthScaleFloor(double fovDeg)
+            => Math.Max(MinPanAzimuthScaleFloor, Math.Sin(double.DegreesToRadians(Math.Clamp(fovDeg, 0.0, 180.0) * 0.5)));
+
+        /// <summary>The floor in a narrow field: cos(80 deg), so a sideways drag keeps the sky under the pointer up to 80 degrees.</summary>
+        internal static readonly double MinPanAzimuthScaleFloor = Math.Cos(double.DegreesToRadians(80.0));
 
         /// <summary>The horizon's north and east (J2000, unit) under <paramref name="zenith"/>.</summary>
         private static (Vector3 North, Vector3 East) HorizonAxes(Vector3 zenith)

@@ -47,12 +47,12 @@ namespace TianWen.Lib.Tests
 
         private static List<float> Build(
             IReadOnlyList<OverlayCandidate> candidates, float fovAlpha = 1f,
-            bool dimBelowHorizon = false, SiteContext site = default)
+            bool clipBelowHorizon = false, SiteContext site = default)
         {
             var instances = new List<float>();
             OverlayEllipseInstances.Build(
                 candidates, instances, ArcminToPx, dpiScale: 1f, fovAlpha,
-                dimBelowHorizon, site,
+                clipBelowHorizon, site,
                 OverlayEngine.PinnedMarkerColor, OverlayEngine.PinnedHaloColor, mirrored: false);
             return instances;
         }
@@ -152,7 +152,7 @@ namespace TianWen.Lib.Tests
             var instances = new List<float>();
             OverlayEllipseInstances.Build(
                 [Candidate(new OverlayCandidateMarker.Circle(radiusPx))], instances,
-                arcminToPx, dpiScale: 1f, fovAlpha: 1f, dimBelowHorizon: false, site: default,
+                arcminToPx, dpiScale: 1f, fovAlpha: 1f, clipBelowHorizon: false, site: default,
                 OverlayEngine.PinnedMarkerColor, OverlayEngine.PinnedHaloColor, mirrored: false);
 
             var c = At(instances, 0);

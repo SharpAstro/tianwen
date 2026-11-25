@@ -202,6 +202,11 @@ namespace TianWen.UI.Web.SkyMap
             uniform vec4 uColor;  // the push-constant color analog
 
             out vec4 vColor;
+            // The vertex's altitude sine while the ground is drawn (horizonClip), else 1 (the desktop's skymap_line.vert).
+            out float vSinAlt;
+            // 1 at a projected vertex, 0 at a culled one: a segment with one culled end is not dropped by the clipper but
+            // drawn as a stray line towards the culled position, and the fragment stage discards it (skymap_line.vert).
+            out float vProjected;
 
             {{ProjectionGlsl}}
 
@@ -211,9 +216,15 @@ namespace TianWen.UI.Web.SkyMap
                 if (proj.z <= -0.99) {
                     gl_Position = vec4(2.0, 2.0, 0.0, 1.0);
                     vColor = vec4(0.0);
+                    vSinAlt = 1.0;
+                    vProjected = 0.0;
                     return;
                 }
 
+                vProjected = 1.0;
+                vSinAlt = horizonClip != 0
+                    ? sinLat * aUnitPos.z + cosLat * (cosLST * aUnitPos.x + sinLST * aUnitPos.y)
+                    : 1.0;
                 gl_Position = vec4(
                     (proj.x - viewportCenter.x) / (viewportSize.x * 0.5),
                     -(proj.y - viewportCenter.y) / (viewportSize.y * 0.5),
@@ -222,15 +233,26 @@ namespace TianWen.UI.Web.SkyMap
             }
             """;
 
-        private const string LineFragmentSource = """
+        // The desktop's skymap_line.frag, with the below-horizon factor (SkyMapGpuGeometry.BelowHorizon) baked in: WebGl.Renderer
+        // gives a custom pipeline one colour per draw and nothing more, so each factor is a pipeline of its own.
+        private static string LineFragmentSourceFor(float belowHorizon) => $$"""
             #version 300 es
             precision highp float;
             precision highp int;
 
             in vec4 vColor;
+            in float vSinAlt;
+            in float vProjected;
             out vec4 FragColor;
 
             void main() {
+                if (vProjected < 0.999) discard;
+                if (vSinAlt < 0.0) {
+                    float a = vColor.a * {{belowHorizon.ToString("0.0###", System.Globalization.CultureInfo.InvariantCulture)}};
+                    if (a <= 0.0) discard;
+                    FragColor = vec4(vColor.rgb, a);
+                    return;
+                }
                 FragColor = vColor;
             }
             """;
@@ -414,10 +436,9 @@ namespace TianWen.UI.Web.SkyMap
                 float x = (vScreenPos.x - viewportCenter.x) / pixelsPerRadian;
                 float y = -(vScreenPos.y - viewportCenter.y) / pixelsPerRadian;
 
-                // Warm earthy-brown tint for the below-horizon region. Mixed on top of
-                // the sky background with depth-scaled alpha so pixels just below the
-                // horizon are lightly hazed, and pixels deep below are mostly ground.
+                // Warm earthy-brown ground, OPAQUE (the desktop's skymap_hzfill.frag): darker with depth, never translucent.
                 vec3 groundTint = vec3(0.18, 0.11, 0.06);
+                vec3 groundDeep = vec3(0.10, 0.06, 0.035);
 
                 float rho = length(vec2(x, y));
                 if (rho < 0.00001) {
@@ -425,7 +446,7 @@ namespace TianWen.UI.Web.SkyMap
                     float sinAlt = sinLat * j2000.z
                         + cosLat * (cosLST * j2000.x + sinLST * j2000.y);
                     if (sinAlt >= 0.0) discard;
-                    FragColor = vec4(groundTint, 0.85);
+                    FragColor = vec4(mix(groundTint, groundDeep, clamp(-sinAlt / 0.17, 0.0, 1.0)), 1.0);
                     return;
                 }
 
@@ -448,10 +469,9 @@ namespace TianWen.UI.Web.SkyMap
 
                 if (sinAlt >= 0.0) discard;
 
-                // Fade from 0.45 at horizon to 0.88 at -10 degrees (sin(10deg) ~ 0.17)
+                // Darker with depth, down to -10 degrees (sin(10deg) ~ 0.17); never translucent.
                 float depth = clamp(-sinAlt / 0.17, 0.0, 1.0);
-                float alpha = 0.45 + 0.43 * depth;
-                FragColor = vec4(groundTint, alpha);
+                FragColor = vec4(mix(groundTint, groundDeep, depth), 1.0);
             }
             """;
 
@@ -532,7 +552,10 @@ namespace TianWen.UI.Web.SkyMap
 
         private readonly WebGlRenderer _renderer;
         private readonly PipelineHandle _starPipeline;
+        // The line layers, by what the ground leaves of them below the horizon (SkyMapGpuGeometry.BelowHorizon).
         private readonly PipelineHandle _linePipeline;
+        private readonly PipelineHandle _faintBelowHorizonLinePipeline;
+        private readonly PipelineHandle _wholeLinePipeline;
         private readonly PipelineHandle _horizonFillPipeline;
         private readonly PipelineHandle _milkyWayPipeline;
         private readonly PipelineHandle _overlayPipeline;
@@ -602,7 +625,17 @@ namespace TianWen.UI.Web.SkyMap
                 Blend: PipelineBlend.Additive,
                 UniformBlockName: "SkyMapUBO"));
             _linePipeline = renderer.RegisterPipeline(new CustomPipelineDescriptor(
-                LineVertexSource, LineFragmentSource,
+                LineVertexSource, LineFragmentSourceFor(SkyMapGpuGeometry.BelowHorizon.Hidden),
+                Attribs: [new VertexAttrib(0, 3)],
+                Topology: PipelineTopology.Lines,
+                UniformBlockName: "SkyMapUBO"));
+            _faintBelowHorizonLinePipeline = renderer.RegisterPipeline(new CustomPipelineDescriptor(
+                LineVertexSource, LineFragmentSourceFor(SkyMapGpuGeometry.BelowHorizon.Faint),
+                Attribs: [new VertexAttrib(0, 3)],
+                Topology: PipelineTopology.Lines,
+                UniformBlockName: "SkyMapUBO"));
+            _wholeLinePipeline = renderer.RegisterPipeline(new CustomPipelineDescriptor(
+                LineVertexSource, LineFragmentSourceFor(SkyMapGpuGeometry.BelowHorizon.Whole),
                 Attribs: [new VertexAttrib(0, 3)],
                 Topology: PipelineTopology.Lines,
                 UniformBlockName: "SkyMapUBO"));
@@ -784,8 +817,12 @@ namespace TianWen.UI.Web.SkyMap
         {
             Span<byte> block = stackalloc byte[SkyMapUbo.Size];
             SkyMapUbo.Write(block, state, canvasWidth, canvasHeight, offsetX: 0f, offsetY: 0f, site);
+            // After the write, which sets the zenith this frame's view is judged against (as the desktop pipeline does).
+            _horizonFillNeeded = state.ViewReachesBelowHorizon(canvasWidth, canvasHeight);
             _renderer.SetUniformBlock(_starPipeline, block);
             _renderer.SetUniformBlock(_linePipeline, block);
+            _renderer.SetUniformBlock(_faintBelowHorizonLinePipeline, block);
+            _renderer.SetUniformBlock(_wholeLinePipeline, block);
             _renderer.SetUniformBlock(_horizonFillPipeline, block);
             _renderer.SetUniformBlock(_milkyWayPipeline, block);
             _renderer.SetUniformBlock(_overlayPipeline, block);
@@ -835,6 +872,9 @@ namespace TianWen.UI.Web.SkyMap
 
         private int _meridianVertexCount;
 
+        // Whether this frame's view reaches below the horizon (UpdateFrame), so the ground fill has anything to shade.
+        private bool _horizonFillNeeded = true;
+
         /// <summary>Records the frame's sky draws: the Milky Way background, the ground shading, lines
         /// back-to-front (grid, Alt/Az, meridian, ecliptic, boundaries, figures, horizon), then the
         /// instanced star field on top. <paramref name="milkyWayAlpha"/> is
@@ -863,8 +903,9 @@ namespace TianWen.UI.Web.SkyMap
             // A backdrop view (the orrery's, SkyMapState.Backdrop) is the Milky Way and the stars at infinity only: no ground, no lines.
             var backdrop = state.Backdrop is not null;
 
-            // Ground shading first, so lines/stars draw on top of it (the desktop order).
-            if (!backdrop && state.ShowHorizon && site.IsValid)
+            // Ground shading first, so lines/stars draw on top of it (the desktop order); not for a view wholly above the
+            // horizon, where it would discard every pixel (SkyMapState.ViewReachesBelowHorizon).
+            if (!backdrop && state.ShowHorizon && site.IsValid && _horizonFillNeeded)
             {
                 _renderer.UsePipeline(_horizonFillPipeline);
                 // The buffer satisfies the record's slot; the attributeless pipeline reads none of it.
@@ -924,6 +965,8 @@ namespace TianWen.UI.Web.SkyMap
                 _renderer.DrawBuffer(_ecliptic, 0, _eclipticVertexCount);
             }
 
+            // A constellation is traced faintly on the ground; everything above is hidden under it, the horizon drawn whole.
+            _renderer.UsePipeline(_faintBelowHorizonLinePipeline);
             if (state.ShowConstellationBoundaries && _boundaryVertexCount > 0)
             {
                 _renderer.SetPipelineColor(BoundaryColor);
@@ -938,6 +981,7 @@ namespace TianWen.UI.Web.SkyMap
 
             if (state.ShowHorizon && _horizonVertexCount > 0)
             {
+                _renderer.UsePipeline(_wholeLinePipeline);
                 _renderer.SetPipelineColor(HorizonColor);
                 _renderer.DrawBuffer(_horizon, 0, _horizonVertexCount);
             }

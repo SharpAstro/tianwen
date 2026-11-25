@@ -586,8 +586,10 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         }
 
         // ── Horizon fill ──
-        // A backdrop view (the orrery's, SkyMapState.Backdrop) is the stars at infinity and has no ground.
-        if (drawImagery && state.ShowHorizon && state.Backdrop is null && _horizonFillPipeline != VkPipeline.Null)
+        // A backdrop view (the orrery's, SkyMapState.Backdrop) is the stars at infinity and has no ground. Nor does a view
+        // wholly above the horizon, where the fill's full-window pass would discard every pixel it shades.
+        if (drawImagery && state.ShowHorizon && state.Backdrop is null && _horizonFillPipeline != VkPipeline.Null
+            && state.ViewReachesBelowHorizon(viewportWidth, viewportHeight))
         {
             _ctx.BeginGpuSection("skymap.horizonfill");
             api.vkCmdBindPipeline(cmd, VkPipelineBindPoint.Graphics, _horizonFillPipeline);
@@ -612,14 +614,14 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             // Alt/Az grid
             if (state.ShowAltAzGrid && altAzGrid.VertexCount > 0)
             {
-                PushLineColor(cmd, 0x80, 0xA0, 0x30, 0x80); // olive/yellow-green, semi-transparent
+                PushLineColor(cmd, 0x80, 0xA0, 0x30, 0x80, SkyMapGpuGeometry.BelowHorizon.Hidden); // olive/yellow-green, semi-transparent
                 DrawLineBuffer(cmd, altAzGrid.Buffer, altAzGrid.ByteOffset, altAzGrid.VertexCount);
             }
 
             // Meridian
             if (meridian.VertexCount > 0)
             {
-                PushLineColor(cmd, 0x30, 0xDD, 0x30, 0xA0); // green
+                PushLineColor(cmd, 0x30, 0xDD, 0x30, 0xA0, SkyMapGpuGeometry.BelowHorizon.Hidden); // green
                 DrawLineBuffer(cmd, meridian.Buffer, meridian.ByteOffset, meridian.VertexCount);
             }
 
@@ -630,28 +632,28 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             // so it doubles as a "where to look for ecliptic objects" guide.
             if (_eclipticVertexCount > 0)
             {
-                PushLineColor(cmd, 0xE0, 0xC0, 0x40, 0xB0); // warm yellow
+                PushLineColor(cmd, 0xE0, 0xC0, 0x40, 0xB0, SkyMapGpuGeometry.BelowHorizon.Hidden); // warm yellow
                 DrawLineBuffer(cmd, _eclipticBuffer, 0, _eclipticVertexCount);
             }
 
             // Constellation boundaries
             if (state.ShowConstellationBoundaries && _boundaryVertexCount > 0)
             {
-                PushLineColor(cmd, 0xAA, 0x44, 0x44, 0x80); // red, semi-transparent
+                PushLineColor(cmd, 0xAA, 0x44, 0x44, 0x80, SkyMapGpuGeometry.BelowHorizon.Faint); // red, semi-transparent
                 DrawLineBuffer(cmd, _boundaryBuffer, 0, _boundaryVertexCount);
             }
 
             // Constellation figures
             if (state.ShowConstellationFigures && _figureVertexCount > 0)
             {
-                PushLineColor(cmd, 0x40, 0x80, 0xDD, 0x90); // blue stick figures
+                PushLineColor(cmd, 0x40, 0x80, 0xDD, 0x90, SkyMapGpuGeometry.BelowHorizon.Faint); // blue stick figures
                 DrawLineBuffer(cmd, _figureBuffer, 0, _figureVertexCount);
             }
 
             // Horizon
             if (state.ShowHorizon && horizon.VertexCount > 0)
             {
-                PushLineColor(cmd, 0x80, 0x40, 0x20, 0xFF); // brown
+                PushLineColor(cmd, 0x80, 0x40, 0x20, 0xFF, SkyMapGpuGeometry.BelowHorizon.Whole); // brown
                 DrawLineBuffer(cmd, horizon.Buffer, horizon.ByteOffset, horizon.VertexCount);
             }
 
@@ -659,7 +661,7 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             // below stars so the reticle and star dots remain visible)
             if (fovOutlines.VertexCount > 0)
             {
-                PushLineColor(cmd, 0xDD, 0x33, 0x33, 0xDD); // Stellarium-style red
+                PushLineColor(cmd, 0xDD, 0x33, 0x33, 0xDD, SkyMapGpuGeometry.BelowHorizon.Whole); // Stellarium-style red
                 DrawLineBuffer(cmd, fovOutlines.Buffer, fovOutlines.ByteOffset, fovOutlines.VertexCount);
             }
 
@@ -760,7 +762,7 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             }
 
             var color = SkyMapGpuGeometry.GridColorAt(fade);
-            PushLineColor(cmd, color.Red, color.Green, color.Blue, color.Alpha);
+            PushLineColor(cmd, color.Red, color.Green, color.Blue, color.Alpha, SkyMapGpuGeometry.BelowHorizon.Hidden);
 
             var (buffer, _, vertexCount) = _gridBuffers[i];
             if (vertexCount > 0)
@@ -772,15 +774,17 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
 
     // ────────────────────────────────────────────────── Draw helpers
 
-    private void PushLineColor(VkCommandBuffer cmd, byte r, byte g, byte b, byte a)
+    // A line layer's colour and what of it the ground leaves visible below the horizon (SkyMapGpuGeometry.BelowHorizon).
+    private void PushLineColor(VkCommandBuffer cmd, byte r, byte g, byte b, byte a, float belowHorizon)
     {
-        var color = stackalloc float[4];
-        color[0] = r / 255f;
-        color[1] = g / 255f;
-        color[2] = b / 255f;
-        color[3] = a / 255f;
+        var pc = stackalloc float[5];
+        pc[0] = r / 255f;
+        pc[1] = g / 255f;
+        pc[2] = b / 255f;
+        pc[3] = a / 255f;
+        pc[4] = belowHorizon;
         _ctx.DeviceApi.vkCmdPushConstants(cmd, _pipelineLayout,
-            VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment, 0, 16, color);
+            VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment, 0, 20, pc);
     }
 
     private void DrawLineBuffer(VkCommandBuffer cmd, VkBuffer buffer, uint byteOffset, uint vertexCount)
@@ -985,12 +989,12 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     {
         var api = _ctx.DeviceApi;
 
-        // Push constants: vec4 color (16 bytes) for line pipeline
+        // Push constants for the line pipeline: vec4 color (16 bytes) and the float below-horizon factor (4).
         VkPushConstantRange pushRange = new()
         {
             stageFlags = VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment,
             offset = 0,
-            size = 16
+            size = 20
         };
 
         var setLayout = _uboSetLayout;

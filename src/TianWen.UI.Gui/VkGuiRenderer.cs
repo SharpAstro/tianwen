@@ -206,6 +206,19 @@ namespace TianWen.UI.Gui
         /// <summary>The atlas hover's counts so far (resolves, and resolves that asked for a frame), for the frame log.</summary>
         public (int Resolves, int FrameRequests) SkyMapHoverCounts => (_skyMapTab.HoverResolves, _skyMapTab.HoverFrameRequests);
 
+        /// <summary>The atlas's cumulative cost by part (<see cref="SkyMapTab{TSurface}.LayerCosts"/>), for a traced run's
+        /// account of a slow frame.</summary>
+        public SkyMapLayerCosts SkyMapLayerCosts => _skyMapTab.LayerCosts;
+
+        /// <summary>What each of those parts has allocated, in kilobytes (<see cref="SkyMapTab{TSurface}.LayerKilobytes"/>).</summary>
+        public SkyMapLayerCosts SkyMapLayerKilobytes => _skyMapTab.LayerKilobytes;
+
+        /// <summary>The object overlay's cumulative cost by part (projecting, placing, drawing), for the same account.</summary>
+        public (double Project, double Place, double Draw) SkyMapOverlayPhases => _skyMapTab.OverlayPhaseMs;
+
+        /// <summary>Whether the atlas's object gather is running on another thread, and how many it has installed.</summary>
+        public (bool InFlight, int Installed) SkyMapGathers => (_skyMapTab.OverlayGatherInFlight, _skyMapTab.OverlayGathersInstalled);
+
         /// <summary>Where the atlas info panel's pictures come from; see <see cref="VkSkyMapTab.PictureStore"/>.</summary>
         public IObjectPictureStore? ObjectPictureStore
         {
@@ -278,6 +291,8 @@ namespace TianWen.UI.Gui
                 Bus = bus,
                 Logger = logger,
             };
+            // The planets and comets are computed ahead on another thread, so a frame of a pan never pays for the sweep.
+            _skyMapTab.State.RefreshEphemeridesAhead = true;
             // Preview + guide-cam now use the SAME full image viewer as the FITS viewer + planetary tab
             // (configured chromeless via ViewerState.HideChrome), not a separate mini widget.
             _previewViewer = new VkImageRenderer(renderer, width, height);

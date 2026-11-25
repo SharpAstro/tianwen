@@ -17,6 +17,24 @@ namespace TianWen.UI.Abstractions
     /// </summary>
     public static class SkyMapGpuGeometry
     {
+        /// <summary>
+        /// What of a line layer the ground leaves visible below the horizon, as a factor on the layer's alpha, while the ground is
+        /// drawn (<see cref="SkyMapState.ShowHorizon"/> with a valid site). The ground is opaque: you cannot see through it (the
+        /// owner, 2026-11-25), so the sky's lines stop at the horizon, except that a constellation may still be traced faintly on
+        /// it, and the horizon line and a sensor's outline (where the mount points) are drawn whole.
+        /// </summary>
+        public static class BelowHorizon
+        {
+            /// <summary>Hidden under the ground: the grids, the meridian, the ecliptic.</summary>
+            public const float Hidden = 0f;
+
+            /// <summary>Traced faintly on the ground: constellation boundaries and figures.</summary>
+            public const float Faint = 0.35f;
+
+            /// <summary>Drawn whole: the horizon line itself, and the outline of what the mount points at.</summary>
+            public const float Whole = 1f;
+        }
+
         /// <summary>Grid scale definitions: (raStepHours, decStepDeg, minFov, maxFov). A scale
         /// draws only the lines coarser scales don't already draw (see
         /// <see cref="BuildGridLines"/>), so the scales are COMPLEMENTARY and renderers stack every

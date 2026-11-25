@@ -95,9 +95,115 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     private Task<OverlayGatherResult>? _overlayGatherTask;
     private OverlayGatherKey _overlayAppliedKey;
     private bool _overlayHasAppliedKey;
-    private readonly List<OverlayCandidate> _overlayCandidates = [];
+    private List<OverlayCandidate> _overlayCandidates = [];
+
+    // The list the next gather fills: the one the last install replaced. A gather's result is taken as it is (not
+    // copied into the list in hand), so two lists pass back and forth between the render thread and the one gather
+    // in flight, and neither a gather nor its install makes a list. Null while a gather has it.
+    private List<OverlayCandidate>? _overlaySpareCandidates;
+
+    // The gather's working collections, lent to the one gather in flight (OverlayGatherScratch).
+    private readonly OverlayGatherScratch _overlayGatherScratch = new OverlayGatherScratch();
     private readonly List<OverlayItem> _overlayItems = [];
-    private readonly List<(OverlayItem Item, float X, float Y)> _overlayPlacedLabels = [];
+    // The labels as the placement placed them: where, and how wide (each line was measured to place it, so the draw
+    // measures none of them again).
+    private readonly List<PlacedLabel> _overlayPlacedLabels = [];
+
+    // The crosses' arms for one frame's batch (the per-item cross loop), kept for the next.
+    private readonly List<(RectInt Rect, RGBAColor32 Color)> _crossArms = [];
+
+    // What a candidate keeps for as long as its list stands, by candidate index: the item projected from it (moved by
+    // each frame of a pan instead of made again, OverlayItem.MoveTo), its label's hit and the click that goes with it.
+    // A pan made all three again for every candidate on screen, sixty times a second. Emptied when a gather is
+    // installed (TryApplyPendingOverlayGather): an index then names another object.
+    private OverlayItem?[] _overlayItemPool = [];
+    private (HitResult.ButtonHit? Hit, Action<InputModifier>? OnClick)[] _overlayLabelHits = [];
+
+    // The other pair, which an install fills from the pair above (CarryKeptItemsOver) before the two change places, and
+    // where each kept item was in the list that went, by its object.
+    private OverlayItem?[] _overlayItemPoolSpare = [];
+    private (HitResult.ButtonHit? Hit, Action<InputModifier>? OnClick)[] _overlayLabelHitsSpare = [];
+    private readonly Dictionary<CatalogIndex, int> _keptByObject = new(OverlayPoolRoom);
+    private const int OverlayPoolRoom = 8192;
+
+    /// <summary>
+    /// After an install: each object's kept item, its label's hit and its click move to the object's place in the new
+    /// list, where the new candidate is the same in what the item was made of (its label, pin and priority); everything
+    /// else starts empty. They were all emptied, and every object on screen made again in the next frame: an item, a
+    /// hit, a string and a click each, 110 to 390 KB in the frame after every install, a second apart in a pan
+    /// (2026-11-25). The gather keeps each object's candidate from one list to the next (OverlayGatherScratch), so an
+    /// object's label lines are the same list in both.
+    /// </summary>
+    private void CarryKeptItemsOver()
+    {
+        var count = _overlayCandidates.Count;
+        if (_overlayItemPoolSpare.Length < count)
+        {
+            // Room for more candidates than a gather of the catalogue yields (four thousand at a wide field), made once:
+            // grown a quarter at a time, the first installs of a session grew them in turn, 100 KB in a pan's frame each.
+            var room = Math.Max(OverlayPoolRoom, count + (count / 4));
+            _overlayItemPoolSpare = new OverlayItem?[room];
+            _overlayLabelHitsSpare = new (HitResult.ButtonHit? Hit, Action<InputModifier>? OnClick)[room];
+        }
+        else
+        {
+            Array.Clear(_overlayItemPoolSpare);
+            Array.Clear(_overlayLabelHitsSpare);
+        }
+
+        _keptByObject.Clear();
+        for (var i = 0; i < _overlayItemPool.Length; i++)
+        {
+            if (_overlayItemPool[i] is { } kept)
+            {
+                _keptByObject[kept.Index] = i;
+            }
+        }
+
+        if (_keptByObject.Count > 0)
+        {
+            var candidates = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_overlayCandidates);
+            for (var i = 0; i < candidates.Length; i++)
+            {
+                ref readonly var candidate = ref candidates[i];
+                if (_keptByObject.TryGetValue(candidate.CatalogIndex, out var was)
+                    && _overlayItemPool[was] is { } item
+                    && ReferenceEquals(item.LabelLines, candidate.LabelLines)
+                    && item.IsPinned == candidate.IsPinned
+                    && item.LabelPriority == candidate.LabelPriority)
+                {
+                    item.Renumber(i);
+                    _overlayItemPoolSpare[i] = item;
+                    _overlayLabelHitsSpare[i] = _overlayLabelHits[was];
+                }
+            }
+        }
+
+        (_overlayItemPool, _overlayItemPoolSpare) = (_overlayItemPoolSpare, _overlayItemPool);
+        (_overlayLabelHits, _overlayLabelHitsSpare) = (_overlayLabelHitsSpare, _overlayLabelHits);
+    }
+
+    // The two delegates the placement takes, made once: a method group and a lambda over `this` are each a new
+    // delegate wherever they are written.
+    private Func<string, float, float>? _measureOverlayLabel;
+    private Action<PlacedLabel>? _recordOverlayLabel;
+
+    /// <summary>
+    /// What the overlay's three parts have cost so far, cumulative, in milliseconds: projecting the candidates,
+    /// placing their labels, and drawing markers and labels. With <see cref="OverlayCounts"/>, where a frame's
+    /// "objects" figure went.
+    /// </summary>
+    public (double Project, double Place, double Draw) OverlayPhaseMs { get; private set; }
+
+    /// <summary>Whether a gather is running on another thread now.</summary>
+    public bool OverlayGatherInFlight => _overlayGatherTask is { IsCompleted: false };
+
+    /// <summary>How many finished gathers have been installed: each empties what is kept by candidate index.</summary>
+    public int OverlayGathersInstalled => _overlayCandidateVersion;
+
+    /// <summary>The candidates in hand, the items of them on screen, and the labels placed.</summary>
+    public (int Candidates, int Items, int Labels) OverlayCounts
+        => (_overlayCandidates.Count, _overlayItems.Count, _overlayPlacedLabels.Count);
 
     // Per-frame instance buffer for the overlay ellipse pipeline, filled by the shared
     // OverlayEllipseInstances.Build (the browser pipeline fills its own buffer from the same
@@ -117,6 +223,42 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     // during touch zoom. Hysteresis: enter collision only below the low-water
     // mark, leave only above the high-water mark.
     private bool _useCollisionPlacement;
+
+    // Bumped each time a finished gather is installed: what the placed overlay and its marker buffer are keyed on.
+    private int _overlayCandidateVersion;
+
+    // What the projected items and the placed labels in hand were computed for. A frame for the same view, the same
+    // candidates and the same ground draws them as they are: nothing they are a function of has changed. Every frame
+    // used to project every candidate and place every label again, 11.5 ms of the frame with the Objects layer on, and
+    // most frames are for a view that has not moved: a highlight following the pointer, the clock's tick, a still map
+    // (2026-11-25). The ground's term is the site's hour angle in 30 s buckets, as the browser build keys its own.
+    private readonly record struct OverlayPlacementKey(
+        Matrix4x4 View, double Fov, RectF32 Rect, float DpiScale, bool Mirrored, int CandidateVersion,
+        bool ClipBelowHorizon, double LstBucket, float LabelSize, int Reservations);
+
+    private OverlayPlacementKey _overlayPlacementKey;
+    private bool _hasOverlayPlacementKey;
+
+    // What the marker instance stream in hand was built for. The view's CENTRE is not in it: the vertex shader projects
+    // each unit vector itself, so a pan moves none of its inputs and reuses the stream, as the browser build does
+    // (WebSkyMapTab.OverlayInstanceKey). It was rebuilt for every candidate on every frame.
+    private readonly record struct OverlayInstanceKey(
+        int CandidateVersion, int CandidateCount, float ArcminToPx, float DpiScale, float FovAlpha,
+        bool ClipBelowHorizon, double LstBucket, bool Mirrored, RGBAColor32 Halo);
+
+    private OverlayInstanceKey _overlayInstanceKey;
+    private bool _hasOverlayInstanceKey;
+
+    /// <summary>
+    /// How many times the overlay's items were projected and its labels placed, and how many times its marker stream was
+    /// built. The observables for "a frame for a view that has not moved redoes neither": the reused frame is the
+    /// identical picture, so only a count can tell it from one that did the work again. Public because this assembly
+    /// grants no <c>InternalsVisibleTo</c>, and the tests pin the reuse through them.
+    /// </summary>
+    public int OverlayPlacements { get; private set; }
+
+    /// <inheritdoc cref="OverlayPlacements"/>
+    public int OverlayInstanceBuilds { get; private set; }
 
     /// <summary>
     /// True while the pipeline is showing the HIP bright-star seed and the full Tycho-2 star
@@ -385,7 +527,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     /// </summary>
     protected override void RenderObjectOverlay(
         ICelestialObjectDB db, RectF32 contentRect,
-        float baseFontSize, SiteContext site, bool dimBelowHorizon, PlannerState plannerState,
+        float baseFontSize, SiteContext site, bool clipBelowHorizon, PlannerState plannerState,
         bool showAllOverlays)
     {
         var dpiScale = DpiScale;
@@ -482,57 +624,87 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
                 showAllOverlays, showDarkNebulae, desiredKey);
         }
 
-        // Phase B: project cached candidates into screen items every frame. This is
-        // the cheap pass (no grid walk, no label building) so pan stays smooth even
-        // when the candidate list has hundreds of entries.
-        _overlayItems.Clear();
-        _overlayPlacedLabels.Clear();
+        // Phase B: project the cached candidates into screen items and place their labels, for a view these have
+        // not been done for yet (no grid walk, no label building). A frame for the same view, candidates and ground
+        // reuses the items and the placed labels in hand (OverlayPlacementKey).
         if (_overlayCandidates.Count == 0)
         {
+            _overlayItems.Clear();
+            _overlayPlacedLabels.Clear();
+            _hasOverlayPlacementKey = false;
             return;
         }
-        OverlayEngine.ProjectSkyMapCandidatesInto(_overlayCandidates, State, contentRect,
-            dpiScale, _overlayItems);
+
+        var placementLabelSize = baseFontSize * dpiScale * 0.85f;
+        // Reserve the mount reticle's label footprint (drawn later, in RenderMountOverlay) so
+        // an object name never renders on top of it when the mount sits on a catalogued target.
+        var mountLabelReservation = BuildLabelReservations(contentRect, dpiScale, baseFontSize);
+        // The ground turns with the clock, not with input: bucketed to 30 s, as the browser build buckets it.
+        var lstBucket = clipBelowHorizon && site.IsValid ? Math.Round(site.LST * 120.0) / 120.0 : 0.0;
+        var placementKey = new OverlayPlacementKey(
+            viewMatrix, fov, contentRect, dpiScale, State.MirrorView, _overlayCandidateVersion,
+            clipBelowHorizon, lstBucket, placementLabelSize, ReservationsHash(mountLabelReservation));
+        var phaseMark = System.Diagnostics.Stopwatch.GetTimestamp();
+        var phases = OverlayPhaseMs;
+        if (!_hasOverlayPlacementKey || placementKey != _overlayPlacementKey)
+        {
+            _overlayPlacementKey = placementKey;
+            _hasOverlayPlacementKey = true;
+            OverlayPlacements++;
+            _overlayItems.Clear();
+            _overlayPlacedLabels.Clear();
+            OverlayEngine.ProjectSkyMapCandidatesInto(_overlayCandidates, State, contentRect,
+                dpiScale, _overlayItems, _overlayItemPool);
+            // Under the ground nothing is placed, drawn or clickable (the ground is opaque).
+            OverlayEngine.RemoveUnderTheGround(_overlayItems, clipBelowHorizon, site);
+            phases.Project += PhaseElapsed(ref phaseMark);
 #if DEBUG
-        diagProjectDone = System.Diagnostics.Stopwatch.GetTimestamp();
+            diagProjectDone = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
+
+            if (_overlayItems.Count > 0)
+            {
+                // Hybrid label-placement strategy keyed on candidate count -- same two modes
+                // as before, but now evaluated against the projected count. The
+                // sticky band between the low and high water marks avoids mode flip-flopping
+                // during touch zoom when items.Count hovers near the threshold.
+                const int collisionEnter = 60; // switch TO collision once count falls here
+                const int collisionExit = 100; // switch FROM collision once count rises here
+                _useCollisionPlacement = _useCollisionPlacement
+                    ? _overlayItems.Count <= collisionExit
+                    : _overlayItems.Count <= collisionEnter;
+
+                var measureText = _measureOverlayLabel ??= MeasureLabelRun;
+                var record = _recordOverlayLabel ??= _overlayPlacedLabels.Add;
+                var pictureMarkWidth = PictureMarkAdvance(placementLabelSize);
+                if (_useCollisionPlacement)
+                {
+                    OverlayEngine.PlaceLabels(_overlayItems, placementLabelSize, 4f, measureText, record,
+                        reservedRegions: mountLabelReservation, pictureMarkWidth: pictureMarkWidth);
+                }
+                else
+                {
+                    OverlayEngine.PlaceLabelsBestEffort(_overlayItems, placementLabelSize, 4f, measureText, record,
+                        reservedRegions: mountLabelReservation, pictureMarkWidth: pictureMarkWidth);
+                }
+            }
+            phases.Place += PhaseElapsed(ref phaseMark);
+#if DEBUG
+            diagLabelsDone = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
+        }
+#if DEBUG
+        else
+        {
+            diagProjectDone = diagLabelsDone = System.Diagnostics.Stopwatch.GetTimestamp();
+        }
 #endif
 
         if (_overlayItems.Count == 0)
         {
+            OverlayPhaseMs = phases;
             return;
         }
-
-        // Hybrid label-placement strategy keyed on candidate count -- same two modes
-        // as before, but now evaluated against the per-frame projected count. The
-        // sticky band between the low and high water marks avoids mode flip-flopping
-        // during touch zoom when items.Count hovers near the threshold.
-        const int collisionEnter = 60; // switch TO collision once count falls here
-        const int collisionExit = 100; // switch FROM collision once count rises here
-        _useCollisionPlacement = _useCollisionPlacement
-            ? _overlayItems.Count <= collisionExit
-            : _overlayItems.Count <= collisionEnter;
-
-        var placementLabelSize = baseFontSize * dpiScale * 0.85f;
-        Func<string, float, float> measureText = MeasureLabelRun;
-        Action<PlacedLabel> record = label => _overlayPlacedLabels.Add((label.Item, label.X, label.Y));
-
-        // Reserve the mount reticle's label footprint (drawn later, in RenderMountOverlay) so
-        // an object name never renders on top of it when the mount sits on a catalogued target.
-        var mountLabelReservation = BuildLabelReservations(contentRect, dpiScale, baseFontSize);
-        var pictureMarkWidth = PictureMarkAdvance(placementLabelSize);
-        if (_useCollisionPlacement)
-        {
-            OverlayEngine.PlaceLabels(_overlayItems, placementLabelSize, 4f, measureText, record,
-                reservedRegions: mountLabelReservation, pictureMarkWidth: pictureMarkWidth);
-        }
-        else
-        {
-            OverlayEngine.PlaceLabelsBestEffort(_overlayItems, placementLabelSize, 4f, measureText, record,
-                reservedRegions: mountLabelReservation, pictureMarkWidth: pictureMarkWidth);
-        }
-#if DEBUG
-        diagLabelsDone = System.Diagnostics.Stopwatch.GetTimestamp();
-#endif
 
         // Overlay fade at wide FOV -- keep overlays readable when zoomed out.
         // At FOV <= 120 there is no fade; between 120 and 180 deg the alpha
@@ -554,10 +726,19 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         // browser has no theme switcher and uses the engine's fixed landmark colour.
         var ppr = SkyMapProjection.PixelsPerRadian(contentRect.Height, fov);
         var arcminToPx = (float)(ppr * Math.PI / (180.0 * 60.0));
-        OverlayEllipseInstances.Build(
-            _overlayCandidates, _overlayEllipseInstances,
-            arcminToPx, dpiScale, fovAlpha, dimBelowHorizon, site,
-            OverlayEngine.PinnedMarkerColor, pinnedHaloColor, State.MirrorView);
+        var instanceKey = new OverlayInstanceKey(
+            _overlayCandidateVersion, _overlayCandidates.Count, arcminToPx, dpiScale, fovAlpha,
+            clipBelowHorizon, lstBucket, State.MirrorView, pinnedHaloColor);
+        if (!_hasOverlayInstanceKey || instanceKey != _overlayInstanceKey)
+        {
+            _overlayInstanceKey = instanceKey;
+            _hasOverlayInstanceKey = true;
+            OverlayInstanceBuilds++;
+            OverlayEllipseInstances.Build(
+                _overlayCandidates, _overlayEllipseInstances,
+                arcminToPx, dpiScale, fovAlpha, clipBelowHorizon, site,
+                OverlayEngine.PinnedMarkerColor, pinnedHaloColor, State.MirrorView);
+        }
 
         // Crosses (stars): per-item CPU path. Uses _overlayItems (only candidates that
         // passed CPU projection + off-screen cull), so off-screen stars don't draw.
@@ -566,14 +747,26 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             if (item.Marker.Kind != OverlayMarkerKind.Cross) continue;
 
             var (r, g, b) = item.Color;
-            var alpha = OverlayEngine.MarkerAlpha(
-                item.IsPinned, item.RA, item.Dec, dimBelowHorizon, site, fovAlpha);
+            // Every item here is above the ground: those under it were taken out where the items were placed
+            // (RemoveUnderTheGround), so the horizon test MarkerAlpha would make again (three trigonometric calls an item,
+            // every frame) answers yes. What is left of it is the fade.
+            var alpha = item.IsPinned ? 1f : fovAlpha;
 
             var crossColor = item.IsPinned
                 ? TianWen.UI.Abstractions.GuiTheme.Palette.Accent.WithAlpha((byte)(alpha * 255))
                 : RGBAColor32.FromFloat(r, g, b, alpha);
-            VkOverlayShapes.DrawCross(renderer, dpiScale,
-                item.ScreenX, item.ScreenY, item.Marker.ArmPx, crossColor);
+            var (horizontal, vertical) = VkOverlayShapes.CrossArms(dpiScale, item.ScreenX, item.ScreenY, item.Marker.ArmPx);
+            _crossArms.Add((horizontal, crossColor));
+            _crossArms.Add((vertical, crossColor));
+        }
+
+        // All of them in one batch, in the order they were listed: the renderer merges each run of one colour into one
+        // draw, and the stars share a colour. A draw call each was the variable half of the overlay's cost, from 0.6 to
+        // 4 ms a frame with the number of stars in view (2026-11-25).
+        if (_crossArms.Count > 0)
+        {
+            renderer.FillRectangles(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_crossArms));
+            _crossArms.Clear();
         }
 
         // Single instanced draw for all ellipse + circle markers (including pinned
@@ -605,18 +798,21 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             }
         }
 
-        // Labels: redraw at cached positions every frame so horizon dimming stays
-        // live. PlaceLabels (O(N^2) collision scan) only runs on cache miss.
+        // Labels: drawn every frame at the places and widths the placement gave them. PlaceLabels (O(N^2) collision
+        // scan) runs only when the view, the candidates or the ground move (OverlayPlacementKey).
         var labelSize = baseFontSize * dpiScale * 0.85f;
         var lineH = labelSize * 1.2f;
         var emojiFont = EmojiFontPath;
         var markAdvance = PictureMarkAdvance(labelSize);
-        foreach (var (item, lx, ly) in _overlayPlacedLabels)
+        foreach (var placed in _overlayPlacedLabels)
         {
+            var item = placed.Item;
+            var (lx, ly) = (placed.X, placed.Y);
             var (r, g, b) = item.IsPinned ? (1f, 0.44f, 0.19f) : item.Color;
-            var labelAlpha = OverlayEngine.MarkerAlpha(
-                item.IsPinned, item.RA, item.Dec, dimBelowHorizon, site, fovAlpha);
-            var maxLineW = 0f;
+            // Above the ground, as every placed item is (see the crosses above).
+            var labelAlpha = item.IsPinned ? 1f : fovAlpha;
+            // The box as placed: the widest line with the picture mark the placement reserved after the first.
+            var maxLineW = placed.Width;
             for (var li = 0; li < item.LabelLines.Count; li++)
             {
                 var lineAlpha = (li == 0 ? 1.0f : 0.7f) * labelAlpha;
@@ -630,21 +826,18 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
                         new PointInt((int)(lx + 200), (int)(ly + (li + 1) * lineH)),
                         new PointInt((int)lx, (int)(ly + li * lineH))),
                     TextAlign.Near, TextAlign.Center);
-                var lineW = MeasureLabelRun(line, labelSize);
 
                 // The photo mark, in the room the placement reserved after the first line; it is part of
                 // the label's clickable box as well.
                 if (li == 0 && item.HasPicture && markAdvance > 0f && emojiFont is { Length: > 0 })
                 {
-                    var markX = lx + lineW + PictureMarkGap(labelSize);
+                    var markX = lx + placed.FirstLineWidth + PictureMarkGap(labelSize);
                     Renderer.DrawText(PictureMark.AsSpan(), emojiFont, labelSize, color,
                         new RectInt(
                             new PointInt((int)(markX + markAdvance), (int)(ly + lineH)),
                             new PointInt((int)markX, (int)ly)),
                         TextAlign.Near, TextAlign.Center);
-                    lineW += markAdvance;
                 }
-                if (lineW > maxLineW) maxLineW = lineW;
             }
 
             // Hit-test the label's bounding box (not the individual glyphs): clicking the
@@ -656,13 +849,16 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             if (labelAlpha > 0.15f && maxLineW > 0f && item.LabelLines.Count > 0)
             {
                 var labelH = item.LabelLines.Count * lineH;
-                var objX = item.ScreenX;
-                var objY = item.ScreenY;
-                RegisterClickable(lx, ly, maxLineW, labelH,
-                    new HitResult.ButtonHit($"SkyMapObjectLabel:{item.LabelLines[0]}"),
-                    _ => EmitSelectAt(objX, objY, InputModifier.None));
+                // The hit and the click are the candidate's, made once: the click reads where the item is when it
+                // is clicked, and the item is the one object for as long as its list stands (_overlayItemPool).
+                ref var kept = ref _overlayLabelHits[item.CandidateIndex];
+                kept.Hit ??= new HitResult.ButtonHit($"SkyMapObjectLabel:{item.LabelLines[0]}");
+                kept.OnClick ??= SelectOnClick(item);
+                RegisterClickable(lx, ly, maxLineW, labelH, kept.Hit, kept.OnClick);
             }
         }
+        phases.Draw += PhaseElapsed(ref phaseMark);
+        OverlayPhaseMs = phases;
 
 #if DEBUG
         var overlayTotalMs = System.Diagnostics.Stopwatch.GetElapsedTime(diagStart).TotalMilliseconds;
@@ -704,10 +900,17 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         }
 
         var result = task.Result;
-        _overlayCandidates.Clear();
-        _overlayCandidates.AddRange(result.Candidates);
+        // The gather's list becomes the list in hand, and the one it replaces is the next gather's to fill.
+        _overlaySpareCandidates = _overlayCandidates;
+        _overlayCandidates = result.Candidates;
         _overlayAppliedKey = result.Key;
         _overlayHasAppliedKey = true;
+        _overlayCandidateVersion++;
+        CarryKeptItemsOver();
+        // The placed labels name items of the list that went.
+        _overlayItems.Clear();
+        _overlayPlacedLabels.Clear();
+        _hasOverlayPlacementKey = false;
     }
 
     /// <summary>
@@ -758,14 +961,19 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         // and the key the result is stamped with the same value by construction.
         var onlyWithPicture = key.OnlyWithPicture;
         var seedCapacity = _overlayCandidates.Count > 0 ? _overlayCandidates.Count : 256;
+        // The list this gather fills and the collections it works in are its own until it has ended: one gather is in
+        // flight at a time (the caller starts one only when none is), and the install hands the spare list back.
+        var list = _overlaySpareCandidates ?? new List<OverlayCandidate>(seedCapacity);
+        _overlaySpareCandidates = null;
+        var scratch = _overlayGatherScratch;
 #if DEBUG
         var gatherStart = System.Diagnostics.Stopwatch.GetTimestamp();
 #endif
         _overlayGatherTask = Task.Run(() =>
         {
-            var list = new List<OverlayCandidate>(seedCapacity);
+            list.Clear();
             OverlayEngine.GatherSkyMapOverlayCandidates(
-                snapViewMatrix, snapFov, contentRect, dpiScale, db, pinnedIndices, list, pinnedOnly);
+                snapViewMatrix, snapFov, contentRect, dpiScale, db, pinnedIndices, list, pinnedOnly, scratch);
 
             // Per-layer visibility, through the one predicate the primitive path and the click
             // resolver also ask (dark nebulae follow [D], everything else [O], "only with photo"
@@ -983,11 +1191,11 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     /// <summary>
     /// Draws the committed plan's target(s): a small reticle + name label per scheduled
     /// observation. The currently-executing observation is amber (matching the slewing
-    /// mount reticle); the rest are pale green. Below-horizon targets are dimmed.
+    /// mount reticle); the rest are pale green. A target under the ground (below the horizon) is not drawn.
     /// </summary>
     protected override void RenderScheduleTargets(
         RectF32 contentRect, float baseFontSize,
-        double ppr, float cx, float cy, SiteContext site, bool dimBelowHorizon)
+        double ppr, float cx, float cy, SiteContext site, bool clipBelowHorizon)
     {
         var dpiScale = DpiScale;
         var fontSize = baseFontSize * dpiScale;
@@ -1007,8 +1215,12 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
                 continue;
             }
 
-            // Dim targets currently below the horizon so they read as "not up yet".
-            var alpha = (byte)(dimBelowHorizon && !site.IsAboveHorizon(ra, dec) ? 0x60 : 0xE0);
+            // A target below the horizon is under the ground, which is opaque: it is drawn once it rises.
+            if (clipBelowHorizon && !site.IsAboveHorizon(ra, dec))
+            {
+                continue;
+            }
+            const byte alpha = 0xE0;
             var color = isActive
                 ? TianWen.UI.Abstractions.GuiTheme.Palette.Warn.WithAlpha(alpha)  // active observation
                 : TianWen.UI.Abstractions.GuiTheme.Palette.Success.WithAlpha(alpha); // scheduled
@@ -1063,6 +1275,39 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     /// viewer's photograph). Both go through one list so a label cannot be kept clear of one and
     /// slid under the other.
     /// </summary>
+    // Milliseconds since the mark, which moves to now.
+    private static double PhaseElapsed(ref long mark)
+    {
+        var now = System.Diagnostics.Stopwatch.GetTimestamp();
+        var ms = System.Diagnostics.Stopwatch.GetElapsedTime(mark, now).TotalMilliseconds;
+        mark = now;
+        return ms;
+    }
+
+    // A label's click: select at the item, wherever it is by then. In a method of its own so the closure is made
+    // when a label first needs one, not on every pass of the loop that asks.
+    private Action<InputModifier> SelectOnClick(OverlayItem item)
+        => _ => EmitSelectAt(item.ScreenX, item.ScreenY, InputModifier.None);
+
+    // The reserved label footprints as one number, for the placement's key: the mount's reticle moves, and a label
+    // placed around where it WAS is placed wrongly.
+    private static int ReservationsHash(IReadOnlyList<(float X, float Y, float W, float H)>? reservations)
+    {
+        if (reservations is null)
+        {
+            return 0;
+        }
+
+        var hash = new HashCode();
+        hash.Add(reservations.Count);
+        for (var i = 0; i < reservations.Count; i++)
+        {
+            hash.Add(reservations[i]);
+        }
+
+        return hash.ToHashCode();
+    }
+
     private IReadOnlyList<(float X, float Y, float W, float H)>? BuildLabelReservations(
         RectF32 contentRect, float dpiScale, float baseFontSize)
     {

@@ -391,13 +391,27 @@ namespace TianWen.UI.Abstractions
             }
         }
 
-        /// <summary>Consumes the redraw flag on every context, after a frame has actually been drawn.</summary>
-        public void ClearNeedsRedraw()
+        /// <summary>Tells every context a frame starts to draw, on the thread that draws it (<see cref="RedrawFlag.BeginDraw"/>).</summary>
+        public void BeginDraw()
         {
             foreach (var context in _all)
             {
-                context.LiveSession.NeedsRedraw = false;
+                context.LiveSession.BeginDraw();
             }
+        }
+
+        /// <summary>Consumes the redraw flag on every context, after a frame has actually been drawn.</summary>
+        /// <returns>Whether a raise the draw itself made was dropped on any of them
+        /// (<see cref="RedrawFlag.ClearAfterFrame"/>).</returns>
+        public bool ClearNeedsRedraw()
+        {
+            var dropped = false;
+            foreach (var context in _all)
+            {
+                dropped |= context.LiveSession.ClearRedrawAfterFrame();
+            }
+
+            return dropped;
         }
     }
 }

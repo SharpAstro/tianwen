@@ -339,6 +339,42 @@ long _lastLoggedPartial = 0;
 // of its own. A frame can count under several.
 int _lastHoverResolves = 0, _lastHoverRequests = 0;
 int flagApp = 0, flagPlanner = 0, flagSky = 0, flagContexts = 0, framesLoopOwed = 0, framesLoopOwedForMoves = 0;
+// How often the loop asked the redraw check (counted for the frame log only).
+int redrawChecks = 0;
+// The account of a traced run (TIANWEN_FRAME_LOG): what the redraw checks and the frames' own callbacks took of the
+// render thread, and what the whole process took of the processor, since the last line. Measured, never sampled: a
+// sampling profiler parks a thread at its native calls and so bills the clock reads for time nothing spent there.
+long redrawCheckTicks = 0;
+double frameCallbackMs = 0;
+// The three figures a paint is held to, since the last line: the longest paint and how many took over 8 ms (half a
+// refresh), and what the render thread allocated, in its largest paint and in all (frames, checks and signals together,
+// which over the frames drawn is its allocation a frame).
+double paintMostMs = 0, paintAllocatedMostKb = 0;
+int paintsOverHalfARefresh = 0;
+// Every paint's time since the last line, for its median and 90th percentile: the slow ones are logged one by one, and
+// these say where the rest of them are.
+var paintTimes = new List<double>(1024);
+long _lastLoggedRenderThreadAllocated = GC.GetAllocatedBytesForCurrentThread();
+// The collector's pause is taken after a frame, where the frame has its interval to spare, and not inside a paint.
+var betweenFrames = new BetweenFramesCollector();
+// When the window began, for the glyph warm-up a few seconds in (GlyphWarmUp).
+var glyphWarmUpFrom = System.Diagnostics.Stopwatch.GetTimestamp();
+var glyphsWarmed = false;
+int _lastLoggedBetweenFrames = 0;
+// The longest the redraw check goes unasked while nothing is owed and nothing wakes the loop. The polls the check runs
+// (camera and preview telemetry, the node's profile and devices, a later launch's hand-off) are each limited to seconds
+// by themselves and take their turn at this pace; each rig's presence beat, which the loop's pass sends, is owed once a
+// second (NodeWire.PresenceBeatInterval). And it bounds what a change that failed to wake the loop could cost.
+var idlePollInterval = TimeSpan.FromMilliseconds(250);
+// Whether the clear after the last full frame dropped a redraw flag that frame's own draw had raised: the one thing a
+// settling frame is owed to (GuiFrameScheduler), told to the next redraw check.
+var raiseDropped = false;
+var _lastLoggedProcessCpu = Environment.CpuUsage.TotalTime;
+// And the collector's share of it: collections, what they paused, and what was allocated to make them happen.
+var _lastLoggedGen0 = GC.CollectionCount(0);
+var _lastLoggedGen2 = GC.CollectionCount(2);
+var _lastLoggedPause = GC.GetTotalPauseDuration();
+var _lastLoggedAllocated = GC.GetTotalAllocatedBytes();
 // What the loop owed at the check before the frame: it clears its own flag before OnBeforeFrame runs.
 bool loopOwedAtCheck = false, loopOwedForMovesAtCheck = false;
 // The shutdown drain's redraw tick (see CheckNeedsRedraw): 0 so its first check draws at once.
@@ -444,9 +480,14 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
     CheckNeedsRedraw = () =>
     {
         // First, and above the early returns below: this is the only place a hand-off from a
-        // later launch is noticed, and CheckNeedsRedraw is the one callback that runs on every
-        // loop iteration including the idle polls.
+        // later launch is noticed, and CheckNeedsRedraw is the callback the loop asks while idle
+        // too (about once a refresh, SdlVulkan.Renderer's RedrawCheckPacing, and right before every frame).
         PumpInstanceGate();
+
+        if (frameLog)
+        {
+            redrawChecks++;
+        }
 
         // Recompute targets when site/date changes (shared logic in AppSignalHandler)
         signalHandler.CheckRecompute();
@@ -456,6 +497,10 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         // task when only one is active, falling back to "(N tasks)" otherwise, without
         // this gate the count flips 1 <-> 2 every 2s and the banner flickers between
         // "Shutting down... Disconnecting <camera>" and "Shutting down... (2 tasks)".
+        //
+        // They run on every ask, and the loop asks right before every frame, so what they publish for the tab on show
+        // (the Home board) is fresh in the frame that draws it; between frames the loop asks about once a refresh, never on
+        // every wake a burst of input makes.
         if (!appState.ShuttingDown)
         {
             // Sample camera cooler/temperature telemetry while the equipment tab is visible.
@@ -512,14 +557,46 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
             _lastFrameLogTimestamp = timeProvider.GetTimestamp();
             var causes = frames.Causes;
             frames.Causes = default;
+            // What was on screen, so a line answers "with what open?" by itself (2026-11-25): the atlas's info panel, field and mode.
+            var sky = guiRenderer.SkyMapState;
+            var infoPanel = sky.Search.InfoPanel is not { } info ? "none"
+                : info.IsMount ? "mount"
+                : info.FixedPoint != SkyFixedPoint.None ? info.FixedPoint.ToString()
+                : info.Index is { IsSolarSystemObject: true } ? "solar-system body"
+                : "object";
+            var processCpu = Environment.CpuUsage.TotalTime;
             logger.LogInformation(
-                "Frames in 5 s on {ActiveTab}: {Full} full, {Partial} partial; causes changed={Changed} loop={Loop} move={Move} time={Time} settling={Settling} clock={Clock} flagged={Flagged}; frames with flag app={App} planner={Planner} sky={Sky} contexts={Contexts}, owed by the loop {LoopOwed} (for moves alone {MovesAlone}); atlas hover resolves={HoverResolves} asked for a frame={HoverRequests}",
+                "Frames in 5 s on {ActiveTab}: {Full} full, {Partial} partial; causes changed={Changed} loop={Loop} move={Move} time={Time} settling={Settling} clock={Clock} flagged={Flagged}; frames with flag app={App} planner={Planner} sky={Sky} contexts={Contexts}, owed by the loop {LoopOwed} (for moves alone {MovesAlone}); atlas hover resolves={HoverResolves} asked for a frame={HoverRequests}; redraw checks={Checks}; cost: checks {CheckMs:F1} ms, frames {FrameMs:F1} ms, process {ProcessMs:F0} ms of CPU; collections gen0 {Gen0} (between frames {BetweenFrames}) gen2 {Gen2} paused {PauseMs:F1} ms, allocated {AllocatedMb:F1} MB; paints: median {PaintMedianMs:F1} ms, 90% under {PaintP90Ms:F1} ms, longest {PaintMostMs:F1} ms, {PaintsOver} over 8 ms; render thread allocated {FrameKb:F0} KB a frame, {PaintMostKb:F0} KB in its largest paint; atlas info panel={InfoPanel} fov={Fov:F1} mode={Mode}",
                 appState.ActiveTab, fullFrames - _lastLoggedFull, partialFrames - _lastLoggedPartial,
                 causes.Changed, causes.Loop, causes.PointerMove, causes.Time, causes.Settling, causes.Clock, causes.Flagged,
                 flagApp, flagPlanner, flagSky, flagContexts, framesLoopOwed, framesLoopOwedForMoves,
-                guiRenderer.SkyMapHoverCounts.Resolves - _lastHoverResolves, guiRenderer.SkyMapHoverCounts.FrameRequests - _lastHoverRequests);
+                guiRenderer.SkyMapHoverCounts.Resolves - _lastHoverResolves, guiRenderer.SkyMapHoverCounts.FrameRequests - _lastHoverRequests,
+                redrawChecks, System.Diagnostics.Stopwatch.GetElapsedTime(0, redrawCheckTicks).TotalMilliseconds, frameCallbackMs,
+                (processCpu - _lastLoggedProcessCpu).TotalMilliseconds,
+                GC.CollectionCount(0) - _lastLoggedGen0, betweenFrames.Collections - _lastLoggedBetweenFrames,
+                GC.CollectionCount(2) - _lastLoggedGen2,
+                (GC.GetTotalPauseDuration() - _lastLoggedPause).TotalMilliseconds,
+                (GC.GetTotalAllocatedBytes() - _lastLoggedAllocated) / (1024.0 * 1024.0),
+                PaintPercentile(paintTimes, 0.5), PaintPercentile(paintTimes, 0.9), paintMostMs, paintsOverHalfARefresh,
+                (GC.GetAllocatedBytesForCurrentThread() - _lastLoggedRenderThreadAllocated) / 1024.0
+                    / Math.Max(1, (fullFrames - _lastLoggedFull) + (partialFrames - _lastLoggedPartial)),
+                paintAllocatedMostKb,
+                infoPanel, sky.FieldOfViewDeg, sky.Mode);
+            paintMostMs = paintAllocatedMostKb = 0;
+            paintTimes.Clear();
+            paintsOverHalfARefresh = 0;
+            _lastLoggedBetweenFrames = betweenFrames.Collections;
+            _lastLoggedRenderThreadAllocated = GC.GetAllocatedBytesForCurrentThread();
+            _lastLoggedGen0 = GC.CollectionCount(0);
+            _lastLoggedGen2 = GC.CollectionCount(2);
+            _lastLoggedPause = GC.GetTotalPauseDuration();
+            _lastLoggedAllocated = GC.GetTotalAllocatedBytes();
             (_lastHoverResolves, _lastHoverRequests) = guiRenderer.SkyMapHoverCounts;
             flagApp = flagPlanner = flagSky = flagContexts = framesLoopOwed = framesLoopOwedForMoves = 0;
+            redrawChecks = 0;
+            redrawCheckTicks = 0;
+            frameCallbackMs = 0;
+            _lastLoggedProcessCpu = processCpu;
             _lastLoggedFull = fullFrames;
             _lastLoggedPartial = partialFrames;
         }
@@ -565,7 +642,9 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         var moveChanged = handlers.TakePointerMoveChanged(out var moveUnstated);
         loopOwedAtCheck = eventLoop is { RedrawPending: true };
         loopOwedForMovesAtCheck = eventLoop is { RedrawPendingForPointerMoveAlone: true };
-        return frames.Check(now, new GuiFrameInputs(
+        var dropped = raiseDropped;
+        raiseDropped = false;
+        var inputs = new GuiFrameInputs(
             appState.ActiveTab, runGoingOn, previewCapturing,
             SlewInFlight: guiRenderer.SkyMapState.ActiveSlewTarget is not null,
             Changed: changed,
@@ -576,7 +655,30 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
             // The atlas is redrawn when its sky has moved, which the view's scale decides, and no frame is drawn
             // faster than this computer can afford (GuiFrameScheduler reads the cost from the process's own time).
             SkyDrift: GuiTimeCadence.SkyDrift(guiRenderer.SkyMapState.FieldOfViewDeg, guiRenderer.SkyMapState.LastContentRect.Height),
-            ProcessCpu: Environment.CpuUsage.TotalTime));
+            ProcessCpu: Environment.CpuUsage.TotalTime,
+            // A frame this check armed and pacing held is still this check's: what it is owed for is in the scheduler.
+            PendingForCheckAndMovesAlone: eventLoop is { RedrawPendingForCheckAndPointerMovesAlone: true },
+            RaiseDropped: dropped);
+        var owed = frames.Check(now, inputs);
+
+        // With nothing owed, the loop need not ask again until something could be: the next thing the clock brings
+        // (GuiFrameScheduler.NextTimedNeed), and no longer than the polls above can wait for their turn. Everything else
+        // that can owe a frame reaches the loop without being asked for: input is an event, and a redraw flag raised on
+        // another thread wakes it (RedrawFlag.WakeHostOnRaise). The loop itself keeps the refresh's pace for a second
+        // after input, which is what a tooltip's delay and a double click need.
+        if (eventLoop is { } idling)
+        {
+            var idle = frames.NextTimedNeed(now, inputs);
+            // A focused field's caret flips on the clock too, and the check above is what notices that it has.
+            if (appState.ActiveTextInput is { IsActive: true })
+            {
+                var caret = GuiTimeCadence.UntilCaretFlips(now, timeProvider.TimestampFrequency);
+                idle = caret < idle ? caret : idle;
+            }
+            idling.IdleCheckInterval = owed ? TimeSpan.Zero : idle < idlePollInterval ? idle : idlePollInterval;
+        }
+
+        return owed;
     },
 
     // Committed to a frame: say what it repaints. The flags are PEEKED here, never consumed: a narrowed frame takes no
@@ -586,6 +688,12 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         _frameBegan = System.Diagnostics.Stopwatch.GetTimestamp();
         var flagged = appState.NeedsRedraw || plannerState.NeedsRedraw || guiRenderer.SkyMapState.NeedsRedraw
             || guiRenderer.ViewContexts.AnyNeedsRedraw;
+        // The frame starts here for every redraw flag (RedrawFlag.BeginDraw): what was raised before now is this frame's
+        // to draw, and what another thread raises from here until the clear in OnPostFrame is the next frame's. The
+        // atlas's own flag begins with its tab's draw.
+        appState.BeginDraw();
+        plannerState.BeginDraw();
+        guiRenderer.ViewContexts.BeginDraw();
         if (frameLog)
         {
             if (appState.NeedsRedraw) { flagApp++; }
@@ -621,6 +729,15 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
 
         var renderStart = System.Diagnostics.Stopwatch.GetTimestamp();
         _frameBeginMs = System.Diagnostics.Stopwatch.GetElapsedTime(_frameBegan, renderStart).TotalMilliseconds;
+        // Traced: what the atlas and the collector stood at before the paint, so a slow frame can say where it went.
+        var costsBefore = frameLog ? guiRenderer.SkyMapLayerCosts : default;
+        var overlayBefore = frameLog ? guiRenderer.SkyMapOverlayPhases : default;
+        var kilobytesBefore = frameLog ? guiRenderer.SkyMapLayerKilobytes : default;
+        var gathersBefore = frameLog ? guiRenderer.SkyMapGathers : default;
+        var pauseBefore = frameLog ? GC.GetTotalPauseDuration() : default;
+        var gen0Before = frameLog ? GC.CollectionCount(0) : 0;
+        var gen2Before = frameLog ? GC.CollectionCount(2) : 0;
+        var allocatedBefore = frameLog ? GC.GetAllocatedBytesForCurrentThread() : 0;
         guiRenderer.Render(appState, plannerState, viewerState, timeProvider);
         // Last, over everything: the one tooltip the router has due, whichever region declared it (#1446).
         guiRenderer.RenderTooltip(handlers.Tooltip);
@@ -661,10 +778,69 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         }
 
         _frameAfterPaintMs = System.Diagnostics.Stopwatch.GetElapsedTime(renderStart).TotalMilliseconds - _frameRenderMs;
+        if (frameLog)
+        {
+            frameCallbackMs += _frameBeginMs + _frameRenderMs + _frameAfterPaintMs;
+            var paintKb = (GC.GetAllocatedBytesForCurrentThread() - allocatedBefore) / 1024.0;
+            paintMostMs = Math.Max(paintMostMs, _frameRenderMs);
+            paintTimes.Add(_frameRenderMs);
+            paintAllocatedMostKb = Math.Max(paintAllocatedMostKb, paintKb);
+            if (_frameRenderMs > 8.0)
+            {
+                paintsOverHalfARefresh++;
+            }
+
+            // A frame that takes half a refresh says where it went: the atlas's parts by their own stopwatches, the rest
+            // of the paint (the chrome, the tooltip), and what the collector did meanwhile. Measured, because a sampling
+            // profiler bills such a frame to wherever it parked the thread.
+            // And a paint that allocates more than the 150 KB a frame is held to says where that went.
+            if (paintKb > 150.0)
+            {
+                var kb = guiRenderer.SkyMapLayerKilobytes.Since(kilobytesBefore);
+                logger.LogInformation(
+                    "Large paint {PaintKb:F0} KB on {ActiveTab}: atlas map {Map:F0}, grid labels {Grid:F0}, constellation names {Names:F0}, planets {Planets:F0}, comets {Comets:F0}, objects {Objects:F0}, fixed markers {Fixed:F0}, info strip {Info:F0}, search and panel {Search:F0}; everything else {Rest:F0} KB",
+                    paintKb, appState.ActiveTab, kb.Map, kb.GridLabels, kb.ConstellationNames, kb.PlanetLabels, kb.CometLabels,
+                    kb.ObjectOverlay, kb.FixedMarkers, kb.InfoStrip, kb.SearchPanel, paintKb - kb.Total);
+            }
+
+            if (_frameRenderMs > 8.0)
+            {
+                var spent = guiRenderer.SkyMapLayerCosts.Since(costsBefore);
+                logger.LogInformation(
+                    "Slow paint {RenderMs:F1} ms on {ActiveTab} ({Kind}): atlas map {Map:F1}, grid labels {Grid:F1}, constellation names {Names:F1}, planets {Planets:F1}, comets {Comets:F1}, objects {Objects:F1} (project {OverlayProject:F1}, place {OverlayPlace:F1}, draw {OverlayDraw:F1}), fixed markers {Fixed:F1}, info strip {Info:F1}, search {Search:F1}; everything else {Rest:F1}; object gather running before {GatherBefore} after {GatherAfter}, installed {GathersInstalled}; collections gen0 {Gen0} gen2 {Gen2}, paused {PauseMs:F1} ms; allocated {AllocatedKb:F0} KB",
+                    _frameRenderMs, appState.ActiveTab, renderer.LastFrameWasPartial ? "partial" : "full",
+                    spent.Map, spent.GridLabels, spent.ConstellationNames, spent.PlanetLabels, spent.CometLabels,
+                    spent.ObjectOverlay,
+                    guiRenderer.SkyMapOverlayPhases.Project - overlayBefore.Project,
+                    guiRenderer.SkyMapOverlayPhases.Place - overlayBefore.Place,
+                    guiRenderer.SkyMapOverlayPhases.Draw - overlayBefore.Draw,
+                    spent.FixedMarkers, spent.InfoStrip, spent.SearchPanel,
+                    _frameRenderMs - spent.Total,
+                    gathersBefore.InFlight, guiRenderer.SkyMapGathers.InFlight,
+                    guiRenderer.SkyMapGathers.Installed - gathersBefore.Installed,
+                    GC.CollectionCount(0) - gen0Before, GC.CollectionCount(2) - gen2Before,
+                    (GC.GetTotalPauseDuration() - pauseBefore).TotalMilliseconds,
+                    (GC.GetAllocatedBytesForCurrentThread() - allocatedBefore) / 1024.0);
+            }
+        }
     },
 
 };
 eventLoop = loop;
+// A redraw flag raised on another thread (a run's progress, a mirror's reading, a load that finished) wakes the loop,
+// which otherwise sleeps until its idle interval runs out.
+RedrawFlag.WakeHostOnRaise(loop.Wake);
+if (frameLog && loop.CheckNeedsRedraw is { } untimedCheck)
+{
+    // Traced: the redraw check is timed, every ask of it, so the trace line can say what the asking costs.
+    loop.CheckNeedsRedraw = () =>
+    {
+        var began = System.Diagnostics.Stopwatch.GetTimestamp();
+        var owed = untimedCheck();
+        redrawCheckTicks += System.Diagnostics.Stopwatch.GetTimestamp() - began;
+        return owed;
+    };
+}
 
 // A quit (the window's close button, Esc twice): the shared rule, AppQuit.
 void RequestQuit() => appQuit.Request();
@@ -685,6 +861,13 @@ loop.OnLoopIteration = () =>
 // Set separately to allow loop.Stop() self-reference
 loop.OnPostFrame = () =>
 {
+    // Once, a few seconds in: the glyphs a panel can show, rasterised on other threads (GlyphWarmUp).
+    if (!glyphsWarmed && System.Diagnostics.Stopwatch.GetElapsedTime(glyphWarmUpFrom).TotalSeconds >= 3.0)
+    {
+        glyphsWarmed = true;
+        GlyphWarmUp.Queue(renderer, guiRenderer.FontPath);
+    }
+
     if (frameTrace)
     {
         var region = renderer.Context.LastFrameRegion;
@@ -696,46 +879,50 @@ loop.OnPostFrame = () =>
             _frameBeginMs, _frameAfterPaintMs);
     }
 
-    // Any signal processed this post-frame may have mutated state that the just-rendered
-    // frame doesn't reflect: preserve NeedsRedraw so the loop renders again on the next
-    // iteration. The previous "redrawBefore == false" gate was buggy: when the click that
-    // triggered this frame's render also set NeedsRedraw=true, we wrongly cleared it.
+    // The redraw flags are cleared FIRST, of what the frame just drawn drew, and the signals are processed after, so
+    // what a signal changes is a raise like any other and stands for the next frame.
+    //
+    // A frame that repainted part of the window drew nothing a flag asked for, so it clears none (#2130). Asked of what
+    // the renderer DID, never of what the scheduler meant: a swapchain image that missed a full frame is repainted whole
+    // whatever damage was declared, and such a frame drew everything. Left uncleared, a flag raised while it was drawn
+    // (the atlas levels its roll in the draw) bought a second full frame, which put every other image a full frame
+    // behind again, so on the Sky Map no narrowed frame was ever drawn as one.
+    //
+    // Each flag is a RedrawFlag, so a clear takes neither what another thread raised while the frame was drawn (a run's
+    // progress, a load that finished) nor a frame asked for from inside the draw. What it does take is a plain raise the
+    // draw itself made, and it says so: such a raise is owed a settling frame, the one thing that is. The atlas's own
+    // flag is never counted, since its draw raises it for what its frame shows, every frame (it levels the roll), and
+    // what it needs frames FOR it states as a standing reason (SkyMapState.NeedsContinuousFrames).
+    if (!renderer.LastFrameWasPartial)
+    {
+        var dropped = plannerState.ClearRedrawAfterFrame();
+        // OnPostFrame leaves the flags set for the whole of a shutdown, whose frames the redraw check paces itself.
+        if (!appState.ShuttingDown)
+        {
+            dropped |= appState.ClearRedrawAfterFrame();
+            guiRenderer.SkyMapState.NeedsRedraw = false;
+            dropped |= guiRenderer.ViewContexts.ClearNeedsRedraw();
+        }
+        raiseDropped |= dropped;
+    }
+
+    // Any signal processed this post-frame may have mutated state that the just-rendered frame doesn't reflect, whether
+    // or not its handler raised a flag for it: it is owed the next frame.
     var processedAny = bus.ProcessPending(tracker);
-    if (tracker.ProcessCompletions(logger))
+    if (tracker.ProcessCompletions(logger) || processedAny)
     {
         appState.NeedsRedraw = true;
     }
-    var signalSetRedraw = processedAny;
+
+    // The frame is on its way to the screen and the next is most of an interval off: where a collection that is nearly
+    // due costs no frame anything (BetweenFramesCollector).
+    betweenFrames.AfterFrame();
 
     // During shutdown, stop the loop once all tasks (Finalise) have completed
     if (appState.ShutdownComplete)
     {
         loop.Stop();
         return;
-    }
-
-    // A frame that repainted part of the window drew nothing a flag asked for, so it clears none (#2130). Asked of what
-    // the renderer DID, never of what the scheduler meant: a swapchain image that missed a full frame is repainted whole
-    // whatever damage was declared, and such a frame drew everything. Left uncleared, a flag raised while it was drawn
-    // (the atlas levels its roll in the draw) bought a second full frame, which put every other image a full frame
-    // behind again, so on the Sky Map no narrowed frame was ever drawn as one.
-    if (!renderer.LastFrameWasPartial)
-    {
-        if (!appState.ShuttingDown && !signalSetRedraw)
-        {
-            appState.NeedsRedraw = false;
-            // Signals processed during OnPostFrame (e.g. SkyMapClickSelectSignal)
-            // mutate SkyMapState but the current frame already ran. Only clear the
-            // flag when no signal fired this post-frame so the mutation drives the
-            // next render.
-            guiRenderer.SkyMapState.NeedsRedraw = false;
-            // Same contract for the live-session flag: the polar progress callback
-            // (running on a thread-pool continuation) sets this from outside the
-            // frame, so we have to consume it once we've actually rendered, or it
-            // would re-trigger the redraw loop on every iteration.
-            guiRenderer.ViewContexts.ClearNeedsRedraw();
-        }
-        plannerState.NeedsRedraw = false;
     }
 
     // Update window title (only when changed). The title names what you are LOOKING at: the active
@@ -745,17 +932,10 @@ loop.OnPostFrame = () =>
     var ls = guiRenderer.ViewContexts.Active.LiveSession;
     var viewed = guiRenderer.ViewContexts.Active;
 
-    // The profile label comes from the home board's card for the context on screen, so the title and the
-    // card can never disagree about what a rig runs -- and a remote rig's profile costs no second lookup.
-    string? viewedProfile = null;
-    foreach (var card in appState.HomeCards)
-    {
-        if (card.IsViewed)
-        {
-            viewedProfile = card.Subtitle;
-            break;
-        }
-    }
+    // The profile label is the home board's own for the context on screen (HomeBoard.ViewedProfile, the rule its cards
+    // use), so the title and the card can never disagree about what a rig runs. Asked of the board rather than read off its
+    // cards: those are built only while the Home tab shows them.
+    var viewedProfile = HomeBoard.ViewedProfile(guiRenderer.ViewContexts, signalHandler.Rigs, appState);
 
     // Words only, no tab emoji: a window title is drawn by the desktop's own font, and one without colour emoji (a
     // Raspberry Pi's, seen 2026-11-14) shows a missing-glyph box where "Home" should start.
@@ -1034,3 +1214,17 @@ void PumpInstanceGate()
 }
 
 return 0;
+
+// The paint time below which the given share of the paints since the last line came in (sorted in place: the list is
+// emptied once read).
+static double PaintPercentile(List<double> times, double share)
+{
+    if (times.Count == 0)
+    {
+        return 0;
+    }
+
+    var span = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(times);
+    span.Sort();
+    return span[Math.Min(span.Length - 1, (int)(share * span.Length))];
+}

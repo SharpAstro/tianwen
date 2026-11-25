@@ -53,19 +53,25 @@ public static class VkOverlayShapes
         VkRenderer renderer, float dpiScale,
         float cx, float cy, float armLength, RGBAColor32 color)
     {
+        var (horizontal, vertical) = CrossArms(dpiScale, cx, cy, armLength);
+        renderer.FillRectangle(horizontal, color);
+        renderer.FillRectangle(vertical, color);
+    }
+
+    /// <summary>
+    /// A cross's two arms, for a caller that draws many crosses as one batch (<see cref="VkRenderer.FillRectangles"/>):
+    /// a draw a rectangle was two thousand draws a frame for the stars of a wide view.
+    /// </summary>
+    public static (RectInt Horizontal, RectInt Vertical) CrossArms(float dpiScale, float cx, float cy, float armLength)
+    {
         var thickness = Math.Max(1, (int)dpiScale);
-
-        // Horizontal arm
-        var hRect = new RectInt(
-            new PointInt((int)(cx + armLength), (int)(cy + thickness)),
-            new PointInt((int)(cx - armLength), (int)(cy - thickness)));
-        renderer.FillRectangle(hRect, color);
-
-        // Vertical arm
-        var vRect = new RectInt(
-            new PointInt((int)(cx + thickness), (int)(cy + armLength)),
-            new PointInt((int)(cx - thickness), (int)(cy - armLength)));
-        renderer.FillRectangle(vRect, color);
+        return (
+            new RectInt(
+                new PointInt((int)(cx + armLength), (int)(cy + thickness)),
+                new PointInt((int)(cx - armLength), (int)(cy - thickness))),
+            new RectInt(
+                new PointInt((int)(cx + thickness), (int)(cy + armLength)),
+                new PointInt((int)(cx - thickness), (int)(cy - armLength))));
     }
 
     /// <summary>

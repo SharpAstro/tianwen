@@ -210,3 +210,122 @@ whole window per motion event: 8% GPU sliding the pointer down the file list, an
 far enough that the image no longer reached it. That asymmetry is what made it findable, and also what
 hid it -- the waste APPEARS as you zoom in, so it reads as a rendering cost rather than a hit test
 against the wrong rectangle. Now gated on the pane rect, so it is 0% at any zoom.
+
+## The frames were cheap and the schedule was not (found 2026-11-25, fixed)
+
+The atlas stuttered on a laptop over Remote Desktop, and its hover highlight was called terrible. The trace
+(`tools/start-app.ps1 gui -Trace`) said the frames were not the cost: a hover frame took 1.7 ms of processor and
+0.6 ms of GPU, a pan frame 2.5 and 3. What was wrong was WHEN they were drawn. A hover drew two frames 14 ms
+apart and then none for 65, on repeat, 13 updates a second under a pointer delivering 40 moves; a pan ran at
+display rate for a few frames and then stood for 50 to 90 ms. Five causes, each found from the per-frame lines
+and the five-second `Frames in 5 s` line rather than by asking how it felt.
+
+**Three rate limiters beat against each other.** SdlVulkan.Renderer's loop armed a frame for a pointer move at
+most thirty times a second and DROPPED the arm of a move inside that window, a limit from before frame pacing
+existed. `GuiFrameScheduler` drew what a dropped move had changed on a timer of its own, a thirtieth of a second
+after the check that found it. And the atlas's hover resolved the pointer once per PAINTED frame, discarding the
+moves in between. After a trailing frame the next move armed at once (the 14 ms pair); the move after that was
+dropped, waited for a check, then 33 ms, then another check (the 65 ms hole). The loop arms every move a handler
+takes now and pacing alone sets the rate (SdlVulkan.Renderer 7.110); a stated change with no frame armed is asked
+for at once; and the hover keeps where the pointer IS and resolves it again right before each frame
+(`IPointerMoveChange.SettlePointer`, asked from the redraw check). A pointer that stopped inside the old window
+left the highlight on an object it was no longer over until it moved again, which is the same fix.
+
+**A frame the check armed was drawn in full for the check's own yes.** A frame is commonly held for pacing past
+the next check, which then finds a frame owed. Owed to nothing but the check's earlier answer, it read as a cause
+of the loop's (an expose, a resize), which cannot be narrowed: under a moving pointer nearly every clock tick was
+a full frame. The loop now says when a frame is owed to the check and pointer moves alone
+(`RedrawPendingForCheckAndPointerMovesAlone`), and such a frame is narrowed to what the scheduler's reasons hold.
+
+**The settling frame followed every full frame.** Three of the four redraw flags were plain booleans, and the
+host's clear after a frame took whatever a thread-pool callback had raised while that frame was being drawn. A
+full frame a second later caught it, lost or not: on an idle atlas that was every second full frame. Each flag is
+a `RedrawFlag` now. Its clear keeps a raise from another thread and a frame asked for from inside the draw, and
+SAYS when it dropped a plain raise the draw itself made, which is the one thing a settling frame is owed to.
+The same inspection found two animations with no frames of their own: the layer palette's fade and the roll
+easing back to level asked for each next frame with exactly the raise that clear takes, so both moved a step
+whenever something else drew, a step a second on a still map. They are standing reasons
+(`SkyMapState.NeedsContinuousFrames`).
+
+**The window was asked sixty times a second whether anything had changed.** 322 redraw checks in five idle
+seconds, each a wake of the render thread with the loop's hooks behind it, for an answer that was "no". The
+scheduler now says when the clock could next owe a frame (`GuiFrameScheduler.NextTimedNeed`), the host passes
+that to the loop capped at a quarter of a second (`SdlWindowView.IdleCheckInterval`), and a redraw flag raised on
+another thread wakes it (`RedrawFlag.WakeHostOnRaise`, `SdlEventLoop.Wake`). Input is an event and pulls the
+check in at once, and for a second after input the loop keeps the refresh's pace, which is what a tooltip's delay
+and a double click need. 25 checks in five seconds.
+
+**The sky was redrawn for a drift nobody could see.** The planet and comet positions were recomputed every
+second whatever the zoom, 70 percent of what an idle atlas spent drawing; they now stand for as long as the
+fastest body takes to cross a quarter of a pixel (`SkyMapState.EphemerisCacheTolerance`), a second again while a
+body's own numbers are on show. And the whole map was redrawn for half a pixel of sidereal drift, every 4 s in
+the opening view; it is one pixel now (`GuiTimeCadence.SkyDriftPixels`). The owner's rule for both: everything
+that needs updating should update eventually, but not excessively so.
+
+Measured on that laptop, the Sky Map idle in its opening view, per five seconds:
+
+| | before | after |
+|---|---|---|
+| redraw checks | 322, about 20 ms | 25, about 2.5 ms |
+| settling frames | 1 to 2 | 0 |
+| full frames | 5 | 1 to 3 |
+| processor in the frames | about 90 ms | about 20 ms |
+| the render thread | about 86 ms | 25 ms, the frames and the checks and nothing else |
+| the process | 2.34 % of a core | 0.90 % |
+
+Three things about measuring it, each of which cost an hour. A sampling profile parks a thread at its native
+calls, so it bills the clock reads and the syscalls for time nothing spent there, and adds a `PollGCWorker` share
+that is its own overhead: trust the top of the tree, measure a leaf with a stopwatch. Idle is not idle for the
+first minute or two, while the runtime's background JIT works: readings swung between 16 and 330 ms per five
+seconds. And a build or a test run starves the render thread on a laptop, which the log shows as 150 to 500 ms
+frames that are nobody's fault.
+
+What a full frame still costs after it: the next two or three frames are full too, one per swapchain image that
+missed it. About 2.6 ms of GPU each, a few a minute at idle. The renderer's retained frame would trade that for a
+copy of the whole surface every frame, a pan's included, so it stays for software rasterisers.
+
+## A pan's paints under 8 ms and 150 KB (found 2026-11-25, fixed)
+
+The goal set after the schedule was fixed: a minute of panning and hovering with the Objects layer on, no paint
+over 8 ms, at most one collection a second, under 150 KB allocated a frame. Before, the render thread allocated
+about 500 KB a frame, a generation-0 collection came three or four times a second with a 7 to 11 ms pause each, and
+the slow paints had five more causes. The trace's five-second line now carries the three figures (collections,
+paints median, 90th percentile and longest, KB a frame), and a paint over 8 ms or 150 KB writes a line saying which
+layer spent it. Each fix below was found from those lines.
+
+- **Kept layouts.** The status bar, sidebar, navigation strip, layer palette, info strip and the object's panel
+  were built every frame. Each keeps its arranged tree by a key of everything its build reads (`KeptLayout<TKey>`)
+  and paints from it, so hover and hit regions are still registered every frame. The clock is drawn into its kept
+  box. The object's panel alone was 40 percent of all garbage. DIR.Lib 11.100 keeps the tab strip the same way.
+- **Collections between frames.** `BetweenFramesCollector` asks for a generation-0 collection after a presented
+  frame once 4 MB has been allocated, so the pause lands between frames. No runtime setting moves the budget
+  except the `DOTNET_GCgen0size` variable.
+- **Efficiency cores.** The laptop's i7-1255U has two performance cores and eight efficiency cores, and Windows put
+  the render thread of a window not in the foreground on an efficiency core: every layer took twice as long. The
+  render loop asks Windows for full speed on that thread (SdlVulkan.Renderer 7.110, `RenderThreadQos`).
+- **Cold glyphs on the measure path.** The draw path rasterises a glyph it has not seen off the render thread, but
+  a measurement does it in place: the `&` of a picture credit cost 138 ms. The GUI warms the printable Latin range
+  and the usual marks in the background three seconds after start (`GlyphWarmUp`).
+- **Ephemerides computed ahead.** The planet and comet sweep, 10 ms when the tolerance ran out, is computed on a
+  task at three quarters of the tolerance for an instant half a tolerance ahead.
+- **The Objects layer.** An object off screen is dropped on one dot product before projection, and the rest are
+  projected from their unit vectors. A gather keeps each object's candidate, label strings included
+  (`OverlayGatherScratch`), and the items and label hits of objects still in view carry over an install by
+  catalogue index. Crosses are one batch of rectangles. The grid's edge labels are traced from tables of sines.
+- **Library allocations.** DIR.Lib's fallback measure and its glyph lookup closure; SdlVulkan's line and rectangle
+  vertices; a device key rebuilt per lookup (now cached per `Uri`); SOFA's leap-second tables, which a Debug build
+  allocated on every call.
+
+A scripted minute (pans and hovers through the inspector at about 33 frames a second, Debug, 2900 by 1700 at 1.5,
+an object's panel open):
+
+| | before | after |
+|---|---|---|
+| KB a frame | about 500 | 17 to 26 |
+| collections | 3 or 4 a second, inside frames, 7 to 11 ms each | 1 to 3 per five seconds, all between frames |
+| paints over 8 ms in the minute | 21 with only the efficiency cores left to fix | 0 |
+| longest paint | | 7.9 ms |
+| largest paint | | 101 KB |
+
+Two probes print the same figures without a window, for a change to be read in seconds: `GuiFrameAllocationProbe`
+(CPU surface, by part) and `SkyMapPanCostProbe` (GPU, by layer). Both run only with `TIANWEN_FRAME_PROBE=1`.

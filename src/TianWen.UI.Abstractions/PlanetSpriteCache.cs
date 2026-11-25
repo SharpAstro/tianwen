@@ -21,11 +21,10 @@ public sealed record PlanetSprite(CatalogIndex Body, byte[] Rgba, int Side, doub
 /// What a sprite depends on, every continuous input BUCKETED (CLAUDE.md, "a quantized cache key must not derive its grid from a
 /// continuous input"): the disc's size in steps of an eighth of an octave, and every angle (central meridian, the Sun's place on the
 /// disc, the sub-observer latitude that tilts the pole and opens Saturn's rings, the turn on screen) in steps of the limb error,
-/// about one radian over the radius, taken from the BUCKETED size. The palette generation and Night, the texture's version, and
-/// whether the body is dimmed below the horizon.
+/// about one radian over the radius, taken from the BUCKETED size. The palette generation and Night, and the texture's version.
 /// </summary>
 public readonly record struct PlanetSpriteKey(CatalogIndex Body, int Size, int CentralMeridian, int SunLongitude, int SunLatitude,
-    int ObserverLatitude, int Turn, bool Mirrored, int PaletteGeneration, bool Night, int TextureVersion, bool Dimmed);
+    int ObserverLatitude, int Turn, bool Mirrored, int PaletteGeneration, bool Night, int TextureVersion);
 
 /// <summary>
 /// The sky atlas's planet sprites (docs/plans/atlas-planet-detail.md, "A4: the textured disc"): one per body, rebuilt only when its
@@ -48,9 +47,6 @@ public sealed class PlanetSpriteCache(Action? requestRedraw = null, int channel 
     public int Channel => channel;
 
     private const int SizeStepsPerOctave = 8;
-
-    /// <summary>A body below the horizon is drawn at this opacity, as its label is (<c>SkyMapTab.DimmedIf</c>).</summary>
-    public const float DimmedOpacity = 0.35f;
 
     private sealed class Entry
     {
@@ -93,7 +89,7 @@ public sealed class PlanetSpriteCache(Action? requestRedraw = null, int channel 
     /// <paramref name="poleScreenAngleDeg"/>.
     /// </summary>
     public static PlanetSpriteKey KeyFor(in PlanetAspect aspect, double diameterPx, double poleScreenAngleDeg, bool mirrored,
-        int paletteGeneration, bool night, int textureVersion, bool dimmed = false)
+        int paletteGeneration, bool night, int textureVersion)
     {
         var (size, radius) = SizeBucket(aspect.Planet, diameterPx);
         var step = AngleStepDeg(radius);
@@ -104,7 +100,7 @@ public sealed class PlanetSpriteCache(Action? requestRedraw = null, int channel 
             Bucket(aspect.SubSolarLatitudeCentric),
             Bucket(aspect.SubObserverLatitudeCentric),
             Bucket(poleScreenAngleDeg),
-            mirrored, paletteGeneration, night, textureVersion, dimmed);
+            mirrored, paletteGeneration, night, textureVersion);
     }
 
     /// <summary>
@@ -112,10 +108,9 @@ public sealed class PlanetSpriteCache(Action? requestRedraw = null, int channel 
     /// one in hand starts a build unless one is already running; what it returns meanwhile is the stale sprite.
     /// </summary>
     public PlanetSprite? Get(in PlanetAspect aspect, double diameterPx, double poleScreenAngleDeg, bool mirrored,
-        PlanetColourMap? map, string credit, RGBAColor32 flat, RGBAColor32? nightTint, int paletteGeneration, int textureVersion,
-        bool dimmed = false)
+        PlanetColourMap? map, string credit, RGBAColor32 flat, RGBAColor32? nightTint, int paletteGeneration, int textureVersion)
     {
-        var key = KeyFor(aspect, diameterPx, poleScreenAngleDeg, mirrored, paletteGeneration, nightTint.HasValue, textureVersion, dimmed);
+        var key = KeyFor(aspect, diameterPx, poleScreenAngleDeg, mirrored, paletteGeneration, nightTint.HasValue, textureVersion);
         if (!_entries.TryGetValue(aspect.Planet, out var entry))
         {
             _entries[aspect.Planet] = entry = new Entry();
@@ -140,7 +135,7 @@ public sealed class PlanetSpriteCache(Action? requestRedraw = null, int channel 
         var body = aspect.Planet;
         entry.Pending = Task.Run(() =>
         {
-            var rgba = PlanetDiscSprite.Build(body, map, flat, snapped, radius, turn, mirrored, nightTint, out var side, dimmed ? DimmedOpacity : 1);
+            var rgba = PlanetDiscSprite.Build(body, map, flat, snapped, radius, turn, mirrored, nightTint, out var side);
             return new PlanetSprite(body, rgba, side, radius, key, credit, channel);
         });
         if (requestRedraw is { } redraw)

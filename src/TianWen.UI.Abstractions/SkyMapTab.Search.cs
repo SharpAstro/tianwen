@@ -534,9 +534,161 @@ namespace TianWen.UI.Abstractions
             RectF32 contentRect,
             Action<RectF32>? drawDisc)
         {
-            var dpiScale = DpiScale;
-            var palette = InfoPanelPalette;
             var hasCurve = magCurve.Length > 0;
+
+            // The panel's trees are the same until what it shows changes: built when its key changes and painted every
+            // frame, which registers their regions and draws the fills (the night curve's "now", the disc, the picture)
+            // as they are now. Building them was 40% of what the render thread allocated with an object selected, every
+            // frame of a pan or a hover (traced 2026-11-25), for a panel whose rows change every few seconds.
+            var key = new ObjectPanelKey(
+                ShownOnPanel(in info), options, new ObjectPanelShownActions(in actions), hasCurve, State.Orrery.IsOpen, DpiScale);
+            if (!_keptObjectPanel.TryGet(key, contentRect, Scale, FontPath, out _))
+            {
+                _keptObjectPanel.Keep(key, contentRect, Scale, FontPath,
+                    BuildObjectPanel(in info, in options, in actions, hasCurve, contentRect));
+            }
+
+            var parts = _objectPanelParts;
+            LastPanelTextRect = _objectPanelTextRect;
+            (LastNightCurve, LastNightCurveRect) = (null, null);
+            _panelNightCurve = options.NightCurve;
+            _panelPicture = options.Picture;
+            _panelDrawDisc = drawDisc;
+
+            PaintLayout(parts[ObjectPanelBorder], scale: Scale);
+            PaintLayout(parts[ObjectPanelBackground], scale: Scale);
+            PaintLayout(parts[ObjectPanelText], scale: Scale);
+
+            // Comet vmag sparkline (brighter = up), auto-scaled to the sampled +/-45-day window. The
+            // "now" sample (window centre) is dotted, so the current trend reads at a glance.
+            if (hasCurve)
+            {
+                var (sx, sy, sw, sh) = _objectPanelSparkline;
+                DrawMagnitudeSparkline(magCurve, sx, sy, sw, sh, 12f * DpiScale);
+            }
+
+            for (var part = ObjectPanelNight; part < parts.Length; part++)
+            {
+                if (!parts[part].IsDefaultOrEmpty)
+                {
+                    PaintLayout(parts[part], scale: Scale, drawFill: _paintObjectPanelFill ??= PaintObjectPanelFill);
+                }
+            }
+
+            if (options.Picture is null)
+            {
+                // Nothing to expand: an object whose article kept no picture, or one whose panel replaced a
+                // picture that was open.
+                State.PictureExpanded = false;
+            }
+
+            _panelDrawDisc = null;
+        }
+
+        // The panel's parts in the order they are painted: its border (which swallows a press anywhere on it), its ground,
+        // the text rows, then the night curve, the disc and picture, the links, the buttons and the close affordance.
+        private const int ObjectPanelBorder = 0, ObjectPanelBackground = 1, ObjectPanelText = 2, ObjectPanelNight = 3,
+            ObjectPanelMedia = 4, ObjectPanelLinks = 5, ObjectPanelButtons = 6, ObjectPanelClose = 7;
+
+        private readonly ImmutableArray<Layout.ArrangedNode<float>>[] _objectPanelParts =
+            new ImmutableArray<Layout.ArrangedNode<float>>[ObjectPanelClose + 1];
+
+        private RectF32 _objectPanelTextRect;
+        private (float X, float Y, float W, float H) _objectPanelSparkline;
+
+        // What the panel's fills draw this frame: set by DrawObjectPanelBox before it paints.
+        private AtlasNightCurve? _panelNightCurve;
+        private ObjectArticleImage? _panelPicture;
+        private Action<RectF32>? _panelDrawDisc;
+        private Action<Layout.Content.Fill, RectF32>? _paintObjectPanelFill;
+
+        private KeptLayout<ObjectPanelKey> _keptObjectPanel;
+
+        /// <summary>How many times the object panel's trees were built (<see cref="KeptLayout{TKey}.Builds"/>).</summary>
+        internal int ObjectPanelBuilds => _keptObjectPanel.Builds;
+
+        // The panel's fills, drawn every frame into the slots the kept trees hold for them.
+        private void PaintObjectPanelFill(Layout.Content.Fill fill, RectF32 rect)
+        {
+            if (fill.Key == ObjectInfoPanel.NightCurveFillKey && _panelNightCurve is { } shown)
+            {
+                (LastNightCurve, LastNightCurveRect) = (shown, rect);
+                DrawNightCurve(shown, rect, _lastViewingTime);
+            }
+            else if (fill.Key == ObjectInfoPanel.PictureFillKey && _panelPicture is { } picture)
+            {
+                DrawObjectPicture(in picture, rect);
+            }
+            else if (fill.Key == ObjectInfoPanel.DiscFillKey)
+            {
+                LastPanelDiscRect = rect;
+                _panelDrawDisc?.Invoke(rect);
+            }
+        }
+
+        // Everything the panel is built from: what it shows of the object (ShownOnPanel), its options, which buttons it
+        // offers and their states, whether a comet's sparkline takes room, the host (the sky or the orrery, whose
+        // buttons act differently) and the display scale. The handlers in the kept trees act on the object they were
+        // made for, which the key names.
+        private readonly record struct ObjectPanelKey(
+            SkyMapInfoPanelData Shown, ObjectInfoPanel.PanelDisplayOptions Options, ObjectPanelShownActions Buttons,
+            bool HasCurve, bool InOrrery, float DpiScale);
+
+        // The panel's actions as what they show: whether each button is there and in what state. Their handlers are made
+        // again every frame, so they are not compared; the kept tree's act on the same object.
+        private readonly record struct ObjectPanelShownActions(
+            bool Close, bool Goto, bool GotoEnabled, string? GotoBusy, bool ViewInPlanner, bool TogglePin, bool IsPinned,
+            bool SolveSync, bool SolveInProgress, string? ArticleUrl, string? AtlasUrl, bool AtlasOpened, bool Orrery,
+            bool Centre)
+        {
+            public ObjectPanelShownActions(in ObjectInfoPanel.PanelActions actions)
+                : this(actions.Close is not null, actions.Goto is not null, actions.GotoEnabled, actions.GotoBusy,
+                    actions.ViewInPlanner is not null, actions.TogglePin is not null, actions.IsPinned,
+                    actions.SolveSync is not null, actions.SolveInProgress, actions.ArticleUrl, actions.AtlasUrl,
+                    actions.AtlasOpened is not null, actions.Orrery is not null, actions.Centre is not null)
+            {
+            }
+        }
+
+        /// <summary>
+        /// What the panel shows of <paramref name="info"/>, for its key: each value that moves with the clock floored to
+        /// a grid its printed form's rounding boundaries all lie on, so the key changes whenever the printed value does
+        /// and not on every frame. Altitude and azimuth print to 0.1 degree (grid 0.01), RA and Dec to a tenth of a
+        /// second (grid 0.01 s), the magnitude to 0.01 (grid 0.001), the times to the minute. The body's aspect is out:
+        /// the panel shows it as <see cref="ObjectInfoPanel.PanelDisplayOptions.Disk"/>, which the options carry.
+        /// </summary>
+        internal static SkyMapInfoPanelData ShownOnPanel(in SkyMapInfoPanelData info) => info with
+        {
+            RA = Math.Floor(info.RA * 360_000.0),
+            Dec = Math.Floor(info.Dec * 360_000.0),
+            AltDeg = Math.Floor(info.AltDeg * 100.0),
+            AzDeg = Math.Floor(info.AzDeg * 100.0),
+            VMag = MathF.Floor(info.VMag * 1000f),
+            RiseTime = ToTheMinute(info.RiseTime),
+            TransitTime = ToTheMinute(info.TransitTime),
+            SetTime = ToTheMinute(info.SetTime),
+            Aspect = null,
+        };
+
+        private static DateTimeOffset? ToTheMinute(DateTimeOffset? time)
+            => time is { } t ? new DateTimeOffset(t.Ticks - (t.Ticks % TimeSpan.TicksPerMinute), t.Offset) : null;
+
+        /// <summary>
+        /// The panel's trees, arranged: its box at the bottom-left of <paramref name="contentRect"/>, its rows, night curve,
+        /// disc and picture, links, buttons and close, into <see cref="_objectPanelParts"/>. Returns the text rows'.
+        /// </summary>
+        private ImmutableArray<Layout.ArrangedNode<float>> BuildObjectPanel(
+            in SkyMapInfoPanelData info,
+            in ObjectInfoPanel.PanelDisplayOptions options,
+            in ObjectInfoPanel.PanelActions actions,
+            bool hasCurve,
+            RectF32 contentRect)
+        {
+            var dpiScale = DpiScale;
+            var scale = Scale;
+            var palette = InfoPanelPalette;
+            var parts = _objectPanelParts;
+            Array.Fill(parts, default);
             // The BOX comes from the same method the content does. It used to be two literals sitting
             // here (348 wide, 205 or 250 tall) while ObjectInfoPanel computed its own for the viewer,
             // which is the drift the hoist was meant to close: a row added to the shared panel would
@@ -552,16 +704,16 @@ namespace TianWen.UI.Abstractions
             var py = MathF.Max(
                 contentRect.Y,
                 contentRect.Y + contentRect.Height - ph - 32f * dpiScale);
-            var fontSize = 12f * dpiScale;
 
             // The border rect is the panel's whole visual extent, so ONE no-op Clickable there swallows
             // a press anywhere on the panel -- its blank area included, not just its buttons -- rather
             // than letting it fall through to the map's own click-select underneath. Registered on the
             // border layer rather than the background one so the two rects do not both claim the region.
-            RenderLayout(Layout.Builder.Spacer().Bg(palette.Border)
+            parts[ObjectPanelBorder] = ArrangeLayout(Layout.Builder.Spacer().Bg(palette.Border)
                     .Clickable(new HitResult.ButtonHit("InfoPanelBackground"), _ => { }),
-                new RectF32(px - 1, py - 1, pw + 2, ph + 2));
-            RenderLayout(Layout.Builder.Spacer().Bg(palette.Background), new RectF32(px, py, pw, ph));
+                new RectF32(px - 1, py - 1, pw + 2, ph + 2), scale: scale);
+            parts[ObjectPanelBackground] = ArrangeLayout(Layout.Builder.Spacer().Bg(palette.Background),
+                new RectF32(px, py, pw, ph), scale: scale);
 
             // Text inset from the panel edge, and narrow enough to clear the close affordance.
             var textX = px + 10f;
@@ -569,19 +721,10 @@ namespace TianWen.UI.Abstractions
 
             var textBlockH = ObjectInfoPanel.DesignTextBlockHeight(in options) * dpiScale;
             var textRect = new RectF32(textX, py, textW, textBlockH);
-            LastPanelTextRect = textRect;
-            RenderLayout(ObjectInfoPanel.BuildTextRows(in info, in options, in palette), textRect, scale: Scale);
+            _objectPanelTextRect = textRect;
+            parts[ObjectPanelText] = ArrangeLayout(ObjectInfoPanel.BuildTextRows(in info, in options, in palette), textRect, scale: scale);
             var row = textBlockH;
-            (LastNightCurve, LastNightCurveRect) = (null, null);
-
-            // Comet vmag sparkline (brighter = up), auto-scaled to the sampled +/-45-day window. The
-            // "now" sample (window centre) is dotted, so the current trend reads at a glance.
-            if (hasCurve)
-            {
-                DrawMagnitudeSparkline(magCurve,
-                    textX, py + row + 2f * dpiScale, textW, ObjectInfoPanel.DesignSparklineHeight * dpiScale,
-                    fontSize);
-            }
+            _objectPanelSparkline = (textX, py + row + 2f * dpiScale, textW, ObjectInfoPanel.DesignSparklineHeight * dpiScale);
 
             // The night curve sits under the rows and the sparkline: its slot is a fill the engine places, the curve drawn into it.
             var belowRows = py + row + 8f * dpiScale
@@ -589,19 +732,10 @@ namespace TianWen.UI.Abstractions
             var nightSectionH = ObjectInfoPanel.HasNightCurveSection(in options) ? ObjectInfoPanel.DesignNightCurveSectionHeight * dpiScale : 0f;
             if (ObjectInfoPanel.BuildNightCurveSection(in options, in palette) is { } nightSection)
             {
-                var nightCurveShown = options.NightCurve;
                 // In the text rows' inset (textX, textW), so the curve and its line align with the rows and clear the frame. The
                 // inset is 10 px on the left and 30 on the right on purpose: the right margin is the rows' own (textW = pw - 40),
                 // which clears the close affordance, and one inset for every row is what keeps the curve flush with the text.
-                RenderLayout(nightSection, new RectF32(textX, belowRows, textW, nightSectionH), scale: Scale,
-                    drawFill: (fill, rect) =>
-                    {
-                        if (fill.Key == ObjectInfoPanel.NightCurveFillKey && nightCurveShown is { } shown)
-                        {
-                            (LastNightCurve, LastNightCurveRect) = (shown, rect);
-                            DrawNightCurve(shown, rect, _lastViewingTime);
-                        }
-                    });
+                parts[ObjectPanelNight] = ArrangeLayout(nightSection, new RectF32(textX, belowRows, textW, nightSectionH), scale: scale);
             }
 
             // The disc and the picture sit under the rows, the sparkline and the night curve and above the buttons, not at the
@@ -609,54 +743,36 @@ namespace TianWen.UI.Abstractions
             if (ObjectInfoPanel.BuildMediaSections(in options, in palette, onOpenPicture: ExpandPicture) is { } media)
             {
                 var sectionY = belowRows + nightSectionH;
-                var picture = options.Picture;
-                RenderLayout(media,
-                    new RectF32(px, sectionY, pw, ObjectInfoPanel.DesignMediaHeight(in options) * dpiScale),
-                    scale: Scale,
-                    drawFill: (fill, rect) =>
-                    {
-                        if (fill.Key == ObjectInfoPanel.PictureFillKey && picture is { } shown)
-                        {
-                            DrawObjectPicture(in shown, rect);
-                        }
-                        else if (fill.Key == ObjectInfoPanel.DiscFillKey)
-                        {
-                            LastPanelDiscRect = rect;
-                            drawDisc?.Invoke(rect);
-                        }
-                    });
-            }
-            if (options.Picture is null)
-            {
-                // Nothing to expand: an object whose article kept no picture, or one whose panel replaced a
-                // picture that was open.
-                State.PictureExpanded = false;
+                parts[ObjectPanelMedia] = ArrangeLayout(media,
+                    new RectF32(px, sectionY, pw, ObjectInfoPanel.DesignMediaHeight(in options) * dpiScale), scale: scale);
             }
 
             // The links sit under the text column, their words aligned with it (the link's own 3-unit padding
             // is what the row starts left of the column by). Same placement rule as the viewer's copy.
             if (ObjectInfoPanel.BuildLinkRow(in actions, in palette) is { } linkRow)
             {
-                RenderLayout(linkRow,
+                parts[ObjectPanelLinks] = ArrangeLayout(linkRow,
                     new RectF32(textX - 3f * dpiScale, py + ObjectInfoPanel.DesignLinkRowTop(in options, in actions) * dpiScale,
                         textW, ObjectInfoPanel.DesignLinkRowHeight * dpiScale),
-                    scale: Scale);
+                    scale: scale);
             }
 
             var btnH = ObjectInfoPanel.DesignButtonHeight * dpiScale;
             var btnY = py + ph - btnH - 8f * dpiScale;
             if (ObjectInfoPanel.BuildButtonRow(in actions, in palette) is { } buttonRow)
             {
-                RenderLayout(buttonRow, new RectF32(px, btnY, pw, btnH), scale: Scale);
+                parts[ObjectPanelButtons] = ArrangeLayout(buttonRow, new RectF32(px, btnY, pw, btnH), scale: scale);
             }
 
             // Close affordance -- top-right of the panel, its tree shared with the viewer's.
             var closeSize = ObjectInfoPanel.DesignCloseSize * dpiScale;
             if (ObjectInfoPanel.BuildCloseButton(in actions, in palette) is { } closeNode)
             {
-                RenderLayout(closeNode,
-                    new RectF32(px + pw - closeSize, py, closeSize, closeSize), scale: Scale);
+                parts[ObjectPanelClose] = ArrangeLayout(closeNode,
+                    new RectF32(px + pw - closeSize, py, closeSize, closeSize), scale: scale);
             }
+
+            return parts[ObjectPanelText];
         }
 
         // Draw the selected solar-system body's sky path (planet or comet) as a thin polyline over its

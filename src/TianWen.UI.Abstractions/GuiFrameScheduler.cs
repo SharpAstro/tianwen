@@ -16,10 +16,16 @@ namespace TianWen.UI.Abstractions;
 /// <param name="PendingForPointerMoveAlone">That frame is owed to pointer moves alone
 /// (<c>SdlWindowView.RedrawPendingForPointerMoveAlone</c>).</param>
 /// <param name="PointerMoveChanged">What the pointer moves taken since the last check changed, when the widget that took
-/// them said; null when none said. Given whether or not the loop armed a frame for them: the loop draws moves at most
-/// thirty times a second and drops the ones between, and what a dropped move changed is still owed a repaint.</param>
+/// them said, and what the tab's settle changed at this check (<see cref="IPointerMoveChange.SettlePointer"/>); null when
+/// nothing said. Given whether or not the loop armed a frame for it: a change the settle states has no move to arm one,
+/// and a loop before SdlVulkan.Renderer 7.109 armed moves at most thirty times a second and dropped the ones between.</param>
 /// <param name="PointerMoveUnstated">A pointer move was taken since the last check by something that did not say what it
 /// changed (a tab that only answers "handled", a region's hover): the next frame is a full one.</param>
+/// <param name="PendingForCheckAndMovesAlone">The frame the loop owes was armed by nothing but this check's own earlier
+/// answers and pointer moves a handler took (<c>SdlWindowView.RedrawPendingForCheckAndPointerMovesAlone</c>): everything
+/// it is owed for was said here.</param>
+/// <param name="RaiseDropped">The host's clear after the last full frame dropped a redraw flag that frame's own draw had
+/// raised (<see cref="RedrawFlag.ClearAfterFrame"/>): nothing will draw what it asked for unless a settling frame does.</param>
 /// <param name="SkyDrift">The atlas's interval for the view it shows (<see cref="GuiTimeCadence.SkyDrift"/>); null when
 /// the host cannot say, which is a second.</param>
 /// <param name="ProcessCpu">The processor time this process has used so far, on every core
@@ -36,12 +42,15 @@ public readonly record struct GuiFrameInputs(
     RectF32? PointerMoveChanged,
     bool PointerMoveUnstated = false,
     TimeSpan? SkyDrift = null,
-    TimeSpan ProcessCpu = default);
+    TimeSpan ProcessCpu = default,
+    bool PendingForCheckAndMovesAlone = false,
+    bool RaiseDropped = false);
 
 /// <summary>
 /// WHETHER the GUI owes its window a frame, and WHAT that frame repaints (#2130): the whole of the decision that used to
 /// sit in <c>Program.cs</c> between the event loop's hooks, where no test could reach it. The host reads its state into
-/// <see cref="GuiFrameInputs"/>, asks <see cref="Check"/> on every loop iteration, asks <see cref="BeginFrame"/> as a frame
+/// <see cref="GuiFrameInputs"/>, asks <see cref="Check"/> whenever the loop asks its redraw check (right before every frame,
+/// and between frames about once a refresh), asks <see cref="BeginFrame"/> as a frame
 /// is committed to, and tells <see cref="EndFrame"/> nothing: the scheduler already knows what the frame was.
 /// <para>
 /// Four causes, each on its own:
@@ -49,11 +58,16 @@ public readonly record struct GuiFrameInputs(
 /// <list type="bullet">
 /// <item><b>the clock</b>, once a second, which repaints the clock's rectangle and nothing else;</item>
 /// <item><b>time-driven content</b>, at the interval <see cref="GuiTimeCadence"/> states for what is on show, a full frame;</item>
-/// <item><b>a change</b>, flagged by whoever made it, a full frame at once, followed by ONE settling frame a second later
-/// (the flags are cleared after the frame that drew them, so a change flagged while that frame was being drawn is cleared
-/// unseen; the settling frame draws it, and asks for no other);</item>
+/// <item><b>a change</b>, flagged by whoever made it, a full frame at once;</item>
 /// <item><b>a pointer move whose widget says what it changed</b>, which repaints that.</item>
 /// </list>
+/// <para>
+/// And one that is owed only when something was lost: <b>a settling frame</b>, a second after a full frame whose own draw
+/// raised a redraw flag that the host's clear then dropped (<see cref="GuiFrameInputs.RaiseDropped"/>). It draws what that
+/// raise asked for, and asks for no other. It used to follow EVERY caused frame, because a plain flag's clear also took
+/// what another thread had raised while the frame was drawn, and nothing could say whether that had happened: on an idle
+/// atlas that was every second full frame (2026-11-25). A <see cref="RedrawFlag"/> keeps such a raise.
+/// </para>
 /// <para>
 /// Nothing may lean on another's timer. A repaint is narrowed only when every cause since the last frame said what it
 /// changed (<see cref="GuiFrameReasons"/>); everything else, a cause the loop raised itself included, is a full frame.
@@ -63,7 +77,8 @@ public readonly record struct GuiFrameInputs(
 /// a tenth of a second or more on a software renderer (llvmpipe in a VM, a Raspberry Pi), where a frame a second is
 /// the whole of the app's idle load. So the scheduler reads what its full frames cost (the process's own processor
 /// time, on every core, over the quarter second after one starts) and stretches a time-driven interval until those
-/// frames take no more than <see cref="MaxTimeDrivenShare"/> of one core, up to <see cref="SlowestForCost"/>. It asks
+/// frames (and the settling frame each is followed by, where one is) take no more than
+/// <see cref="MaxTimeDrivenShare"/> of one core, up to <see cref="SlowestForCost"/>. It asks
 /// nothing about which renderer runs: a fast one never reaches the bound. A change is never held back, and neither is
 /// the clock. A time-driven frame of a second or slower is also drawn ON the clock's tick, so the two are one frame
 /// where they used to be two.
@@ -78,11 +93,17 @@ public sealed class GuiFrameScheduler
     private long _lastClockTick;
     // When the one settling frame is due; 0 for none.
     private long _settlingFrameDue;
+    // A settling frame was asked for and has not begun; and the last frame begun was one, so what its clear dropped is its
+    // own and buys no other.
+    private bool _settlingAsked;
+    private bool _lastFrameWasSettling;
+    // A settling frame fired since the last time-driven frame, and whether one followed the time-driven frame before it:
+    // then each interval is two frames of cost.
+    private bool _settledSinceTimeDriven;
+    private bool _settlingFollowsTimeDriven;
     // Since the last frame: a move said what it changed, and a move was taken that did not.
     private bool _statedMove;
     private bool _unstatedMove;
-    // When a stated move the loop did not arm a frame for is drawn anyway; 0 for none.
-    private long _trailingMoveDue;
     // The last check's instant and the process's processor time at it.
     private long _lastCheck;
     private TimeSpan _lastCheckCpu;
@@ -101,12 +122,6 @@ public sealed class GuiFrameScheduler
     // How long after a full frame begins its cost is read: long enough for a software renderer's worker threads to
     // have finished it, short enough that the next frame has not begun.
     private static readonly TimeSpan CostWindow = TimeSpan.FromMilliseconds(250);
-
-    /// <summary>
-    /// The rate at which a stated move the loop dropped is drawn anyway: the loop's own rate for pointer moves, so the
-    /// last move of a gesture is on screen a thirtieth of a second after it, where it used to wait for some other frame.
-    /// </summary>
-    public const int TrailingMoveRate = 30;
 
     /// <param name="now">The clock's timestamp at start (<c>ITimeProvider.GetTimestamp</c>).</param>
     /// <param name="ticksPerSecond">Its frequency.</param>
@@ -129,16 +144,20 @@ public sealed class GuiFrameScheduler
     /// <summary>
     /// The interval a time-driven frame is drawn at: <paramref name="cadence"/>, stretched until the frames it asks for
     /// take no more than <see cref="MaxTimeDrivenShare"/> of a core, and by no more than up to
-    /// <see cref="SlowestForCost"/>. TWO frames are counted to an interval: a time-driven frame is a caused one, so its
-    /// settling frame follows it a second later.
+    /// <see cref="SlowestForCost"/>. Two frames are counted to an interval where the last time-driven frame was followed
+    /// by a settling frame, one where it was not.
     /// </summary>
     public TimeSpan PacedForCost(TimeSpan cadence)
     {
-        var forCost = TimeSpan.FromSeconds(Math.Min(2.0 * _fullFrameCost / MaxTimeDrivenShare, SlowestForCost.TotalSeconds));
+        var framesAnInterval = _settlingFollowsTimeDriven ? 2.0 : 1.0;
+        var forCost = TimeSpan.FromSeconds(Math.Min(framesAnInterval * _fullFrameCost / MaxTimeDrivenShare, SlowestForCost.TotalSeconds));
         return forCost > cadence ? forCost : cadence;
     }
 
-    /// <summary>Asked on every loop iteration, after the iteration's events were dispatched: whether a frame is owed.</summary>
+    /// <summary>
+    /// Asked whenever the loop asks the host's redraw check, after the pass's events were dispatched: right before every
+    /// frame, and between frames about once a refresh. Whether a frame is owed.
+    /// </summary>
     public bool Check(long now, in GuiFrameInputs inputs)
     {
         ReadFrameCost(now, inputs.ProcessCpu);
@@ -169,29 +188,42 @@ public sealed class GuiFrameScheduler
             _unstatedMove = true;
         }
 
-        // A frame the loop owes for pointer moves alone, every one of which said what it changed, is the one loop-raised
-        // cause that can be narrowed. Every other one is a cause this check cannot name.
-        var narrowedMove = inputs is { RedrawPending: true, PendingForPointerMoveAlone: true } && _statedMove && !_unstatedMove;
-        var loopsOwn = inputs.RedrawPending && !narrowedMove;
+        // The frame the loop owes, when it owes one, is this check's OWN when nothing armed it but the check's earlier
+        // answers and pointer moves a handler took: everything such a frame is owed for was said here, and is in the
+        // reasons, so it may be narrowed to them. A frame is often held for pacing past the next check, and a frame the
+        // check had armed then read as a cause of the loop's, by nothing but the check's own yes: under a moving pointer
+        // nearly every clock tick was drawn in full for it. Any other arming is a cause this check cannot name, and so is
+        // a frame owed to a move that nothing here has an account of.
+        var movesAlone = inputs is { RedrawPending: true, PendingForPointerMoveAlone: true };
+        var ownFrame = inputs.RedrawPending && (movesAlone || inputs.PendingForCheckAndMovesAlone)
+            && (!movesAlone || _statedMove || _unstatedMove);
+        var loopsOwn = inputs.RedrawPending && !ownFrame;
 
-        // A stated move the loop armed no frame for (it throttles them): drawn at the trailing rate, so the follower
-        // never rests where the pointer was.
-        if (_statedMove && !inputs.RedrawPending && _trailingMoveDue == 0)
-        {
-            _trailingMoveDue = now + _ticksPerSecond / TrailingMoveRate;
-        }
-        var trailingMove = !inputs.RedrawPending && _trailingMoveDue != 0 && now >= _trailingMoveDue;
+        // A stated change no frame is armed for (the tab's settle with no move behind it, the pointer come to rest; a
+        // move a loop before SdlVulkan.Renderer 7.109 dropped): asked for at once, so the follower never rests where the
+        // pointer was. It used to wait a thirtieth of a second, as a rate limit beside the loop's own for moves, and the
+        // two clocks beat against each other (the atlas's hover, 2026-11-25).
+        var statedUnarmed = _statedMove && !inputs.RedrawPending;
 
         var caused = timeDriven || inputs.Changed || loopsOwn;
-        var settling = !caused && _settlingFrameDue != 0 && now >= _settlingFrameDue;
-        if (caused)
+
+        // The settling frame: armed by a dropped raise and by nothing else, never by the settling frame's own.
+        if (inputs.RaiseDropped && !_lastFrameWasSettling)
         {
-            // Armed by a frame with a cause, and by nothing else: the settling frame does not ask for another.
             _settlingFrameDue = now + _ticksPerSecond;
         }
-        else if (settling)
+        if (caused)
+        {
+            // A full frame is on its way for a cause of its own: it draws what the dropped raise asked for.
+            _settlingFrameDue = 0;
+            _settlingAsked = false;
+        }
+        var settling = !caused && _settlingFrameDue != 0 && now >= _settlingFrameDue;
+        if (settling)
         {
             _settlingFrameDue = 0;
+            _settlingAsked = true;
+            _settledSinceTimeDriven = true;
         }
 
         if (caused || settling)
@@ -203,19 +235,59 @@ public sealed class GuiFrameScheduler
             // A full frame draws everything time-driven, whatever asked for it.
             _lastTimeDrivenFrame = now;
         }
+        if (timeDriven)
+        {
+            _settlingFollowsTimeDriven = _settledSinceTimeDriven;
+            _settledSinceTimeDriven = false;
+        }
         if (clockTicked)
         {
             _reasons.ClockTick();
         }
 
+        var narrowedMove = (ownFrame || statedUnarmed) && _statedMove && !_unstatedMove;
         if (timeDriven) { Causes.Time++; }
         if (inputs.Changed) { Causes.Changed++; }
         if (loopsOwn) { Causes.Loop++; }
-        if (narrowedMove || trailingMove) { Causes.PointerMove++; }
+        if (narrowedMove) { Causes.PointerMove++; }
         if (settling) { Causes.Settling++; }
         if (clockTicked) { Causes.Clock++; }
 
-        return caused || settling || narrowedMove || trailingMove || clockTicked;
+        return caused || settling || ownFrame || statedUnarmed || clockTicked;
+    }
+
+    /// <summary>
+    /// How long the window can be left alone after a <see cref="Check"/> that found nothing owed: the time until the
+    /// next thing this scheduler could owe a frame FOR by the clock alone (the clock's next tick, a time-driven frame
+    /// faster than a second, a settling frame, a full frame's cost falling due to be read). What changes by anything
+    /// but the clock (input, a redraw flag) reaches the host another way and is not in it.
+    /// </summary>
+    /// <remarks>
+    /// The host tells its loop, which then does not ask again until that time, an event or a wake. The check used to be
+    /// asked every 16 ms whatever was due: sixty wakes a second of a window nothing was happening to, each with the
+    /// loop's per-pass work behind it, which took more of an idle window's render thread than its frames did (2026-11-25).
+    /// </remarks>
+    public TimeSpan NextTimedNeed(long now, in GuiFrameInputs inputs)
+    {
+        var next = _lastClockTick + _ticksPerSecond;
+
+        // A time-driven frame of a second or slower is drawn on the clock's tick, so the tick covers it.
+        var cadence = PacedForCost(GuiTimeCadence.Interval(
+            inputs.Tab, inputs.RunGoingOn, inputs.PreviewCapturing, inputs.SlewInFlight, inputs.SkyDrift));
+        if (cadence < GuiTimeCadence.Second)
+        {
+            next = Math.Min(next, _lastTimeDrivenFrame + (long)(cadence.TotalSeconds * _ticksPerSecond));
+        }
+        if (_settlingFrameDue != 0)
+        {
+            next = Math.Min(next, _settlingFrameDue);
+        }
+        if (_costFrameAt != 0)
+        {
+            next = Math.Min(next, _costFrameAt + (long)(CostWindow.TotalSeconds * _ticksPerSecond));
+        }
+
+        return TimeSpan.FromSeconds(Math.Max(0L, next - now) / (double)_ticksPerSecond);
     }
 
     /// <summary>
@@ -232,7 +304,8 @@ public sealed class GuiFrameScheduler
         _narrowed.Clear();
         _statedMove = false;
         _unstatedMove = false;
-        _trailingMoveDue = 0;
+        _lastFrameWasSettling = _settlingAsked;
+        _settlingAsked = false;
         var narrow = _reasons.TryTakeNarrow(_narrowed, out var clock)
             && !shuttingDown && GuiTimeCadence.MayNarrow(tab);
         if (narrow && flagged)
@@ -258,8 +331,9 @@ public sealed class GuiFrameScheduler
         {
             _narrowed.Clear();
             FrameIsNarrow = false;
-            // This frame's cost is read from the check that asked for it.
-            _costFrameAt = _lastCheck;
+            // This frame's cost is read from the check that asked for it; from nothing, with a host that does not say
+            // what the process has used, and then no reading is waited for either (NextTimedNeed).
+            _costFrameAt = _lastCheckCpu > TimeSpan.Zero ? _lastCheck : 0;
             _costFrameCpu = _lastCheckCpu;
             return _narrowed;
         }
@@ -303,6 +377,17 @@ public interface IPointerMoveChange
     /// reached, since the frame keeps every pixel outside it.
     /// </summary>
     RectF32? TakePointerMoveChanged();
+
+    /// <summary>
+    /// Brings what the tab shows for the pointer up to date with where the pointer is NOW, before a frame is decided:
+    /// asked by the host from its redraw check, ahead of <see cref="TakePointerMoveChanged"/>. For a tab that does not
+    /// answer every move as it arrives (the atlas resolves the object under the pointer at a bounded rate) this is where
+    /// the moves it passed over are caught up, so a frame shows the pointer as of that frame and the last move of a
+    /// gesture is never left unanswered. Nothing to do for a tab that answers each move in full.
+    /// </summary>
+    void SettlePointer()
+    {
+    }
 }
 
 /// <summary>How often each cause of a GUI frame asked.</summary>
@@ -320,7 +405,7 @@ public struct FrameCauseCounts
     /// <summary>A pointer move whose widget said what it changed.</summary>
     public int PointerMove;
 
-    /// <summary>The one frame after a caused full frame.</summary>
+    /// <summary>The one frame a second after a full frame whose own draw raised a redraw flag that the clear dropped.</summary>
     public int Settling;
 
     /// <summary>The clock's second.</summary>

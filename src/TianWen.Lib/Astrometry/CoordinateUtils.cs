@@ -378,6 +378,8 @@ public static class CoordinateUtils
             SexagesimalPrecision.Minute => head,
             SexagesimalPrecision.TenthMinute => string.Create(CultureInfo.InvariantCulture, $"{head}.{belowMinute:D1}"),
             SexagesimalPrecision.Second => string.Create(CultureInfo.InvariantCulture, $"{head}{secondSeparator}{belowMinute:D2}{suffix}"),
+            SexagesimalPrecision.TenthSecond => string.Create(CultureInfo.InvariantCulture,
+                $"{head}{secondSeparator}{belowMinute / 10:D2}.{belowMinute % 10:D1}{suffix}"),
             SexagesimalPrecision.Millisecond => (belowMinute / 1000, belowMinute % 1000) switch
             {
                 (var sec, 0) => string.Create(CultureInfo.InvariantCulture, $"{head}{secondSeparator}{sec:D2}{suffix}"),

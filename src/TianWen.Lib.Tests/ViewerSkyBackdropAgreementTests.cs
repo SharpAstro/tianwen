@@ -50,7 +50,7 @@ public class ViewerSkyBackdropAgreementTests
             System.Collections.Generic.IReadOnlyList<TianWen.UI.Abstractions.Overlays.OverlayCandidate> candidates,
             System.Collections.Generic.IReadOnlyList<TianWen.UI.Abstractions.Overlays.OverlayItem> items,
             int candidateVersion, float arcminToPixels, double ppr, float cxView, float cyView,
-            float dpiScale, float fovAlpha, bool dimBelowHorizon, SiteContext site)
+            float dpiScale, float fovAlpha, bool clipBelowHorizon, SiteContext site)
         {
             DrawnMarkers.Clear();
             DrawInfo = $"draw: centre ({State.CenterRA:F4}h,{State.CenterDec:F3}) roll {State.CenterRoll:F3} fov {State.FieldOfViewDeg:F3} "
@@ -65,7 +65,7 @@ public class ViewerSkyBackdropAgreementTests
             }
 
             base.DrawOverlayMarkers(candidates, items, candidateVersion, arcminToPixels, ppr, cxView, cyView,
-                dpiScale, fovAlpha, dimBelowHorizon, site);
+                dpiScale, fovAlpha, clipBelowHorizon, site);
         }
 
         protected override void RenderSkyMap(
@@ -79,7 +79,7 @@ public class ViewerSkyBackdropAgreementTests
 
         protected override void RenderObjectOverlay(
             ICelestialObjectDB db, RectF32 contentRect,
-            float baseFontSize, SiteContext site, bool dimBelowHorizon, PlannerState plannerState,
+            float baseFontSize, SiteContext site, bool clipBelowHorizon, PlannerState plannerState,
             bool showAllOverlays)
         {
             // A pass that paints nothing (no item in view) never reaches DrawOverlayMarkers, so what an earlier pass
@@ -87,7 +87,7 @@ public class ViewerSkyBackdropAgreementTests
             DrawnMarkers.Clear();
             DrawInfo = "no marker pass this frame";
             RenderObjectOverlayPrimitive(db, contentRect, baseFontSize,
-                site, dimBelowHorizon, plannerState, showAllOverlays);
+                site, clipBelowHorizon, plannerState, showAllOverlays);
         }
     }
 
