@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.IO;
 using System.Numerics;
+using nom.tam.fits;
 using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.Stacking;
@@ -188,6 +190,38 @@ public static class CometResidue
             [.. sigma], kept, cores,
             TrackOf(starResidue, masked, keep, w, h, direction), TrackOf(modelResidue, masked, keep, w, h, direction),
             edge.MoveToImmutable());
+    }
+
+    /// <summary>
+    /// Reads a finished run from its files: the star layer and the composite written beside it, the body found in them
+    /// (<see cref="BodyOf"/>) and the drift taken from the composite's own header (<c>DRIFTX</c>, <c>DRIFTY</c>).
+    /// </summary>
+    /// <exception cref="IOException">A file cannot be read as a FITS image.</exception>
+    /// <exception cref="InvalidDataException">The composite states no drift: it is no comet composite.</exception>
+    public static Reading MeasureFiles(string starLayerPath, string compositePath, float reachPx)
+    {
+        if (!Image.TryReadFitsFile(starLayerPath, out var star))
+        {
+            throw new IOException($"{starLayerPath} cannot be read as a FITS image");
+        }
+
+        if (!Image.TryReadFitsFile(compositePath, out var composite))
+        {
+            throw new IOException($"{compositePath} cannot be read as a FITS image");
+        }
+
+        Vector2? drift;
+        using (var fits = Image.OpenFitsHeader(compositePath))
+        {
+            drift = fits.ReadFirstImageHduHeaderOnly()?.Header is { } header ? AlignmentProvenance.FromHeader(header)?.DriftPxPerHour : null;
+        }
+
+        if (drift is not { } direction)
+        {
+            throw new InvalidDataException($"{compositePath} states no drift (DRIFTX, DRIFTY): it is no comet composite");
+        }
+
+        return Measure(star, composite, BodyOf(star, composite), direction, reachPx);
     }
 
     /// <summary>
