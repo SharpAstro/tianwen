@@ -451,7 +451,11 @@ and the composite with `_composite`, each with its sidecars (the verb's `master_
   keeps every key.
 - **A track is refused for frames it was not asked for** (`CometTrack.RefusalFor`): from another site (diurnal parallax
   moved 10P by 2.7 px across a night) or not covering every frame. The group is skipped with the reason, as any
-  group the stack cannot make.
+  group the stack cannot make, and the step says it.
+- **Each group is fitted on its own window.** The rate and the comet's place come from the samples that bracket the
+  group's frames, one past each end (`CometTrack.Bracketing`), as a live request pads by one step: a file asked for
+  the night serves a folder of several groups without fitting each over the whole night.
+- **The file is one set of bytes on every computer**: nothing says when it was fetched, and its lines end in LF.
 - **The reference frame is plate-solved, and nothing else is.** The track is projected onto the reference frame's
   pixels through its plate solution, so the step needs the star catalogue (it is not served without one); no master
   is solved (`StackingOptions.SolveMaster` off), as no step's master is. The verb had one switch for both, the
@@ -465,12 +469,15 @@ and the composite with `_composite`, each with its sidecars (the verb's `master_
   (`StackOperation.LineOf`).
 - **What serves it is in its key**: where a star remover serves, the star layer SUBTRACTS the body it took out of the
   comet master and the composite adds it back; where none does, the star layer EXCLUDES a disc around the body and
-  there is no composite. Different pixels, so the key says which, and the remover's model.
+  there is no composite. Different pixels, so the key says which, and the remover's model. It is asked for a mono
+  master and a colour one, as the pipeline asks it of each master, since the frames are not read to plan a step.
 
 `WorkbenchCometStackTests` builds a comet's night (the fake camera's field, which plate-solves, with a comet moving
 across it, and its track made through the first frame's solution), and holds the step's comet master and star layer
-to the verb's, to the byte; the master's header says it was registered on the comet at the track's rate.
-`CometTrackTests` holds the file, its refusals, the request and the fetch.
+to the verb's, to the byte; the master's header says it was registered on the comet at the track's rate (Heavy, by
+its 57 to 69 s on CI). On a small night and from a status, it holds that the key moves with the track's bytes and with
+what serves the star layer, and that a track from another site reaches the person as the step's refusal.
+`CometTrackTests` holds the file, its refusals, the bracketing samples, the request, the fetch and the verb.
 
 ## An image that starts from another
 

@@ -76,9 +76,7 @@ public sealed record CometTrack(
             return $"the frames state no site (SITELAT, SITELONG), so whether the track of {Designation} was asked from their place cannot be told";
         }
 
-        // Longitude across the antimeridian: 179.99 E and 179.99 W are 0.02 degrees apart.
-        var lonApart = Math.Abs(((siteLonDeg - SiteLonDeg) % 360.0 + 540.0) % 360.0 - 180.0);
-        if (Math.Abs(siteLatDeg - SiteLatDeg) > SiteToleranceDeg || lonApart > SiteToleranceDeg)
+        if (!SameSite(siteLatDeg, siteLonDeg, SiteLatDeg, SiteLonDeg))
         {
             return string.Create(System.Globalization.CultureInfo.InvariantCulture,
                 $"the track of {Designation} was asked from ({SiteLatDeg:F4}, {SiteLonDeg:F4}) and the frames were taken at ({siteLatDeg:F4}, {siteLonDeg:F4}): a comet's track is the one seen from the frames' own site");
@@ -91,6 +89,41 @@ public sealed record CometTrack(
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Whether two sites are one for a track: within <see cref="SiteToleranceDeg"/> in latitude and in longitude, the
+    /// longitude across the antimeridian (179.99 E and 179.99 W are 0.02 degrees apart). A site that states no place
+    /// (NaN) is no site's.
+    /// </summary>
+    public static bool SameSite(double latA, double lonA, double latB, double lonB)
+    {
+        var lonApart = Math.Abs(((lonA - lonB) % 360.0 + 540.0) % 360.0 - 180.0);
+        return Math.Abs(latA - latB) <= SiteToleranceDeg && lonApart <= SiteToleranceDeg;
+    }
+
+    /// <summary>
+    /// The samples a group's rate is fitted through: from the last one at or before <paramref name="firstExposureStart"/>
+    /// to the first one at or after <paramref name="lastExposureEnd"/>, so one sample past each end as the live request
+    /// pads by one step (<see cref="CometTrackRequest.TryBuild"/>). A file asked for the whole night serves each group a
+    /// stack makes of it on that group's own window, and not on the night's, which is longer and more coarsely sampled.
+    /// Asked only where <see cref="RefusalFor"/> found the samples cover the frames, so both ends are there.
+    /// </summary>
+    public ImmutableArray<EphemerisSample> Bracketing(DateTimeOffset firstExposureStart, DateTimeOffset lastExposureEnd)
+    {
+        var from = 0;
+        for (var i = 0; i < Samples.Length && Samples[i].TimeUtc <= firstExposureStart; i++)
+        {
+            from = i;
+        }
+
+        var to = Samples.Length - 1;
+        for (var i = Samples.Length - 1; i >= 0 && Samples[i].TimeUtc >= lastExposureEnd; i--)
+        {
+            to = i;
+        }
+
+        return ImmutableArray.Create(Samples, from, to - from + 1);
     }
 
     /// <summary>Writes the track to <paramref name="path"/> whole or not at all: a half-written track that still parses
@@ -128,6 +161,12 @@ public sealed record CometTrack(
         {
             // A file a person may have edited by hand: what is wrong with it is said, not thrown.
             refusal = $"{path} is no comet track: {ex.Message}";
+            return false;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // A file that cannot be read (locked, a folder by that name, no permission) is said in words too.
+            refusal = $"the comet track at {path} cannot be read: {ex.Message}";
             return false;
         }
 
@@ -179,9 +218,11 @@ public sealed record CometTrack(
     }
 }
 
-/// <summary>The track file's JSON: indented, since a person reads it, and enums as words.</summary>
+/// <summary>The track file's JSON: indented, since a person reads it, and enums as words. Its line break is LF on every
+/// computer, as the repository's is: the platform's would make one answer two sets of bytes, and two step keys.</summary>
 [JsonSourceGenerationOptions(
     WriteIndented = true,
+    NewLine = "\n",
     UseStringEnumConverter = true)]
 [JsonSerializable(typeof(CometTrack))]
 public sealed partial class CometTrackJsonContext : JsonSerializerContext

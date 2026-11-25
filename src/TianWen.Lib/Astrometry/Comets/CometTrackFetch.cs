@@ -17,7 +17,8 @@ namespace TianWen.Lib.Astrometry.Comets;
 /// </summary>
 /// <remarks>
 /// The window is the whole night's: every light's exposure under the folder, so one file serves each group a stack
-/// makes of them (a group's own window is inside it; <see cref="CometTrack.RefusalFor"/> holds that). The request is
+/// makes of them (a group's own window is inside it; <see cref="CometTrack.RefusalFor"/> holds that), and each group's
+/// rate is fitted on the samples that bracket its own frames (<see cref="CometTrack.Bracketing"/>). The request is
 /// built as the stack builds its own (<see cref="CometTrackRequest.TryBuild"/>): the same designation rule, the same
 /// refusal of an unknown site, the same padding and cadence.
 /// </remarks>
@@ -75,8 +76,7 @@ public static class CometTrackFetch
             {
                 site = here;
             }
-            else if (!(double.IsNaN(seen.Lat) && double.IsNaN(here.Lat))
-                && !(Math.Abs(seen.Lat - here.Lat) <= CometTrack.SiteToleranceDeg && Math.Abs(seen.Lon - here.Lon) <= CometTrack.SiteToleranceDeg))
+            else if (!(double.IsNaN(seen.Lat) && double.IsNaN(here.Lat)) && !CometTrack.SameSite(seen.Lat, seen.Lon, here.Lat, here.Lon))
             {
                 refusal = $"the lights under {framesFolder} were taken at more than one site, and a comet's track is the one seen from one: "
                     + "ask for each site's frames apart";

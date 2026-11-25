@@ -198,6 +198,89 @@ public sealed class WorkbenchCometStackTests(ITestOutputHelper output) : IDispos
         said.ShouldContain(line => line.Contains("names its own comet"));
     }
 
+    /// <summary>A star remover stood in for, serving a mono input, a colour one or both, which leaves its input as it is.</summary>
+    private sealed class StandInRemover(string name, bool mono = true, bool colour = true) : IStarRemover, IEnhancerAvailability
+    {
+        public string Name => name;
+
+        public bool CanServe(int channelCount, EnhanceOptions options) => channelCount == 1 ? mono : colour;
+
+        public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default) => Task.FromResult(input);
+    }
+
+    // A small night (three of StackingCloudEmptiedGroupTest's lights: 51 N, 0 E, 2026-12-21 from midnight) and a track
+    // of 10P asked from the given latitude, every ten minutes from 23:50 to 00:20, in a project of their own.
+    private async Task<(string Project, string Track)> SmallNightAsync(string name, float trackLatitude, CancellationToken ct)
+    {
+        var frames = Path.Combine(_folders.Create($"{name}-night-").FullName, "2026-12-21");
+        Directory.CreateDirectory(frames);
+        StackingCloudEmptiedGroupTest.WriteFrames(frames, FrameType.Light, skyBackground: 100.0, count: 3);
+        var trackPath = Path.Combine(_folders.Create($"{name}-track-").FullName, "10P.json");
+        var start = new DateTimeOffset(2026, 12, 20, 23, 50, 0, TimeSpan.Zero);
+        await new CometTrack(CometTrack.CurrentSchemaVersion, CometTrack.Horizons, "10P", trackLatitude, 0f, 0,
+            [.. Enumerable.Range(0, 4).Select(i => new EphemerisSample(start.AddMinutes(10 * i), 127.0 + 0.001 * i, -41.2))]).WriteAsync(trackPath, ct);
+        var project = _folders.Create($"{name}-project-").FullName;
+        await WorkbenchProjectFile.WriteAsync(project, WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("night", frames, WorkbenchFixtures.Edit(CometStackOperation.Id, null, "track")),
+            WorkbenchFixtures.Picture("track", trackPath)), ct);
+        return (project, trackPath);
+    }
+
+    /// <summary>
+    /// The step's key holds the ephemeris and what serves the star layer: a track whose bytes moved is another key, and
+    /// so is a star remover that subtracts the body where none did, each said in words; a remover that serves one kind
+    /// of master says which. All from a status, which stacks nothing.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task TheKeyHoldsTheTrackItsBytesAndWhatServesTheStarLayer()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (project, trackPath) = await SmallNightAsync("key", 51f, ct);
+        async Task<StepReport> StepUnder(IStarRemover? remover)
+            => Of(await new WorkbenchRunner(new OperationCatalog([new CometStackOperation(starRemover: remover)])).StatusAsync(project, cancellationToken: ct), "night").Steps[0];
+
+        var none = await StepUnder(null);
+        none.Key.ShouldNotBeNullOrEmpty();
+        none.ServedBy.ShouldBe("star layer: the body excluded, no star remover serves");
+
+        // One position of the comet moved by a ten-thousandth of a degree: another ephemeris, another key.
+        CometTrack.TryRead(trackPath, out var track, out var refusal).ShouldBeTrue(refusal);
+        await (track with { Samples = track.Samples.SetItem(1, track.Samples[1] with { RaDeg = track.Samples[1].RaDeg + 1e-4 }) }).WriteAsync(trackPath, ct);
+        var moved = await StepUnder(null);
+        moved.Key.ShouldNotBe(none.Key, "the track is an original read by its bytes, so the key holds the ephemeris");
+
+        var subtracting = await StepUnder(new StandInRemover("Stand-in remover"));
+        subtracting.ServedBy.ShouldBe("star layer: the body subtracted by Stand-in remover");
+        subtracting.Key.ShouldNotBe(moved.Key, "a body subtracted is other pixels than a body excluded");
+
+        (await StepUnder(new StandInRemover("Stand-in remover", colour: false))).ServedBy
+            .ShouldBe("star layer: the body subtracted by Stand-in remover on a mono master, excluded on a colour one");
+        (await StepUnder(new StandInRemover("Stand-in remover", mono: false))).ServedBy
+            .ShouldBe("star layer: the body subtracted by Stand-in remover on a colour master, excluded on a mono one");
+    }
+
+    /// <summary>
+    /// A track asked from another site reaches the person through the step: the group is skipped with the track's own
+    /// reason, worded for a track and not for <c>--comet</c>, before anything is registered or solved.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task ATrackFromAnotherSiteSkipsTheGroupAndTheStepSaysWhy()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (project, _) = await SmallNightAsync("site", 40f, ct);
+        // A catalogue is there (the step is served); the track is refused before it is asked anything.
+        var runner = new WorkbenchRunner(new OperationCatalog([new CometStackOperation(new PipelineLog(output), Substitute.For<ICelestialObjectDB>())]));
+
+        var report = await runner.RunAsync(project, cancellationToken: ct);
+
+        var step = Of(report, "night").Steps[0];
+        step.State.ShouldBe(StepState.Refused, Said(report));
+        var message = step.Message.ShouldNotBeNull();
+        message.ShouldContain("was asked from (40.0000, 0.0000) and the frames were taken at (51.0000, 0.0000)");
+        message.ShouldContain("give a track asked from these frames' site over their night, or a rate");
+        message.ShouldNotContain("--comet");
+    }
+
     /// <summary>
     /// A comet's night (a field that plate-solves, with a comet moving across it) stacked as a step on its track, with no
     /// network: the comet master is registered on the comet at the track's rate and the star layer on the stars, each a

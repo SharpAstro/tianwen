@@ -1,10 +1,15 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
+using System.CommandLine;
 using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
+using NSubstitute;
 using Shouldly;
+using TianWen.Cli;
 using TianWen.Lib.Astrometry.Comets;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
@@ -41,6 +46,7 @@ public sealed class CometTrackTests : IDisposable
         await track.WriteAsync(b, ct);
 
         File.ReadAllBytes(a).ShouldBe(File.ReadAllBytes(b), "nothing in the file says when it was written, so one answer keeps one step key");
+        File.ReadAllBytes(a).ShouldNotContain((byte)'\r', "its lines end in LF on every computer, so a track written on Windows and on Linux is one set of bytes");
         CometTrack.TryRead(a, out var read, out var refusal).ShouldBeTrue(refusal);
         read.Designation.ShouldBe("10P");
         read.Source.ShouldBe(CometTrack.Horizons);
@@ -87,6 +93,37 @@ public sealed class CometTrackTests : IDisposable
         CometTrack.TryRead(path, out _, out var refusal).ShouldBeFalse();
 
         refusal.ShouldBe($"there is no comet track at {path}");
+    }
+
+    [Fact]
+    public async Task AFileThatCannotBeReadIsRefusedInWordsAndNeverThrown()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var path = Path.Combine(_folders.Create("locked-").FullName, "track.json");
+        await Track().WriteAsync(path, ct);
+
+        bool read;
+        string? refusal;
+        // Held open for writing with no sharing, as another program writing it would.
+        using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            read = CometTrack.TryRead(path, out _, out refusal);
+        }
+
+        read.ShouldBeFalse();
+        refusal.ShouldNotBeNull().ShouldContain("cannot be read");
+    }
+
+    [Fact]
+    public void AGroupsRateIsFittedThroughTheSamplesThatBracketItsFrames()
+    {
+        var track = Track(); // 20:00, 20:30, 21:00, 21:30, 22:00
+
+        track.Bracketing(Night.AddMinutes(40), Night.AddMinutes(70)).Select(static sample => sample.TimeUtc).ToArray()
+            .ShouldBe([Night.AddMinutes(30), Night.AddMinutes(60), Night.AddMinutes(90)], "one sample past each end, as a live request pads by one step");
+        track.Bracketing(Night.AddMinutes(30), Night.AddMinutes(60)).Select(static sample => sample.TimeUtc).ToArray()
+            .ShouldBe([Night.AddMinutes(30), Night.AddMinutes(60)], "a sample at an end is that end");
+        track.Bracketing(Night, Night.AddMinutes(120)).Length.ShouldBe(5, "a group as long as the night takes the whole file");
     }
 
     [Fact]
@@ -148,6 +185,52 @@ public sealed class CometTrackTests : IDisposable
         var empty = _folders.Create("empty-").FullName;
         CometTrackFetch.TryRequestFor(empty, designation: null, out _, out _, out var nothing).ShouldBeFalse();
         nothing.ShouldContain("there is no light");
+
+        // The antimeridian: lights at 179.99 E and 179.99 W are one site, as a stack's own check says (SameSite).
+        var dateline = _folders.Create("dateline-").FullName;
+        WriteLight(Path.Combine(dateline, "a.fits"), Night, "10P", longitude: 179.99f);
+        WriteLight(Path.Combine(dateline, "b.fits"), Night.AddMinutes(5), "10P", longitude: -179.99f);
+        CometTrackFetch.TryRequestFor(dateline, designation: null, out _, out _, out var across).ShouldBeTrue(across);
+    }
+
+    /// <summary>
+    /// The verb, with Horizons stood in for: the track is written into the folder <c>-o</c> names, made first so an
+    /// answer is never lost; a folder with no light is refused in words before anything is asked.
+    /// </summary>
+    [Fact]
+    public async Task TheVerbWritesTheTrackIntoAFolderItMakesAndAsksNothingOfAFolderWithNoLight()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var frames = _folders.Create("verb-night-").FullName;
+        WriteLight(Path.Combine(frames, "a.fits"), Night.AddMinutes(10), "10P");
+        WriteLight(Path.Combine(frames, "b.fits"), Night.AddMinutes(50), "10P");
+        var output = Path.Combine(_folders.Create("verb-out-").FullName, "tracks", "10P", "track.json");
+        var said = new ConcurrentQueue<string>();
+        var host = Substitute.For<IConsoleHost>();
+        host.When(h => h.WriteScrollable(Arg.Any<string>(), Arg.Any<bool>())).Do(call => said.Enqueue(call.Arg<string>()));
+        host.When(h => h.WriteError(Arg.Any<string>())).Do(call => said.Enqueue("error: " + call.Arg<string>()));
+        var asked = 0;
+        var verb = new CometSubCommand(host, NullLogger<CometSubCommand>.Instance)
+        {
+            Fetch = (request, _) =>
+            {
+                asked++;
+                return Task.FromResult<(CometTrack?, string?)>((CometTrack.From(request, Track().Samples), null));
+            },
+        }.Build();
+
+        (await verb.Parse(["track", frames, "-o", output]).InvokeAsync(cancellationToken: ct)).ShouldBe(0, string.Join(Environment.NewLine, said));
+
+        asked.ShouldBe(1);
+        CometTrack.TryRead(output, out var written, out var refusal).ShouldBeTrue(refusal);
+        written.Designation.ShouldBe("10P");
+        written.Samples.ShouldBe(Track().Samples);
+
+        said.Clear();
+        var empty = _folders.Create("verb-empty-").FullName;
+        (await verb.Parse(["track", empty, "-o", Path.Combine(empty, "track.json")]).InvokeAsync(cancellationToken: ct)).ShouldBe(1);
+        said.ShouldContain(line => line.Contains("there is no light"));
+        asked.ShouldBe(1, "nothing is asked of Horizons for a folder with no light");
     }
 
     [Fact]
@@ -172,13 +255,14 @@ public sealed class CometTrackTests : IDisposable
     }
 
     // A light's header as a camera writes it: a time, an exposure, the comet's name and the site.
-    private static void WriteLight(string path, DateTimeOffset start, string objectName, FrameType frameType = FrameType.Light, float latitude = 48.2f)
+    private static void WriteLight(string path, DateTimeOffset start, string objectName, FrameType frameType = FrameType.Light, float latitude = 48.2f,
+        float longitude = 16.3f)
     {
         // Every positional field stated: a record struct made with new() and an initialiser leaves the rest at zero and
         // null, not at their declared defaults.
         var meta = new ImageMeta("synth", start, TimeSpan.FromSeconds(60), frameType, "",
             3.76f, 3.76f, 130, FocuserPositions.None, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0,
-            RowOrder.TopDown, latitude, 16.3f, ObjectName: objectName, SiteElevation: 200f);
+            RowOrder.TopDown, latitude, longitude, ObjectName: objectName, SiteElevation: 200f);
         new Image([new float[8, 8]], BitDepth.Float32, 1f, 0f, 0f, meta).WriteToFitsFile(path);
     }
 

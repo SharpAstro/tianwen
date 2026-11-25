@@ -1200,12 +1200,14 @@ public sealed class StackingPipeline(
                 // Found on C/2025 R2 (SWAN), where the designation was being sent to Horizons in its
                 // compact form and rejected. The run went on to spend its whole integration
                 // producing a duplicate of a master that already existed.
-                var wanted = options.CometTrack?.Designation ?? (string.IsNullOrWhiteSpace(options.CometDesignation)
-                    ? referenceRaw.ImageMeta.ObjectName
-                    : options.CometDesignation);
-                var reason = $"comet registration was requested for \"{wanted}\" but no rate could be derived"
-                    + (cometTrackRefusal is { } refused ? $" ({refused})" : "")
-                    + "; pass --comet-rate dx,dy to supply one, or drop --comet to stack star-aligned on purpose";
+                // Worded by what was given: a track file is no --comet to drop, and a workbench step has neither option.
+                var reason = options.CometTrack is { } givenTrack
+                    ? $"comet registration on the track of \"{givenTrack.Designation}\" gave no rate ("
+                        + (cometTrackRefusal ?? "the reference frame was not plate-solved or the track not fitted, as the log says")
+                        + "): give a track asked from these frames' site over their night, or a rate"
+                    : $"comet registration was requested for \""
+                        + (string.IsNullOrWhiteSpace(options.CometDesignation) ? referenceRaw.ImageMeta.ObjectName : options.CometDesignation)
+                        + "\" but no rate could be derived; pass --comet-rate dx,dy to supply one, or drop --comet to stack star-aligned on purpose";
                 logger.LogWarning("  [skip] {Reason}", reason);
                 return new GroupResult(slug, lightList.Count, 0, Result: null, MasterFitsPath: null,
                     PreviewPngPath: null, Elapsed: groupSw.Elapsed, SkipReason: reason,
@@ -2725,15 +2727,18 @@ public sealed class StackingPipeline(
         logger.LogInformation("  [comet] reference solved in {ElapsedMs} ms",
             (long)Stopwatch.GetElapsedTime(solveStart).TotalMilliseconds);
 
-        // The track: the file's, or Horizons' answer to the request built above. Either way the same samples go to the
-        // same fit, so a track written by `tianwen comet track` places the comet as a live fetch of the same window does.
+        // The track: the file's samples that bracket this group, or Horizons' answer to the request built above, which
+        // spans the same window. Either way they go to the same fit.
         ImmutableArray<EphemerisSample> track;
         string designation;
         double siteLat, siteLon, siteElev;
         if (options.CometTrack is { } file)
         {
-            (track, designation, siteLat, siteLon, siteElev) = (file.Samples, file.Designation, file.SiteLatDeg, file.SiteLonDeg, file.SiteElevMetres);
-            logger.LogInformation("  [comet] the track of {Designation} from its file: {Count} samples, no network asked", designation, track.Length);
+            // The samples bracketing this group's frames, not the whole file: a file asked for the night serves each
+            // group on its own window, as a live fetch of that window would.
+            (track, designation, siteLat, siteLon, siteElev) = (file.Bracketing(first, last), file.Designation, file.SiteLatDeg, file.SiteLonDeg, file.SiteElevMetres);
+            logger.LogInformation("  [comet] the track of {Designation} from its file: {Count} of its {Total} samples bracket the group, no network asked",
+                designation, track.Length, file.Samples.Length);
         }
         else
         {

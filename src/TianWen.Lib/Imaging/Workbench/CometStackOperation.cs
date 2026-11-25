@@ -165,13 +165,20 @@ public sealed class CometStackOperation(ILogger<StackingPipeline>? logger = null
             return (string.Empty, string.Empty);
         }
 
-        if (!IEnhancerAvailability.ServesAny(starRemover, EnhanceOptions.Default))
+        // Asked per channel count, as the pipeline asks it of each master (StackingPipeline: Serves on the master's own
+        // channels): the frames are not read here, so the key says what happens to a mono master and to a colour one.
+        var mono = IEnhancerAvailability.Serves(starRemover, 1, EnhanceOptions.Default);
+        var colour = IEnhancerAvailability.Serves(starRemover, 3, EnhanceOptions.Default);
+        if (!mono && !colour)
         {
             return ("star layer: the body excluded, no star remover serves", string.Empty);
         }
 
         var (name, tag) = IEnhancerAvailability.ServedOf(starRemover, EnhanceOptions.Default);
-        return ($"star layer: the body subtracted by {name}", tag);
+        var subtracted = $"the body subtracted by {name}";
+        return ("star layer: " + (mono == colour ? subtracted
+            : mono ? $"{subtracted} on a mono master, excluded on a colour one"
+            : $"{subtracted} on a colour master, excluded on a mono one"), tag);
     }
 
     /// <inheritdoc/>

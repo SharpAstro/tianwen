@@ -1,5 +1,8 @@
+using System;
 using System.CommandLine;
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry.Comets;
 
@@ -13,6 +16,9 @@ namespace TianWen.Cli;
 /// </summary>
 internal sealed class CometSubCommand(IConsoleHost consoleHost, ILogger<CometSubCommand> logger)
 {
+    /// <summary>Test seam: asks for the track in place of Horizons, so a test drives the verb with no network.</summary>
+    internal Func<CometTrackRequest, CancellationToken, Task<(CometTrack? Track, string? Refusal)>>? Fetch { get; init; }
+
     public Command Build()
     {
         var framesArg = new Argument<string>("frames")
@@ -50,17 +56,33 @@ internal sealed class CometSubCommand(IConsoleHost consoleHost, ILogger<CometSub
                 return 1;
             }
 
+            // The folder is made before Horizons is asked: an answer is never lost to a place it cannot be written.
+            var output = Path.GetFullPath(parseResult.Required(outputOpt));
+            try
+            {
+                if (Path.GetDirectoryName(output) is { Length: > 0 } outputFolder)
+                {
+                    Directory.CreateDirectory(outputFolder);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                consoleHost.WriteError($"the track cannot be written to {output}: {ex.Message}");
+                return 1;
+            }
+
             consoleHost.WriteScrollable(
                 $"[comet] {request.Designation} over {lights} light(s), from {request.Start:u} to {request.Stop:u} every {request.Step.TotalMinutes:0} min, "
                 + $"seen from ({request.SiteLatDeg:F4}, {request.SiteLonDeg:F4}, {request.SiteElevMetres:F0} m)");
-            var (fetched, unanswered) = await CometTrackFetch.FetchAsync(request, logger, ct);
+            var (fetched, unanswered) = Fetch is { } fetch
+                ? await fetch(request, ct)
+                : await CometTrackFetch.FetchAsync(request, logger, ct);
             if (fetched is null)
             {
                 consoleHost.WriteError(unanswered ?? $"Horizons gave no track of {request.Designation}");
                 return 1;
             }
 
-            var output = parseResult.Required(outputOpt);
             await fetched.WriteAsync(output, ct);
             consoleHost.WriteScrollable($"[comet] wrote {output}: {fetched.Samples.Length} positions of {fetched.Designation}");
             return 0;

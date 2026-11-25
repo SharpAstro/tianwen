@@ -176,7 +176,9 @@ the frames' own site, the same request rule as above, `CometTrackFetch`) and wri
 <file>` then registers on it with no network: the reference frame is still plate-solved to project it, so the star
 layer and the composite are made as with `--comet`, which `--comet-rate` (a bare rate, no position) cannot give
 offline. A track from another site, or not covering every frame, skips the group with the reason
-(`CometTrack.RefusalFor`). It is how the workbench's `comet-stack` step takes its comet, by the owner's call: a step's
+(`CometTrack.RefusalFor`). Each group is fitted on the samples that bracket its own frames, one past each end
+(`CometTrack.Bracketing`), as a live request pads by one step, so a night's file serves several groups each on its own
+window. It is how the workbench's `comet-stack` step takes its comet, by the owner's call: a step's
 key is fixed before it runs, and Horizons' answer is not.
 
 The same leg split the reference frame's solve from the master's (`StackingOptions.SolveMaster`). The catalogue's
