@@ -10,7 +10,8 @@ namespace TianWen.UI.Shared;
 /// shortcut, so the taskbar groups the windows and the shell can name the app; SDL, which hands it to Wayland
 /// (<c>app_id</c>), X11 (<c>WM_CLASS</c>) and macOS, and on Windows registers its own desktop notifications under it
 /// (in the SDL releases that have them); and the macOS bundle's <c>CFBundleIdentifier</c> (<c>packaging/macos</c>).
-/// One string for all of them keeps such a notification in the same group as the app's windows. <see cref="DisplayName"/> is the shortcut's name and the bundle's
+/// One string for all of them keeps such a notification in the same group as the app's windows; inside the Store package
+/// SDL is told no identifier (<see cref="SdlMetadataFor"/>), because the package's manifest names the app there. <see cref="DisplayName"/> is the shortcut's name and the bundle's
 /// <c>CFBundleName</c>; the viewer's is also its Store package's display name.
 /// <c>DesktopAppIdentityTests</c> holds these to the packaging files.</para>
 ///

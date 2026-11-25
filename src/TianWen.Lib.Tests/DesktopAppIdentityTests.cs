@@ -75,7 +75,10 @@ public partial class DesktopAppIdentityTests
         claim.ShouldBeGreaterThan(-1, $"{project} claims its app identity");
         create.ShouldBeGreaterThan(-1);
         claim.ShouldBeLessThan(create, "Windows gives a window its process's app id when the window is created");
-        text.Substring(create, text.IndexOf(';', create) - create).ShouldContain("appMetadata: appIdentity.SdlMetadataFor(");
+        var call = text.Substring(create, text.IndexOf(';', create) - create);
+        call.ShouldContain("appMetadata: appIdentity.SdlMetadataFor(");
+        call.ShouldContain("startMenuShortcut == StartMenuShortcut.Packaged", Case.Sensitive,
+            "SDL gets no identifier inside the Store package, or the id splits from the package's own");
     }
 
     [Theory]

@@ -161,7 +161,7 @@ maximised.
 SDL.** `DesktopAppIdentity` (TianWen.UI.Shared) holds both apps' ids and names: `com.sharpastro.tianwen.gui`
 ("TianWen") and `com.sharpastro.tianwen.fits` ("Astro Photo Viewer"). Each `Program.cs` calls AppShell's
 `AppIdentity.Claim(id, name)` after the single-instance gate (a launch that hands off and exits names nothing)
-and passes `SdlMetadata` to `SdlVulkanWindow.Create`.
+and passes `SdlMetadataFor(startMenuShortcut == StartMenuShortcut.Packaged)` to `SdlVulkanWindow.Create`.
 
 - **On Windows** `Claim` gives the process that app id (AppUserModelID) and keeps a Start menu shortcut of
   that name carrying it, which is where the shell finds the name and icon: taskbar grouping, Start search,
