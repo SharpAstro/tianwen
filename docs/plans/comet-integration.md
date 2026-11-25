@@ -165,6 +165,10 @@ Three decisions worth not re-litigating:
 - **The residual is logged and nothing gates on it.** It measures how straight the track was, never
   whether it pointed the right way. It is there to catch a body too fast for one linear rate.
 
+One linear rate per group is the approximation left: the topocentric track bends, and the line misses it by 0.185 px
+at worst on 10P (0.199 px on the workbench run of 2026-11-25), where a quadratic would leave 0.019 px. Placing each
+frame at its own interpolated ephemeris position, or a quadratic, is #2521.
+
 `SITEELEV` now round-trips through `ImageMeta.SiteElevation`; the Horizons query already took an
 elevation, so reading it beat passing a zero that looks like a measurement.
 
