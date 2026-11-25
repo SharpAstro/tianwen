@@ -203,7 +203,10 @@ public sealed class WorkbenchCometStackTests(ITestOutputHelper output) : IDispos
     /// network: the comet master is registered on the comet at the track's rate and the star layer on the stars, each a
     /// result of the step under its name, and both are the files the step's line makes the verb write, to the byte.
     /// </summary>
+    // Heavy by measurement: 57.5 s on Linux and 68.6 s on Windows in its first CI run (#2517), two stacks of six 9 Mpx
+    // frames, each with its star layer, and a plate solve of the reference in each.
     [Fact(Timeout = 600_000)]
+    [Trait("Category", "Heavy")]
     public async Task TheCometStepsMastersAreTheFilesTianwenStackWritesOnTheTrack()
     {
         var ct = TestContext.Current.CancellationToken;
