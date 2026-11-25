@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.CommandLine;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -177,7 +178,7 @@ public sealed class CometTrackTests : IDisposable
     }
 
     [Fact]
-    public void TheRequestIsTheNightsWindowFromItsLightsOwnSiteAndTheCometTheyName()
+    public async Task TheRequestIsTheNightsWindowFromItsLightsOwnSiteAndTheCometTheyName()
     {
         var folder = _folders.Create("night-").FullName;
         var lights = Directory.CreateDirectory(Path.Combine(folder, "LIGHT")).FullName;
@@ -185,8 +186,9 @@ public sealed class CometTrackTests : IDisposable
         WriteLight(Path.Combine(lights, "b.fits"), Night.AddMinutes(40), "10P");
         WriteLight(Path.Combine(folder, "dark.fits"), Night.AddHours(-3), "10P", FrameType.Dark);
 
-        CometTrackFetch.TryRequestFor(folder, designation: null, out var request, out var lightCount, out var refusal).ShouldBeTrue(refusal);
+        var (request, lightCount, refusal) = await CometTrackFetch.RequestForAsync(folder, designation: null, TestContext.Current.CancellationToken);
 
+        refusal.ShouldBeNull();
         lightCount.ShouldBe(2, "the lights alone, never a dark");
         request.Designation.ShouldBe("10P");
         request.SiteLatDeg.ShouldBe(48.2, 1e-4);
@@ -197,33 +199,64 @@ public sealed class CometTrackTests : IDisposable
     }
 
     [Fact]
-    public void LightsOfTwoCometsWantTheOneNamedAndLightsFromTwoSitesAreRefused()
+    public async Task LightsOfTwoCometsWantTheOneNamedAndLightsFromTwoSitesAreRefused()
     {
+        var ct = TestContext.Current.CancellationToken;
         var two = _folders.Create("two-").FullName;
         WriteLight(Path.Combine(two, "a.fits"), Night, "10P");
         WriteLight(Path.Combine(two, "b.fits"), Night.AddMinutes(5), "C/2025 R2");
 
-        CometTrackFetch.TryRequestFor(two, designation: null, out _, out _, out var refusal).ShouldBeFalse();
-        refusal.ShouldContain("name the comet");
-        CometTrackFetch.TryRequestFor(two, designation: "10P", out var named, out _, out var none).ShouldBeTrue(none);
+        (await CometTrackFetch.RequestForAsync(two, designation: null, ct)).Refusal.ShouldNotBeNull().ShouldContain("name the comet");
+        var (named, _, none) = await CometTrackFetch.RequestForAsync(two, designation: "10P", ct);
+        none.ShouldBeNull();
         named.Designation.ShouldBe("10P");
 
         var sites = _folders.Create("sites-").FullName;
         WriteLight(Path.Combine(sites, "a.fits"), Night, "10P");
         WriteLight(Path.Combine(sites, "b.fits"), Night.AddMinutes(5), "10P", latitude: 40f);
 
-        CometTrackFetch.TryRequestFor(sites, designation: null, out _, out _, out var twoSites).ShouldBeFalse();
-        twoSites.ShouldContain("more than one site");
+        (await CometTrackFetch.RequestForAsync(sites, designation: null, ct)).Refusal.ShouldNotBeNull().ShouldContain("more than one site");
 
         var empty = _folders.Create("empty-").FullName;
-        CometTrackFetch.TryRequestFor(empty, designation: null, out _, out _, out var nothing).ShouldBeFalse();
-        nothing.ShouldContain("there is no light");
+        (await CometTrackFetch.RequestForAsync(empty, designation: null, ct)).Refusal.ShouldNotBeNull().ShouldContain("there is no light");
+
+        // A folder that does not exist is a refusal in words too, never a DirectoryNotFoundException.
+        var missing = Path.Combine(empty, "not-there");
+        (await CometTrackFetch.RequestForAsync(missing, designation: null, ct)).Refusal.ShouldNotBeNull().ShouldContain("there is no folder");
 
         // The antimeridian: lights at 179.99 E and 179.99 W are one site, as a stack's own check says (SameSite).
         var dateline = _folders.Create("dateline-").FullName;
         WriteLight(Path.Combine(dateline, "a.fits"), Night, "10P", longitude: 179.99f);
         WriteLight(Path.Combine(dateline, "b.fits"), Night.AddMinutes(5), "10P", longitude: -179.99f);
-        CometTrackFetch.TryRequestFor(dateline, designation: null, out _, out _, out var across).ShouldBeTrue(across);
+        (await CometTrackFetch.RequestForAsync(dateline, designation: null, ct)).Refusal.ShouldBeNull();
+    }
+
+    /// <summary>
+    /// The lights are the ones a stack takes (the stack's own scan): another tool's composite beside them is an
+    /// integration, so it neither names a second comet nor stretches the window. Astro Pixel Processor keeps
+    /// <c>IMAGETYP='LIGHT'</c> on its composites, states the whole integration as <c>EXPTIME</c> and marks them only by
+    /// <c>NUMFRAME</c>; on 10P's night six of them, with <c>OBJECT='10p Temepl'</c>, made the request refuse the folder
+    /// and, once the comet was named, ask Horizons for two hours past the last light.
+    /// </summary>
+    [Fact]
+    public async Task AnotherToolsCompositeBesideTheLightsIsNoLightOfTheNight()
+    {
+        var folder = _folders.Create("night-app-").FullName;
+        WriteLight(Path.Combine(folder, "a.fits"), Night, "10P");
+        WriteLight(Path.Combine(folder, "b.fits"), Night.AddMinutes(40), "10P");
+        var proc = Directory.CreateDirectory(Path.Combine(folder, "PROC")).FullName;
+        var composite = WriteForeignComposite(Path.Combine(proc, "10p_Tempel_Comet-RGB.fits"), Night.AddMinutes(90), "10p Temepl", numFrame: 132, exposureSeconds: 7920);
+        Image.TryReadFitsHeader(composite, out var info).ShouldBeTrue();
+        info.FrameType.ShouldBe(FrameType.Light, "premise: it says it is a light");
+        info.IsMaster.ShouldBeFalse("premise: no master flag keeps it out");
+        info.IsIntegration.ShouldBeTrue("premise: its count card is what marks it");
+
+        var (request, lightCount, refusal) = await CometTrackFetch.RequestForAsync(folder, designation: null, TestContext.Current.CancellationToken);
+
+        refusal.ShouldBeNull("the composite names no second comet");
+        lightCount.ShouldBe(2);
+        request.Designation.ShouldBe("10P");
+        request.Stop.ShouldBe(Night.AddMinutes(40) + TimeSpan.FromSeconds(60) + request.Step, "the window ends with the last light, not with the composite's hours");
     }
 
     /// <summary>
@@ -297,6 +330,31 @@ public sealed class CometTrackTests : IDisposable
             3.76f, 3.76f, 130, FocuserPositions.None, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0,
             RowOrder.TopDown, latitude, longitude, ObjectName: objectName, SiteElevation: 200f);
         new Image([new float[8, 8]], BitDepth.Float32, 1f, 0f, 0f, meta).WriteToFitsFile(path);
+    }
+
+    // A composite as Astro Pixel Processor writes it: IMAGETYP LIGHT, the whole integration as EXPTIME, NUMFRAME its one
+    // mark, and the reference light's site and object copied over (the cards read off 10P's PROC folder).
+    private static string WriteForeignComposite(string path, DateTimeOffset start, string objectName, int numFrame, double exposureSeconds)
+    {
+        var hdu = nom.tam.fits.FitsFactory.HDUFactory(new float[4, 4]);
+        hdu.AddValue("IMAGETYP", "LIGHT", "");
+        hdu.AddValue("DATE-OBS", start.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fff", CultureInfo.InvariantCulture), "");
+        hdu.AddValue("EXPTIME", exposureSeconds, "");
+        hdu.AddValue("EXPOSURE", 60.0, "");
+        hdu.AddValue("NUMFRAME", numFrame, "");
+        hdu.AddValue("OBJECT", objectName, "");
+        hdu.AddValue("SITELAT", 48.2, "");
+        hdu.AddValue("SITELONG", 16.3, "");
+        hdu.AddValue("SOFTWARE", "Astro Pixel Processor by Aries Productions", "");
+        var fits = new nom.tam.fits.Fits();
+        fits.AddHDU(hdu);
+        using (var file = new nom.tam.util.BufferedFile(path, FileAccess.ReadWrite, FileShare.None))
+        {
+            fits.Write(file);
+            file.Flush();
+        }
+
+        return path;
     }
 
     private sealed class AnsweringSource(ImmutableArray<EphemerisSample> answer) : IHorizonsObserverSource

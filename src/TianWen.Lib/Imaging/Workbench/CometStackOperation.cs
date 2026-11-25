@@ -112,8 +112,11 @@ public sealed class CometStackOperation(ILogger<StackingPipeline>? logger = null
     private static readonly CometStackSettings Defaults = new();
 
     /// <inheritdoc/>
+    /// <remarks>Version 2 (2026-11-25): a comet layer stacked from per-frame starless plates is never drizzled, and a
+    /// star layer the model is subtracted from never takes a strategy that bypasses the subtraction
+    /// (<see cref="StackingPipeline.CometLayerExclusions"/>), so the same settings give other pixels.</remarks>
     public override OperationDescription Description { get; } = new(
-        Id, Version: 1, Title: "Comet stack", Verb: "stack", OperationOutputKind.Stored,
+        Id, Version: 2, Title: "Comet stack", Verb: "stack", OperationOutputKind.Stored,
         ExtraInputs:
         [
             new OperationInputRole("track", "The comet's track for these frames: the file tianwen comet track wrote. Left out, rateX and rateY place the comet.", Optional: true),

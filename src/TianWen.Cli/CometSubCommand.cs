@@ -50,7 +50,8 @@ internal sealed class CometSubCommand(IConsoleHost consoleHost, ILogger<CometSub
                 return 1;
             }
 
-            if (!CometTrackFetch.TryRequestFor(frames, parseResult.GetValue(designationOpt), out var request, out var lights, out var refusal))
+            var (request, lights, refusal) = await CometTrackFetch.RequestForAsync(frames, parseResult.GetValue(designationOpt), ct);
+            if (refusal is not null)
             {
                 consoleHost.WriteError(refusal);
                 return 1;

@@ -115,6 +115,46 @@ public class StackingPipelineStarlessTest(ITestOutputHelper output)
         results[0].MasterFitsPath.ShouldBeNull();
     }
 
+    /// <summary>
+    /// The comet half of the gate: a comet-aligned grid (a rate is given) stacked from per-frame starless plates never
+    /// takes a drizzle, even forced, and says so. Without the gate the forced BayerDrizzle runs, as in the sidereal
+    /// test below; with the exclusion deleted from the call site this fails.
+    /// </summary>
+    [Fact]
+    public async Task ACometLayerOfStarlessPlatesDropsAForcedDrizzleAndSaysSo()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var workspace = new TempStackingWorkspace();
+        var darksDir = Path.Combine(workspace.RootDir, "DARK");
+        Directory.CreateDirectory(darksDir);
+
+        RgbBayerSyntheticFixture.WriteSyntheticLights(workspace.LightsDir);
+        RgbBayerSyntheticFixture.WriteSyntheticDarks(darksDir);
+
+        var options = new StackingOptions(
+            DataRoot: workspace.RootDir,
+            OutputDir: workspace.OutputDir,
+            ForcedStrategy: IntegrationStrategyKind.BayerDrizzle,
+            DrizzleOptions: new DrizzleOptions(MinFrameCount: 6),
+            RemoveStarsPerFrame: true,
+            CometRatePxPerHour: new System.Numerics.Vector2(1f, 0f));
+        var logger = new RecordingLogger();
+        var pipeline = new StackingPipeline(options, logger, catalogDb: null, starRemover: new RecordingStarRemover());
+
+        var results = new List<GroupResult>();
+        await foreach (var r in pipeline.RunAsync(ct))
+        {
+            results.Add(r);
+        }
+
+        results.Count.ShouldBe(1);
+        results[0].SkipReason.ShouldBeNullOrEmpty("the group ran; a skipped group would make the strategy asserts below vacuous");
+        results[0].Strategy.ShouldNotBeNull();
+        results[0].Strategy.ShouldNotBe(IntegrationStrategyKind.BayerDrizzle, $"a starless comet layer is never drizzled; skip: '{results[0].SkipReason}'");
+        results[0].Strategy.ShouldNotBe(IntegrationStrategyKind.TilePipelinedDrizzle, "a starless comet layer is never tile-drizzled either");
+        logger.Messages.ShouldContain(m => m.Contains("[comet] --strategy"), "the dropped override is said");
+    }
+
     [Theory]
     [InlineData(StarRemovalMode.Mosaic)]
     [InlineData(StarRemovalMode.SplitCfa)]
@@ -148,6 +188,7 @@ public class StackingPipelineStarlessTest(ITestOutputHelper output)
         results.Count.ShouldBe(1, "expected a single integrated light group");
         var result = results[0];
         result.SkipReason.ShouldBeEmpty($"group should not have skipped: '{result.SkipReason}'");
+        result.Strategy.ShouldBe(IntegrationStrategyKind.BayerDrizzle, "a sidereal --remove-stars run has no trail residue to avoid, so a forced drizzle stays forced");
 
         // 1) Every frame reached the remover, and reached it in [0, 1]. The synthetic lights are
         //    Int16 with samples up to ~4096 ADU, so an unscaled hand-off records a max in the

@@ -332,79 +332,10 @@ public sealed class StackingPipeline(
         // -----------------------------------------------------------------
         progress?.Report(new StackingProgress(StackingPhase.Scanning, "", 0, 0));
         var sw = Stopwatch.StartNew();
-        var source = new FitsFolderFrameSource(options.DataRoot, recursive: true) { IncludeSuspectedCloud = options.IncludeSuspectedCloud };
-        var allFrames = new List<FrameInfo>();
-        var outputDirNormalised = Path.GetFullPath(outputDir);
-        var integrationSkipped = 0;
-        var rejectionMapSkipped = 0;
-        var integrationKept = 0;
-        var masterSkipped = 0;
-        await foreach (var frame in source.EnumerateAsync(ct))
-        {
-            // Skip anything under outputDir -- masters and previous-run
-            // outputs would otherwise be ingested as fresh lights.
-            // Path.GetFullPath normalises separators / case so the
-            // StartsWith check is reliable on Windows.
-            if (Path.GetFullPath(frame.Path).StartsWith(outputDirNormalised, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-            // Rejection maps carry STACK_N too but are per-pixel
-            // rejection-fraction images, not sky data -- always drop them
-            // regardless of IncludeIntegrations. Filename suffix is the
-            // canonical IntegrationFitsWriter marker; check both bare and
-            // .gz variants since FitsFolderFrameSource accepts both.
-            if (frame.Path.EndsWith(IntegrationFitsWriter.RejectionMapSuffix, StringComparison.OrdinalIgnoreCase) ||
-                frame.Path.EndsWith(IntegrationFitsWriter.RejectionMapSuffix + ".gz", StringComparison.OrdinalIgnoreCase) ||
-                frame.Path.EndsWith(IntegrationFitsWriter.CoverageMapSuffix, StringComparison.OrdinalIgnoreCase) ||
-                frame.Path.EndsWith(IntegrationFitsWriter.CoverageMapSuffix + ".gz", StringComparison.OrdinalIgnoreCase))
-            {
-                rejectionMapSkipped++;
-                continue;
-            }
-            // A foreign MASTER calibration frame (IMAGETYP=MASTERDARK / MASTERFLAT /
-            // MASTERBIAS) now parses to its underlying FrameType (Dark / Flat / Bias)
-            // so the dataset builder can ingest it directly -- but the stacker builds
-            // masters ONLY from raw subs whose provenance it controls (the "never
-            // ingest foreign masters" invariant). Feeding a pre-integrated master into
-            // BuildMastersAsync would fold a whole master in as if it were one raw
-            // frame. Skip masters here to keep the stacker raw-only (before master
-            // parsing was added these were inert FrameType.None frames anyway).
-            if (frame.Meta.IsMaster)
-            {
-                masterSkipped++;
-                continue;
-            }
-            // Two markers identify a TianWen-produced FITS that must not be
-            // re-ingested as a fresh light:
-            //   * IsIntegration -- a stacking master (the rejection branch above
-            //     already filtered rejection maps, so this is an integrated
-            //     master), ours by STACK_N or a foreign one by its own count
-            //     card or a live stack's accumulated EXPTIME.
-            //   * A TianWen SWCREATE -- ANY of our derived products. An AI
-            //     sharpen / enhance output inherits the master's SWCREATE but
-            //     carries NO STACK_N and an IMAGETYP=Light copied from the
-            //     original subs, so the STACK_N check alone misses it -- which
-            //     is exactly how processed outputs in an adjacent output-*/ dir
-            //     get partitioned into ghost MasterGroupKey buckets and silently
-            //     re-stacked.
-            // Default policy is to drop both. IncludeIntegrations opts in for
-            // two-stage mosaic stacking where each panel is integrated
-            // separately, then the panel masters are re-stacked.
-            if (frame.IsIntegration || IntegrationFitsWriter.IsTianWenProduct(frame.Meta.SWCreator, frame.Meta.SWModifier))
-            {
-                if (options.IncludeIntegrations)
-                {
-                    integrationKept++;
-                }
-                else
-                {
-                    integrationSkipped++;
-                    continue;
-                }
-            }
-            allFrames.Add(frame);
-        }
+        var scan = await ScanFramesAsync(options.DataRoot, outputDir, options.IncludeIntegrations, options.IncludeSuspectedCloud, ct);
+        var allFrames = scan.Frames;
+        var (integrationSkipped, rejectionMapSkipped, integrationKept, masterSkipped) =
+            (scan.IntegrationsSkipped, scan.RejectionMapsSkipped, scan.IntegrationsKept, scan.MastersSkipped);
         if (rejectionMapSkipped > 0)
         {
             logger.LogInformation("[scan] ignored {Count} rejection map(s)", rejectionMapSkipped);
@@ -423,10 +354,10 @@ public sealed class StackingPipeline(
             logger.LogInformation("[scan] keeping {Count} integration(s) as input (IncludeIntegrations=true)",
                 integrationKept);
         }
-        if (source.SuspectedCloudSkipped > 0)
+        if (scan.SuspectedCloudSkipped > 0)
         {
             logger.LogInformation("[scan] left out {Count} frame(s) named {Prefix}...; pass --include-maybe-cloud to keep them",
-                source.SuspectedCloudSkipped, CaptureRejection.SuspectedCloudPrefix);
+                scan.SuspectedCloudSkipped, CaptureRejection.SuspectedCloudPrefix);
         }
         logger.LogInformation("[scan] {Count} frames in {ElapsedMs} ms", allFrames.Count, sw.ElapsedMilliseconds);
         // Surface the scan summary on the progress channel (a CLI / TUI floors
@@ -437,7 +368,7 @@ public sealed class StackingPipeline(
             StackingPhase.Scanning, "", 0, 0,
             Scan: new ScanSummary(allFrames.Count, integrationSkipped, rejectionMapSkipped, integrationKept)
             {
-                SuspectedCloudSkipped = source.SuspectedCloudSkipped,
+                SuspectedCloudSkipped = scan.SuspectedCloudSkipped,
             }));
         hostTracker.Log(logger, "scan");
 
@@ -1680,7 +1611,7 @@ public sealed class StackingPipeline(
                 matched.Count, starlessDir, reusedPlates, (long)Stopwatch.GetElapsedTime(starlessStart).TotalMilliseconds);
         }
 
-        // BayerDrizzle is opt-in only (--strategy BayerDrizzle). Gate up
+        // A FORCED BayerDrizzle (--strategy BayerDrizzle; the selector may also pick it at scale). Gate up
         // front so we fail fast with a clear reason rather than producing
         // a NaN-riddled master at low frame count or on a Mono / Color
         // sensor where the per-pixel Bayer dispatch is meaningless. Both
@@ -1995,24 +1926,32 @@ public sealed class StackingPipeline(
             // made the layer BRIGHTER there. A comet residual cannot do that; it sweeps every track
             // position equally and must be flat. That measurement predates the normalisation fix and
             // has not been re-run against a normalised BayerDrizzle.
+            //
+            // The same rule holds for a star layer the comet's MODEL is subtracted from, and the mask's filter
+            // used to be the only one (it read `layerMask is not null && layerModel is null`): from 2026-08-26 a
+            // modelled star layer could pick TilePipelined, which never runs the subtraction, and on 10P on
+            // 2026-11-25 a host short of memory did, logged "the model subtraction touched NO pixels in any
+            // frame" and wrote no composite. And a comet layer stacked from per-frame starless plates must not
+            // be drizzled: drizzle clips each sample once, against its cell's mean and spread from one
+            // statistics pass, which the residue trail of a bright star (a few frames of many) inflates, where
+            // the debayered strategies clip iteratively. On 10P the drizzled starless layer kept that residue at
+            // -14.8 sigma along the track (chroma, 2.23% of the coma beyond 3) against -4.0 (0.31%) for a
+            // sigma-clipped one, and it came back as the coloured ring round the coma in the composite.
             var preferredStrategy = options.ForcedStrategy;
-            if (layerMask is not null && layerModel is null)
+            // useStarless only says "the starless plate where there is one": every primary layer passes it, a sidereal
+            // stack's too, so the plates exist only under RemoveStarsPerFrame. Only a comet-aligned grid is a comet layer:
+            // a sidereal stack with --remove-stars keeps every strategy (no drift, so no trail residue on the grid).
+            var starless = useStarless && options.RemoveStarsPerFrame && cometRate is not null;
+            if (CometLayerExclusions(masked: layerMask is not null, modelled: layerModel is not null, starless) is { Count: > 0 } excluded)
             {
                 pool = (pool ?? IntegrationStrategySelector.DefaultStrategies())
-                    .Where(s => s.Kind is not IntegrationStrategyKind.TilePipelined
-                            and not IntegrationStrategyKind.TilePipelinedDrizzle
-                            and not IntegrationStrategyKind.BayerDrizzle)
+                    .Where(s => !excluded.ContainsKey(s.Kind))
                     .ToArray();
-                if (preferredStrategy is IntegrationStrategyKind.TilePipelined
-                    or IntegrationStrategyKind.TilePipelinedDrizzle
-                    or IntegrationStrategyKind.BayerDrizzle)
+                if (preferredStrategy is { } forced && excluded.TryGetValue(forced, out var why))
                 {
                     logger.LogWarning(
-                        "  [comet] --strategy {Kind} cannot build a masked layer correctly "
-                            + "(it either bypasses the mask, or is excluded pending re-validation "
-                            + "of the normalised-drizzle masked-layer measurement); letting the "
-                            + "selector pick for this layer",
-                        preferredStrategy);
+                        "  [comet] --strategy {Kind} cannot build this layer correctly ({Why}); letting the selector pick for this layer",
+                        preferredStrategy, why);
                     preferredStrategy = null;
                 }
             }
@@ -2774,6 +2713,134 @@ public sealed class StackingPipeline(
             rate.SampleCount, (track[^1].TimeUtc - track[0].TimeUtc).TotalHours,
             rate.PxPerHour.X, rate.PxPerHour.Y, rate.PxPerHour.Length(), rate.MaxResidualPx);
         return (rate, null);
+    }
+
+    /// <summary>
+    /// The integration strategies a comet layer must not be built by, each with the reason in words (#2489). A star
+    /// layer the comet is masked out of, or its model subtracted from, needs the frame producers that do it, and
+    /// TilePipelined and TilePipelinedDrizzle re-read each frame themselves and bypass them; a masked layer also keeps
+    /// BayerDrizzle out pending its re-validation; and a comet layer stacked from per-frame starless plates keeps both
+    /// drizzles out, whose one-pass clip keeps the trail residue the star remover leaves (on 10P, -14.8 sigma against
+    /// -4.0 for a sigma clip, and the coloured ring round the coma in the composite). Empty for any other layer.
+    /// </summary>
+    /// <param name="masked">The layer has the comet masked out (the fallback without a model).</param>
+    /// <param name="modelled">The layer has the comet's model subtracted from every frame.</param>
+    /// <param name="starless">The layer is stacked from per-frame starless plates.</param>
+    internal static IReadOnlyDictionary<IntegrationStrategyKind, string> CometLayerExclusions(bool masked, bool modelled, bool starless)
+    {
+        var excluded = new Dictionary<IntegrationStrategyKind, string>();
+        if (masked || modelled)
+        {
+            const string bypasses = "it re-reads each frame itself, so the comet would never be masked out of or subtracted from this layer";
+            excluded[IntegrationStrategyKind.TilePipelined] = bypasses;
+            excluded[IntegrationStrategyKind.TilePipelinedDrizzle] = bypasses;
+        }
+
+        if (masked && !modelled)
+        {
+            excluded[IntegrationStrategyKind.BayerDrizzle] = "a masked layer keeps it out pending re-validation of the normalised-drizzle measurement";
+        }
+
+        if (starless)
+        {
+            const string clipsOnce = "a drizzle clips each sample once, and keeps the trail residue the star remover leaves on the starless plates";
+            excluded.TryAdd(IntegrationStrategyKind.BayerDrizzle, clipsOnce);
+            excluded.TryAdd(IntegrationStrategyKind.TilePipelinedDrizzle, clipsOnce);
+        }
+
+        return excluded;
+    }
+
+    /// <summary>What <see cref="ScanFramesAsync"/> found: the frames a stack takes, in the order the folder gave them,
+    /// and how many of each kind it left out (or, for integrations, kept).</summary>
+    internal sealed record FrameScan(List<FrameInfo> Frames, int IntegrationsSkipped, int RejectionMapsSkipped,
+        int IntegrationsKept, int MastersSkipped, int SuspectedCloudSkipped);
+
+    /// <summary>
+    /// The frames a stack takes from <paramref name="dataRoot"/>, read recursively: every FITS under it less anything
+    /// under <paramref name="outputDir"/>, a rejection or coverage map, a foreign master calibration frame, and an
+    /// integration (ours, or another tool's such as Astro Pixel Processor's composites) or any other TianWen product
+    /// unless <paramref name="includeIntegrations"/>. The one scan a stack and a comet's track request share
+    /// (<see cref="CometTrackFetch.RequestForAsync"/>), so a track is asked for the night the stack registers (#2489).
+    /// </summary>
+    internal static async Task<FrameScan> ScanFramesAsync(string dataRoot, string? outputDir, bool includeIntegrations,
+        bool includeSuspectedCloud, CancellationToken ct)
+    {
+        var source = new FitsFolderFrameSource(dataRoot, recursive: true) { IncludeSuspectedCloud = includeSuspectedCloud };
+        var allFrames = new List<FrameInfo>();
+        var outputDirNormalised = outputDir is null ? null : Path.GetFullPath(outputDir);
+        var integrationSkipped = 0;
+        var rejectionMapSkipped = 0;
+        var integrationKept = 0;
+        var masterSkipped = 0;
+        await foreach (var frame in source.EnumerateAsync(ct))
+        {
+            // Skip anything under outputDir -- masters and previous-run
+            // outputs would otherwise be ingested as fresh lights.
+            // Path.GetFullPath normalises separators / case so the
+            // StartsWith check is reliable on Windows.
+            if (outputDirNormalised is not null && Path.GetFullPath(frame.Path).StartsWith(outputDirNormalised, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            // Rejection maps carry STACK_N too but are per-pixel
+            // rejection-fraction images, not sky data -- always drop them
+            // regardless of IncludeIntegrations. Filename suffix is the
+            // canonical IntegrationFitsWriter marker; check both bare and
+            // .gz variants since FitsFolderFrameSource accepts both.
+            if (frame.Path.EndsWith(IntegrationFitsWriter.RejectionMapSuffix, StringComparison.OrdinalIgnoreCase) ||
+                frame.Path.EndsWith(IntegrationFitsWriter.RejectionMapSuffix + ".gz", StringComparison.OrdinalIgnoreCase) ||
+                frame.Path.EndsWith(IntegrationFitsWriter.CoverageMapSuffix, StringComparison.OrdinalIgnoreCase) ||
+                frame.Path.EndsWith(IntegrationFitsWriter.CoverageMapSuffix + ".gz", StringComparison.OrdinalIgnoreCase))
+            {
+                rejectionMapSkipped++;
+                continue;
+            }
+            // A foreign MASTER calibration frame (IMAGETYP=MASTERDARK / MASTERFLAT /
+            // MASTERBIAS) now parses to its underlying FrameType (Dark / Flat / Bias)
+            // so the dataset builder can ingest it directly -- but the stacker builds
+            // masters ONLY from raw subs whose provenance it controls (the "never
+            // ingest foreign masters" invariant). Feeding a pre-integrated master into
+            // BuildMastersAsync would fold a whole master in as if it were one raw
+            // frame. Skip masters here to keep the stacker raw-only (before master
+            // parsing was added these were inert FrameType.None frames anyway).
+            if (frame.Meta.IsMaster)
+            {
+                masterSkipped++;
+                continue;
+            }
+            // Two markers identify a TianWen-produced FITS that must not be
+            // re-ingested as a fresh light:
+            //   * IsIntegration -- a stacking master (the rejection branch above
+            //     already filtered rejection maps, so this is an integrated
+            //     master), ours by STACK_N or a foreign one by its own count
+            //     card or a live stack's accumulated EXPTIME.
+            //   * A TianWen SWCREATE -- ANY of our derived products. An AI
+            //     sharpen / enhance output inherits the master's SWCREATE but
+            //     carries NO STACK_N and an IMAGETYP=Light copied from the
+            //     original subs, so the STACK_N check alone misses it -- which
+            //     is exactly how processed outputs in an adjacent output-*/ dir
+            //     get partitioned into ghost MasterGroupKey buckets and silently
+            //     re-stacked.
+            // Default policy is to drop both. IncludeIntegrations opts in for
+            // two-stage mosaic stacking where each panel is integrated
+            // separately, then the panel masters are re-stacked.
+            if (frame.IsIntegration || IntegrationFitsWriter.IsTianWenProduct(frame.Meta.SWCreator, frame.Meta.SWModifier))
+            {
+                if (includeIntegrations)
+                {
+                    integrationKept++;
+                }
+                else
+                {
+                    integrationSkipped++;
+                    continue;
+                }
+            }
+            allFrames.Add(frame);
+        }
+
+        return new FrameScan(allFrames, integrationSkipped, rejectionMapSkipped, integrationKept, masterSkipped, source.SuspectedCloudSkipped);
     }
 
     /// <summary>
