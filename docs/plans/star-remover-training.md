@@ -61,8 +61,15 @@ Tarantula's (measured on that held-out master; for the drawn-star arms' own plat
 targets with those stars taken out were tried twice: R4a's cluster scenes, which bought nothing, and R4f's smoothed
 plates, killed twice. The catalogue cannot make such a target (2026-11-25), and training on StarXTerminator's
 output is ruled out (the owner, 2026-11-26). For the faint stars on bright nebula, real pairs did show the model
-most of them taken on its training sessions (counted) and it still did not take them on the Lagoon. What comes next
-is the owner's. The status of 2026-11-11 and the one of 2026-10-03 below are kept as the record.
+most of them taken on its training sessions (counted) and it still did not take them on the Lagoon. **On 2026-11-26
+the owner sent the list of routes not yet tried back whole, which the session read as a go** ("The routes not yet tried,
+the owner's go" in section 6, which quotes no words): first the net 1.5 times as wide in channels (2.25 times the weights)
+on R4h's data (R4l, registered there), then denser crowded scenes without compact groups, then the loss
+weighed up in crowded areas, then depth pairs for the faint stars on bright nebula. The free check that came first:
+on the held-out Tarantula StarXTerminator keeps about a third of a real compact cluster's unresolved glow and R4h
+less at the median (cluster by cluster a lean, not a clear split), so the scenes' rule that a compact cluster is all
+stars is further from the judge than the model already is.
+The status of 2026-11-11 and the one of 2026-10-03 below are kept as the record.
 
 **Status, 2026-11-11: rounds 1 to 3 run (R2a to R3s, section 6), and NO model ships.** R2p was chosen on
 2026-10-20 ([Shipping R2p](#shipping-r2p-tianwens-own-star-remover-2026-10-20), #1702, still open) and held
@@ -10900,6 +10907,107 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     grain would move the crowded rows little is an expectation from these numbers, not a measurement. Not registered;
     the owner's.
   - **Nothing is adopted;** the code's default follows the owner's rule, and what follows is the owner's.
+- **The routes not yet tried, the owner's go (2026-11-26).** Asked to review every approach taken, the session listed
+  what none had tried; the owner sent the list back whole, which the session read as a go for it, each arm still
+  registered on main before any score of it and adoption still the owner's:
+  - **A bigger net, or one that sees more context, on R4h's data:** R4l below. More context than R4h's is not
+    in it: R4h's four levels already reach about its 256 px tile, so more context needs larger tiles and a new
+    export.
+  - **Denser crowded scenes:** drawn stars stand as crowded as the Tarantula's most crowded cell 0.14 % of the time
+    ("The Tarantula's Gaia BP 17-19 gap" above). By the free check below, these are to be dense in resolved and faint
+    stars with no compact groups, since the judge does not take a real compact cluster as all stars. Its own
+    registration, after its export.
+  - **The loss weighed up in crowded areas:** earlier weightings (R2j, R2l, R3b, R3w) aimed at bright cores or
+    channels, none at crowding. A trainer change first, then its own registration.
+  - **Depth pairs for the faint stars on bright nebula (route B):** a stack of a quarter of a session's subs as the
+    input against the whole stack's plate as the answer. The largest of the four (the stacks and an exporter mode);
+    designed after the two above.
+  - **Second seeds of R4b and R4c, proposed dropped (the owner's call):** R4c's change, the stars under the
+    catalogue, is in R4h's line already (R4d lifted its cap), and R4b's, the bright stars drawn as measured, aims at
+    bright-star rows that stand level with StarXTerminator through the chain.
+  - **A free check first, on what StarXTerminator does with compact clusters:** next.
+- **What StarXTerminator does with the LMC's compact clusters, 2026-11-26 (a measurement: no training, no arm).** The
+  synthetic scenes call a compact cluster (half-light radius under 16 px) all stars, so a model trained on them is asked
+  to take a cluster's unresolved light whole. On the held-out Tarantula master, per catalogued LMC cluster inside the
+  frame (`lmc-clusters.csv` beside the script: OpenNGC's open and globular clusters in and about 30 Doradus, extracted
+  on 2026-10-20 when the scenes' groups were sized, whose size ranges are now the `--sub-cluster` defaults in
+  `DatasetSubCommand.cs`), the light inside one catalogue radius above a ring at 1.5 to 2 radii, on each plate, over
+  the plate builder's (which takes resolved stars only, so its excess is the cluster's unresolved light and any star
+  its finder missed): 1 is the glow kept as background, 0 taken as stars. 35 clusters stand at 10 times their noise or
+  more, 32 of them compact by the scenes' rule (the half-light radius of the builder's excess under 16 px on the
+  scenes' 2.07 arcsec grid, 11.5 px on this master's 2.87) (`sxt_compact_clusters.py`):
+
+  | plate | kept share, median (middle half), all 35 | compact 32 | against StarXTerminator per cluster: median difference, keeps less in, all / compact |
+  |---|---|---|---|
+  | StarXTerminator | 0.32 (0.03 to 0.70) | 0.34 (0.07 to 0.72) | |
+  | R4h seed 0, as trained | 0.15 (-0.01 to 0.51) | 0.16 (0.01 to 0.50) | -0.06, 19 of 35 / -0.06, 18 of 32 |
+  | R4h seed 1, as trained | 0.14 (0.03 to 0.32) | 0.15 (0.03 to 0.31) | -0.13, 22 of 35 / -0.15, 21 of 32 |
+  | R4h seed 0, through the chain | 0.10 (0.01 to 0.42) | 0.10 (0.02 to 0.41) | -0.08, 22 of 35 / -0.09, 20 of 32 |
+  | R4h seed 1, through the chain | 0.06 (0.00 to 0.24) | 0.07 (0.01 to 0.23) | -0.13, 23 of 35 / -0.17, 21 of 32 |
+
+  - **What it says.** The judge keeps about a third of a real compact cluster's glow, with a wide spread from cluster
+    to cluster, so it does not take a compact cluster as all stars. R4h leans the other way, cluster by cluster: a
+    median of 0.06 to 0.17 less than the judge, keeping less in 18 to 23 of the clusters, a lean and not a clear
+    split (seed 0 as trained keeps less in 19 of 35, a one-sided sign test's chance of about 0.37; at 30 times the noise or more,
+    14 of 27 with a median of -0.03). One cluster, NGC 2092 at 11 times its noise, reads 12.02 for the judge, an
+    outlier the medians and counts do not move. Either way the scenes' rule (keep none) is further from the judge than the model already is, and on route
+    A's synthetic scenes the model left the drawn groups whole where on these it does not, so the drawn groups are not
+    like the real ones. That is why the denser scenes above are to leave the groups out. The crowded row reads star by
+    star, so a cluster's glow reaches it only through the stars inside the cluster; this check reads the glow, not
+    that row.
+- **R4l, pre-registered 2026-11-26 before any training of it. One change from R4h: the net 1.5 times as wide
+  (`--base 48 --max-ch 384` against `--base 32 --max-ch 256`: 1.5 times the channels at every level, 2.25 times the
+  weights, 15.44 M against R4h's 6.86 M; four levels and the same reach).**
+  - **In plain words.** Every arm since R3v changed the data, the answer or the loss on a net of one size, and the
+    last eight on the open rows were killed. Route A showed that with a clean answer in front of it a net of R4h's
+    size still leaves a crowded core far from that answer. The last time the size changed (R3v, 0.81 M to 6.86 M
+    weights) it was a depth step (`--levels 4`, reach 66 to 294 px, the top three levels' channels still 32/64/128),
+    not a width one, so R4l is the first change of width alone; StarXTerminator's net holds about 16 M weights, about
+    R4l's size. This arm asks whether capacity closes the crowded rows.
+  - **The training.** R4h's frozen trainer copy (`C:/temp/e2/r4hi-run`), its cache (`r2-synth32`) and its command
+    line as R4h's log printed it, with `--base 48 --max-ch 384` in place of `--base 32 --max-ch 256`. Seeds 0 and 1
+    on the hardware R4h's seeds trained on: seed 0 as a Batch job on a low-priority T4 that removes itself (the arm's
+    flags go last on the task's line, so argparse takes them), seed 1 on the GTX 1070. Models `r4l_synth32w_s0`
+    and `r4l_synth32w_s1`; the plateau halves and stops as R4h's does.
+  - **Before the launch, measured on the GTX 1070 (no weights kept):** a step of 8 tiles costs 327 ms against R4h's
+    155 (forward and backward on tiles in memory), peak memory 1.92 GiB against 1.25, so a seed takes about twice
+    R4h's time: some 20 to 25 hours on the 1070 and about 26 on the T4 (R4h's seed 0 on the T4 reached its last step,
+    223,500, at 749 minutes by its trainer's log, `C:/temp/e2/r4haz-batch/r4haz.log`; 749 x 327 / 155 is about 1,580
+    minutes), under the
+    36-hour cap R4h ran with; seed 0's cap is 48 hours, for a low-priority node's preemptions. 400 steps of R4h's
+    line at this width, without its held-out checks, ran through on the cache on the 1070.
+  - **Read first:** the 1:1 sheets R4h's read lists, with both seeds beside R4h's two and StarXTerminator; then the
+    training by the stall rule of R4h's and R4i's registration.
+  - **Scored** as R4h's two seeds were (`bh-bin14`, the last step's weights, as trained and through the chain, the
+    planted rows with `--keep-overshoot`), the best step's weights reported beside them.
+  - **The question, through the chain, on both seeds:** the Tarantula's crowded flat **at least 94.0** and Gaia BP
+    17-19 with the level set aside **at least 94.3**: half the gap from R4h's better seed to StarXTerminator on each
+    (R4h 91.9 / 90.5 and 91.4 / 91.9; StarXTerminator 96.1 and 96.6).
+  - **Guards, on each seed,** R4k's on the same terms and at the same values but the two rows of the question:
+    Sagittarius's crowded flat at least 96.3; Andromeda's dark flat at least 95 with at most 3 % dug; the
+    Tarantula's dark flat at least 91; the glow's green median within 450 on Andromeda and 500 on the Tarantula; M31's
+    nucleus taken under 10 % through the chain; purity at most 1.0; the light taken from the Tarantula field at most
+    83 and 84 %; light added on each master's nebula at most 1.0 %; the brightest tenth of the Tarantula's peaks
+    standing on at least 11 of 77; faint stars left on the Lagoon's core at most 37 % and on 30 Doradus at most 27 %;
+    the Lagoon's broad light taken at most 2.67; of the 205 plants on dark sky at most 12.0 % left. A row R4h misses
+    on either seed holds R4l to R4h's worse seed and the bar's allowance.
+  - **Kill:** a guard fails on a seed that trained as the others; or both seeds read at or under 90.5 on the
+    Tarantula's crowded flat through the chain (R4h's worse seed: the width bought nothing on the row it aims at).
+    **Cleared:** the question with every guard held on both seeds. Anything else is neither, and the rows go to the
+    owner. A stalled seed, or one the cap ended, is neither killed nor cleared.
+  - **Reported, no bar:** R4h's two seeds beside each of R4l's on every row; the most crowded Gaia cell (R4h 82.7
+    and 87.5 %, StarXTerminator 99.2); the two-sided crowded row (R4h 3.25 through the chain, StarXTerminator 1.49);
+    the bright plants (R4h 67.8 and 70.7 %) and the Lagoon's 84 real stars (34.5 and 33.3 %); the compact clusters'
+    kept share above; what each leaves on route A's four scenes (`cluster_models_band.py`; R4h 5.0 to 9.1 in a core
+    against the old truth); the best step's weights; the time a whole master takes.
+  - **Prediction:** both seeds gain 1 to 2.5 points over R4h's mean on the two rows of the question (91.2 and 91.7),
+    short of the bars, so "neither". What speaks for more: route A's residual being the
+    model's own, and the judge's net at about R4l's size and over twice R4h's. R3v's 0.81 M to 6.86 M was a depth and
+    reach step, so it is no evidence for width alone. What speaks against: R2nc grew and gained on faint
+    stars, not bright ones; a drawn star stands as crowded as the worst real cell 0.14 % of the time, so a wider net
+    sees the case it most misses as rarely as R4h did; and a bigger net learns unrealistic stars better (round 2's
+    ranked list, item 6).
+  - **Nothing is adopted;** adoption is the owner's.
 
 #### The dig floor inside bright nebula: floor4, and what it leaves (2026-11-20)
 
