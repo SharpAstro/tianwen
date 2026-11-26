@@ -33,7 +33,7 @@ and what has been tried (each in section 6):
   plate scored as a remover, 2026-11-26) reads 59.8 on the Tarantula's crowded flat and 60.5 on BP 17-19, 39.9 %
   in that crowded cell, where R4h as trained reads 88.0 / 85.7, 89.8 / 90.0 and 79.0 / 83.3: the faint stars the
   builder leaves are in input and target alike on every crowded tile, so nothing in the data asks the model to take
-  them, and what our models take beyond the builder (measured) is inferred to come from the drawn stars.
+  them. How much more our models take than the builder is measured; that the drawn stars taught it is inferred.
 - **The faint stars on bright nebula** are read with planted stars, since the real ones are too few to carry a bar
   (the Lagoon's gap is 16 stars of 84). Two seeds of one recipe have stood 3 to 20 points apart there. Tried:
   plate cells with drawn stars and the loss on the stars (R4j: 72.2 and 64.4 %), real pairs with the loss where
@@ -10730,11 +10730,11 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
       few of them.** R4k's loss counted only where the builder took a star out, and on the held-out Lagoon
       master's bright nebula the builder's median take of a faint star is 0.00: it takes a third of the planted
       ones at the faintest nebula, about a tenth at 40 to 80 sky sigma and a fiftieth above that, and about a third
-      of the real ones (taken counted as over half the star's light, `plant_read.py`'s rule). R4k's mask keeps a
-      star the builder subtracted at all (`RealPairMask`: the fit outcome `Subtracted`, whatever the take), a looser
-      rule than that, but it also drops every pixel within 2 PSF widths of a source the builder left in and within
-      30 px of a saturated star, so a mask made there as R4k's were need not hold even that third; how many it would
-      hold is not counted. The registration named this under "what speaks against"; on the Lagoon it is now
+      of the real ones (taken counted as over half the star's light, `plant_read.py`'s rule). R4k's mask is the
+      builder's subtracted footprint (the plate's own mask, at any take), less every pixel within 2 PSF widths of a
+      source the builder left in and within 30 px of a saturated star (`RealPairMask`). Its take is looser than half
+      the light and its zones are tighter, so whether a mask made there as R4k's were would hold more or fewer than
+      that third is not counted. The registration named this under "what speaks against"; on the Lagoon it is now
       measured. R4k seed 1's gain at 20 to 40 sky sigma of
       nebula (41.0 % left against R4h seed 0's 54.2), where the builder takes the most, fits the data teaching a
       little there. That the builder does the same on the training sessions' bright nebula, so that R4k's masks
