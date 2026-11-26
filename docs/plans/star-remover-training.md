@@ -40,14 +40,16 @@ and what has been tried (each in section 6):
   the builder took a star (R4k: 67.3 and 57.6 %, and it cost 30 Doradus's faint stars and the crowded rows).
   Neither moved both seeds past a seed's spread. **Measured on the held-out Lagoon master:** the builder itself
   takes a median of 0.00 of each planted faint star on bright nebula and leaves 82 % of them (a third taken at the
-  faintest nebula, almost none on brighter; about a third of the 84 real ones taken), so a loss counted only where
+  faintest nebula, about a tenth at 40 to 80 sky sigma of nebula and a fiftieth above that; about a third of the 84
+  real ones taken), so a loss counted only where
   it took a star would see few of them there. That R4k's training sessions are the same is suspected, not counted. Why the drawn-star arms
   leave them is not measured.
 
 Nothing above says a row cannot be reached; it says no route tried so far has reached it, what each route measured,
 and (the builder's own scorecard) what the routes tried so far share: real stars against the builder's plates show
-the model few faint stars on bright nebula taken (on the Lagoon), and every drawn-star arm drew on plates that keep
-two in five of a crowded field's faint stars (on the Tarantula). A target with those stars taken out has not been
+the model few faint stars on bright nebula taken, and every drawn-star arm drew on plates that keep two in five of a
+crowded field's faint stars. Both are measured on the held-out masters (the Lagoon, the Tarantula's plate) and
+inferred, not counted, for the arms' training plates. A target with those stars taken out has not been
 tried, since nothing made so far makes one. What comes next is the owner's. The status of 2026-11-11 and the one
 of 2026-10-03 below are kept as the record.
 
@@ -10727,9 +10729,12 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     - **Faint stars on bright nebula, through real pairs: on the Lagoon master, a mask made as R4k's were would hold
       few of them.** R4k's loss counted only where the builder took a star out, and on the held-out Lagoon
       master's bright nebula the builder's median take of a faint star is 0.00: it takes a third of the planted
-      ones at the faintest nebula and almost none on brighter nebula, and about a third of the real ones, so a mask
-      made there as R4k's were would hold about a third of the real ones. The registration named this
-      under "what speaks against"; on the Lagoon it is now measured. R4k seed 1's gain at 20 to 40 sky sigma of
+      ones at the faintest nebula, about a tenth at 40 to 80 sky sigma and a fiftieth above that, and about a third
+      of the real ones (taken counted as over half the star's light, `plant_read.py`'s rule). R4k's mask keeps a
+      star the builder subtracted at all (`RealPairMask`: the fit outcome `Subtracted`, whatever the take), a looser
+      rule than that, so a mask made there as R4k's were would hold about a third of the real ones or more; how
+      many more is not counted. The registration named this under "what speaks against"; on the Lagoon it is now
+      measured. R4k seed 1's gain at 20 to 40 sky sigma of
       nebula (41.0 % left against R4h seed 0's 54.2), where the builder takes the most, fits the data teaching a
       little there. That the builder does the same on the training sessions' bright nebula, so that R4k's masks
       held few such stars, follows from the finder's rule and is SUSPECTED: R4k's masks were not counted against
@@ -10743,10 +10748,11 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
       drew stars under the catalogue's limit on the same plates, closed 30 % of the crowded flat's gap on one seed,
       which fits it, and the plate builder's lower thresholds (#2203 step 1) and its catalogue deblend (2026-11-25)
       gave no plate with those stars taken out.
-    - **So no row is shown unreachable, and what the routes tried so far share is measured:** real stars against
-      the builder's plates show the model few faint stars on bright nebula taken (measured on the Lagoon), and every
-      drawn-star arm drew on plates that keep two in five of a crowded field's faint stars (measured on the
-      Tarantula). A target with those stars taken out has not been tried, because nothing in the store or measured
+    - **So no row is shown unreachable, and what the routes tried so far share is measured on the held-out masters and
+      inferred for the arms' training plates, not counted:** on the Lagoon master the builder takes about a third
+      of the real faint stars on bright nebula, and on the Tarantula's plate it keeps two in five of the crowded
+      field's; that real pairs showed the model few such stars, and that every drawn-star arm drew on plates keeping
+      two in five, follows from the finder's rule and is inferred. A target with those stars taken out has not been tried, because nothing in the store or measured
       so far makes one; whether it would close the rows is not known.
   - **Nothing is adopted;** what follows is the owner's.
 
