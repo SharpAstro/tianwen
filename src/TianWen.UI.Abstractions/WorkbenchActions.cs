@@ -252,18 +252,20 @@ public sealed class WorkbenchActions(
             return new WorkbenchRunOffer("Run to here", false, selected);
         }
 
+        // A refused, blocked or off step has no plan to wait for (the runner refuses a status through it, so none is ever stored):
+        // its own state already says it cannot run.
         var step = steps[selected];
-        if (state.Plan is not { } plan || plan.Index != selected)
-        {
-            return new WorkbenchRunOffer("Run to here (reading what it needs)", false, selected);
-        }
-
         switch (step.State)
         {
             case StepState.Refused or StepState.Blocked:
                 return new WorkbenchRunOffer($"Cannot run to here: the step is {step.Words}", false, selected);
             case StepState.Off:
                 return new WorkbenchRunOffer("Cannot run to here: the step is off", false, selected);
+        }
+
+        if (state.Plan is not { } plan || plan.Index != selected)
+        {
+            return new WorkbenchRunOffer("Run to here (reading what it needs)", false, selected);
         }
 
         var first = steps.Take(selected).Where(static s => s.State is StepState.WillRun).Select(static s => s.Index + 1).ToArray();
