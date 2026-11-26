@@ -524,8 +524,9 @@ public sealed class WorkbenchE2ETests : IDisposable
         e2e.Actions.ChooseImage("n");
         e2e.Actions.OpenProject(folder, "n").ShouldBeFalse();
         e2e.State.IsReading.ShouldBeFalse("nothing was asked of the runner");
-        e2e.Regions().ShouldContain(r => r.Result is HitResult.ButtonHit { Action: WorkbenchScreen<RgbaImage>.ImageChoiceHit }
-            && r.Tooltip != null && r.Tooltip.Contains(WorkbenchActions.ChoiceWaitsForTheRun, StringComparison.Ordinal),
+        var choice = e2e.Regions().Where(static r => r.Result is HitResult.ButtonHit { Action: WorkbenchScreen<RgbaImage>.ImageChoiceHit })
+            .Select(static r => r.Tooltip ?? string.Empty).ToArray();
+        choice.ShouldContain(tooltip => tooltip.Contains(WorkbenchActions.ChoiceWaitsForTheRun, StringComparison.Ordinal),
             "the dimmed choice says why on hover");
 
         _gate.Release.SetResult();
