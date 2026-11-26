@@ -42,7 +42,7 @@ and what has been tried (each in section 6):
   takes a median of 0.00 of each planted faint star on bright nebula and leaves 82 % of them (a third taken at the
   faintest nebula, about a tenth at 40 to 80 sky sigma of nebula and a fiftieth above that; about a third of the 84
   real ones taken), so a loss counted only where
-  it took a star would see few of them there. That R4k's training sessions are the same is suspected, not counted. Why the drawn-star arms
+  it took a star would see a minority of them there (the net of its mask's own rule uncounted). That R4k's training sessions are the same is suspected, not counted. Why the drawn-star arms
   leave them is not measured.
 
 Nothing above says a row cannot be reached; it says no route tried so far has reached it, what each route measured,
@@ -10727,7 +10727,7 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     the nebula's own noise, which a star of 20 to 150 sky sigma reaches the less the brighter the nebula.
   - **What it says.**
     - **Faint stars on bright nebula, through real pairs: on the Lagoon master, a mask made as R4k's were would hold
-      few of them.** R4k's loss counted only where the builder took a star out, and on the held-out Lagoon
+      a minority of them (about a third on the half-light rule, the net uncounted).** R4k's loss counted only where the builder took a star out, and on the held-out Lagoon
       master's bright nebula the builder's median take of a faint star is 0.00: it takes a third of the planted
       ones at the faintest nebula, about a tenth at 40 to 80 sky sigma and a fiftieth above that, and about a third
       of the real ones (taken counted as over half the star's light, `plant_read.py`'s rule). R4k's mask is the
