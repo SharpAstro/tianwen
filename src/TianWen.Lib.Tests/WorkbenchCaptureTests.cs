@@ -102,6 +102,8 @@ public sealed class WorkbenchCaptureTests : IDisposable
             else
             {
                 e2e.Click(cells[2]);
+                await e2e.PumpUntilAsync(
+                    () => e2e.Texts().Any(static t => t.Text.StartsWith("Run to here", StringComparison.Ordinal)), "the run button for step 3", ct);
                 e2e.Click(e2e.Texts().Single(static t => t.Text.StartsWith("Run to here", StringComparison.Ordinal)).Bounds);
                 await e2e.PumpFramesUntilAsync(
                     () => _gradient.Started.Task.IsCompleted && e2e.Actions.Jobs.State.Fraction is not null, "the gradient at its gate", ct);

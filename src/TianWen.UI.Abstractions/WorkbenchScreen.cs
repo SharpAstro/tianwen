@@ -280,7 +280,8 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
         }
 
         var step = panel.Step;
-        rows.Add(Layout.Builder.Text($"{step.Index + 1}  {step.Title}", BaseFontSize * 1.15f, palette.BodyText).WStar().WithTooltip(step.Title));
+        var heading = $"{step.Index + 1}  {step.Title}";
+        rows.Add(Layout.Builder.Text(heading, BaseFontSize * 1.15f, palette.BodyText).WStar().WithTooltip(heading));
         if (panel.Summary.Length > 0)
         {
             rows.Add(Words(panel.Summary, palette.BodyText));
