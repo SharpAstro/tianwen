@@ -203,7 +203,7 @@ public sealed class WorkbenchE2ETests : IDisposable
         await e2e.PumpUntilAsync(() => e2e.Controller.Document is { } document
             && string.Equals(document.FilePath, master, StringComparison.OrdinalIgnoreCase), "the original to open", ct);
 
-        e2e.Controller.Document!.FilePath.ShouldBe(master, Case.Insensitive);
+        string.Equals(e2e.Controller.Document!.FilePath, master, StringComparison.OrdinalIgnoreCase).ShouldBeTrue("the viewer holds the image's original");
         var canvas = e2e.Host.Screen.CanvasRect;
         canvas.Width.ShouldBeGreaterThan(0f);
         e2e.Viewer.ImageArea.X.ShouldBeGreaterThanOrEqualTo(canvas.X - 0.5f, "the viewer paints inside the canvas the layout placed");
