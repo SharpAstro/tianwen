@@ -31,22 +31,25 @@ and what has been tried (each in section 6):
   the crowded cells and took more from the nebula cell than from them, so the plates' recipe stays without it
   (2026-11-25); real pairs (R4k), which read worse (87.4 and 87.5). **The training target itself** (the builder's
   plate scored as a remover, 2026-11-26) reads 59.8 on the Tarantula's crowded flat and 60.5 on BP 17-19, 39.9 %
-  in that crowded cell: the faint stars it leaves are in input and target alike on every crowded tile, so the
-  plates teach the model to keep what these rows count, and our models already stand some 30 points over them.
+  in that crowded cell, where R4h as trained reads 88.0 / 85.7, 89.8 / 90.0 and 79.0 / 83.3: the faint stars the
+  builder leaves are in input and target alike on every crowded tile, so nothing in the data asks the model to take
+  them, and what our models take beyond the builder (measured) is inferred to come from the drawn stars.
 - **The faint stars on bright nebula** are read with planted stars, since the real ones are too few to carry a bar
   (the Lagoon's gap is 16 stars of 84). Two seeds of one recipe have stood 3 to 20 points apart there. Tried:
   plate cells with drawn stars and the loss on the stars (R4j: 72.2 and 64.4 %), real pairs with the loss where
   the builder took a star (R4k: 67.3 and 57.6 %, and it cost 30 Doradus's faint stars and the crowded rows).
-  Neither moved both seeds past a seed's spread. **Why real pairs could not help is measured:** on the Lagoon's
-  bright nebula the builder itself takes a median 0.00 of each planted faint star and leaves 82 % of them (64 % of
-  the real ones), so a loss counted only where it took a star sees almost none. Why the drawn-star arms leave
-  them is not measured.
+  Neither moved both seeds past a seed's spread. **Measured on the Lagoon:** the builder itself takes a median of
+  0.00 of each planted faint star on bright nebula and leaves 82 % of them (a third taken at the faintest nebula,
+  almost none on brighter; about a third of the 84 real ones taken), so a loss counted only where it took a star
+  sees few of them. That R4k's training sessions are the same is suspected, not counted. Why the drawn-star arms
+  leave them is not measured.
 
 Nothing above says a row cannot be reached; it says no route tried so far has reached it, what each route measured,
-and (the builder's own scorecard) how the measurements narrow the routes: real stars against the builder's plates
-cannot show the model a faint star on bright nebula taken, and drawn stars reach the crowded field only on plates
-that keep its faint stars as background. What comes next is the owner's. The status of 2026-11-11 and the one of 2026-10-03 below are kept as the
-record.
+and (the builder's own scorecard) what the routes tried so far share: real stars against the builder's plates show
+the model few faint stars on bright nebula taken (on the Lagoon), and every drawn-star arm drew on plates that keep
+two in five of a crowded field's faint stars (on the Tarantula). A target with those stars taken out has not been
+tried, since nothing made so far makes one. What comes next is the owner's. The status of 2026-11-11 and the one
+of 2026-10-03 below are kept as the record.
 
 **Status, 2026-11-11: rounds 1 to 3 run (R2a to R3s, section 6), and NO model ships.** R2p was chosen on
 2026-10-20 ([Shipping R2p](#shipping-r2p-tianwens-own-star-remover-2026-10-20), #1702, still open) and held
@@ -10684,12 +10687,13 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
   - **Nothing is adopted;** what follows is the owner's.
 - **The training target's own scorecard, 2026-11-26 (a measurement: no training, no arm). The plate builder, scored
   as a remover on the held-out masters, trails StarXTerminator and every model trained on it on each row the models
-  miss, and on bright nebula it takes none of the planted faint stars.**
+  miss; on the Lagoon's bright nebula its median take of a planted faint star is 0.00, and it leaves 82 % of them.**
   - **In plain words.** Every arm learns from the builder's plates: drawn stars go on them, or (R4k) a master's own
     cell is set against them. The plates had never been scored as a remover themselves. Scored so, the builder
     leaves 82 % of the faint stars planted on the Lagoon's bright nebula, two in five of the crowded field's faint
-    Gaia stars and three in five in its most crowded cell. On those rows the training target is further from StarXTerminator than any model trained on
-    it: our models already stand some 30 points over it in the crowded field.
+    Gaia stars and three in five in its most crowded cell. On those rows the training target is further from
+    StarXTerminator than any model trained on it: R4h as trained stands 26 to 29 points over it on the crowded
+    flat and on BP 17-19, and 2 to 5 more through the chain.
   - **How.** `bh-bin15` (main of 2026-11-25, the build R4k's export was made with), `tianwen dataset
     starless-plates --probe-holes 0` on the three scoring masters and on the three planted Lagoon masters (the layer
     stamp's); each plate read as the builder leaves it (its own fill, no core protection, no dig fill) by the
@@ -10697,44 +10701,52 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     `plant_read.py`, `nebula_stars_row.py`. The Tarantula's plate is a diagnosis, never a training plate. The
     driver, `builder-ceiling.sh`, is a working file on the development machine.
 
-    | row | StarXTerminator | the builder's plate | R4h seed 0 / 1 |
-    |---|---|---|---|
-    | Tarantula crowded flat | 96.1 | 59.8 | 91.9 / 90.5 (chain) |
-    | Sagittarius crowded flat | 99.6 | 92.4 | 97.4 / 96.8 (chain) |
-    | Gaia BP 17-19 removed, level set aside | 96.6 | 60.5 | 91.4 / 91.9 (chain) |
-    | its most crowded cell, 4,066 stars | 99.2 | 39.9 | 82.7 / 87.5 (chain) |
-    | planted faint stars on the Lagoon's bright nebula, left | 42.4 % | 82.0 % | 67.8 / 70.7 % (as trained) |
-    | the same stars planted on dark sky, left | 0.5 % | 9.8 % | 6.8 / 7.3 % (as trained) |
-    | the Lagoon's 84 real faint stars on bright nebula, left | 15.5 % | 64.3 % | 34.5 / 33.3 % (as trained) |
-    | faint stars left on 30 Doradus, 3 to 10 local sigma, of 321 | the reference | 97 % | 17 / 21 % (as trained) |
-    | faint stars left on the Lagoon's core, of 142 | the reference | 73 % | 30 / 25 % (as trained) |
-    | Andromeda dark flat / dug | 98.6 / 1.4 | 64.8 / 15.4 | 98.6, 0.5 / 98.2, 0.9 (chain) |
-    | Tarantula dark flat | 96.6 | 61.6 | 95.9 / 95.5 (chain) |
+    The builder's plate is read as the builder leaves it, so it sits beside R4h as trained; R4h through the chain
+    (catalogue-aware core protection and the dig fill) is the last column.
 
-    The planted stars by the nebula's level under them: the builder's median take of a bright plant is 0.00 in
-    every band, and it leaves 66.3 % at 20 to 40 sky sigma of nebula, 89.3 % at 40 to 80 and 97.9 % at 80 and
-    over. On dark sky it takes nine in ten. Its finder works at the nebula's own noise, and there a star of 20 to
-    150 sky sigma does not reach it.
+    | row | StarXTerminator | the builder's plate | R4h seed 0 / 1 as trained | R4h seed 0 / 1 through the chain |
+    |---|---|---|---|---|
+    | Tarantula crowded flat | 96.1 | 59.8 | 88.0 / 85.7 | 91.9 / 90.5 |
+    | Sagittarius crowded flat | 99.6 | 92.4 | 96.6 / 95.7 | 97.4 / 96.8 |
+    | Gaia BP 17-19 removed, level set aside | 96.6 | 60.5 | 89.8 / 90.0 | 91.4 / 91.9 |
+    | its most crowded cell, 4,066 stars | 99.2 | 39.9 | 79.0 / 83.3 | 82.7 / 87.5 |
+    | planted faint stars on the Lagoon's bright nebula, left | 42.4 % | 82.0 % | 67.8 / 70.7 % | not read |
+    | the same stars planted on dark sky, left | 0.5 % | 9.8 % | 6.8 / 7.3 % | not read |
+    | the Lagoon's 84 real faint stars on bright nebula, left | 15.5 % | 64.3 % | 34.5 / 33.3 % | not read |
+    | faint stars left on 30 Doradus, 3 to 10 local sigma, of 321 | the reference | 97 % | 17 / 21 % | not read |
+    | faint stars left on the Lagoon's core, of 142 | the reference | 73 % | 30 / 25 % | not read |
+    | Andromeda dark flat / dug | 98.6 / 1.4 | 64.8 / 15.4 | 60.4, 24.7 / 79.0, 13.0 | 98.6, 0.5 / 98.2, 0.9 |
+    | Tarantula dark flat | 96.6 | 61.6 | 79.3 / 69.0 | 95.9 / 95.5 |
+
+    The planted stars by the nebula's level under them: a plant counts as left when under half its light is taken
+    (`plant_read.py`), and the builder's median take of a bright plant is 0.00 in every band. It leaves 66.3 % at
+    20 to 40 sky sigma of nebula (so it takes a third there), 89.3 % at 40 to 80 and 97.9 % at 80 and over; of the
+    Lagoon's 84 real faint stars it takes about a third (30). On dark sky it takes nine in ten. Its finder works at
+    the nebula's own noise, which a star of 20 to 150 sky sigma reaches the less the brighter the nebula.
   - **What it says.**
-    - **Faint stars on bright nebula, through real pairs: R4k's data could not teach its question.** R4k's loss
-      counted only where the builder took a star out, and on the Lagoon's bright nebula the builder takes almost
-      none of the faint ones (82 % of the planted ones left, 64 % of the real ones). The registration named this
-      under "what speaks against"; on the Lagoon it is now measured. That the builder does the same on the
-      training sessions' bright nebula, so that R4k's masks held next to none of such stars, follows from the
-      finder's rule and is SUSPECTED, not measured on those sessions. Any arm whose target is the builder's plate
-      on bright nebula stands in the same place.
+    - **Faint stars on bright nebula, through real pairs: on the Lagoon, R4k's kind of data shows the model few of
+      them taken.** R4k's loss counted only where the builder took a star out, and on the Lagoon's bright nebula
+      the builder's median take of a faint star is 0.00: it takes a third of the planted ones at the faintest
+      nebula and almost none on brighter nebula, and about a third of the real ones. The registration named this
+      under "what speaks against"; on the Lagoon it is now measured. R4k seed 1's gain at 20 to 40 sky sigma of
+      nebula (41.0 % left against R4h seed 0's 54.2), where the builder takes the most, fits the data teaching a
+      little there. That the builder does the same on the training sessions' bright nebula, so that R4k's masks
+      held few such stars, follows from the finder's rule and is SUSPECTED: R4k's masks were not counted against
+      the catalogue's faint stars on those sessions.
     - **The crowded rows, through the stored plates: the target is the farthest from StarXTerminator, and the
-      models already stand some 30 points over it.** What our models take in the crowded field beyond the builder
-      (59.8 to 91.9 on the flat, 60.5 to 91.4 on BP 17-19) they can have learned from the drawn stars only: on
-      every crowded tile the faint stars the builder leaves are in input and target alike, so the plates teach the
-      model to keep what these rows count. That is measured. That the plates hold back the last 4 to 6 points is
-      SUSPECTED: R4c, which drew stars under the catalogue's limit on the same plates, closed 30 % of the crowded
-      flat's gap on one seed, which fits it, and the plate builder's lower thresholds (#2203 step 1) and its
-      catalogue deblend (2026-11-25) gave no plate with those stars taken out.
-    - **So no row is shown unreachable, and the routes to both are narrowed by measurement:** not through the
-      builder's plates as the target of real stars, and through drawn stars only on plates that keep the field's
-      faint stars as background. A target with a crowded field's faint stars taken out does not exist in the store,
-      and nothing measured so far makes one.
+      models already stand over it.** R4h as trained takes 26 to 28 points more of the crowded flat than the
+      builder, 29 more of BP 17-19 and 39 to 43 more of its most crowded cell; through the chain 2 to 5 more. The
+      size of that gap is measured. Where it comes from is inferred: on a crowded tile the faint stars the builder
+      leaves are in input and target alike, so nothing in the data asks the model to take them, and the drawn
+      stars are what is left to teach it. That the plates hold back the last 4 to 6 points is SUSPECTED: R4c, which
+      drew stars under the catalogue's limit on the same plates, closed 30 % of the crowded flat's gap on one seed,
+      which fits it, and the plate builder's lower thresholds (#2203 step 1) and its catalogue deblend (2026-11-25)
+      gave no plate with those stars taken out.
+    - **So no row is shown unreachable, and what the routes tried so far share is measured:** real stars against
+      the builder's plates show the model few faint stars on bright nebula taken (measured on the Lagoon), and every
+      drawn-star arm drew on plates that keep two in five of a crowded field's faint stars (measured on the
+      Tarantula). A target with those stars taken out has not been tried, because nothing in the store or measured
+      so far makes one; whether it would close the rows is not known.
   - **Nothing is adopted;** what follows is the owner's.
 
 #### The dig floor inside bright nebula: floor4, and what it leaves (2026-11-20)
