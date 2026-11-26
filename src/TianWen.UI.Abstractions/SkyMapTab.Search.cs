@@ -542,9 +542,9 @@ namespace TianWen.UI.Abstractions
             // frame of a pan or a hover (traced 2026-11-25), for a panel whose rows change every few seconds.
             var key = new ObjectPanelKey(
                 ShownOnPanel(in info), options, new ObjectPanelShownActions(in actions), hasCurve, State.Orrery.IsOpen, DpiScale);
-            if (!_keptObjectPanel.TryGet(key, contentRect, Scale, FontPath, out _))
+            if (!_keptObjectPanel.TryGet(key, contentRect, Scale, FontPath, GuiTheme.PaletteGeneration, out _))
             {
-                _keptObjectPanel.Keep(key, contentRect, Scale, FontPath,
+                _keptObjectPanel.Keep(key, contentRect, Scale, FontPath, GuiTheme.PaletteGeneration,
                     BuildObjectPanel(in info, in options, in actions, hasCurve, contentRect));
             }
 

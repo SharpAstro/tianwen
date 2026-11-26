@@ -131,36 +131,8 @@ public sealed class SkyMapOverlayProjectionCullTests
         }
     }
 
-    [Fact]
-    public void TheCollectorIsAskedOnceEnoughHasBeenAllocatedAndNotBefore()
-    {
-        var collector = new BetweenFramesCollector(thresholdBytes: 256 * 1024);
-        collector.AfterFrame();
-        var asked = collector.Collections;
-
-        // Little allocated: nothing is asked for, however many frames pass.
-        for (var frame = 0; frame < 10; frame++)
-        {
-            collector.AfterFrame();
-        }
-        // The runtime may have collected by itself meanwhile (other tests allocate too), which only resets the count.
-        collector.Collections.ShouldBe(asked);
-
-        // Past the threshold, a frame's end takes the collection.
-        var kept = new List<byte[]>();
-        var took = false;
-        for (var attempt = 0; attempt < 20 && !took; attempt++)
-        {
-            for (var i = 0; i < 64; i++)
-            {
-                kept.Add(new byte[8 * 1024]);
-            }
-            took = collector.AfterFrame();
-        }
-        took.ShouldBeTrue("512 KB a frame passes a 256 KB threshold unless the runtime collects first, which twenty frames in a row do not");
-        collector.Collections.ShouldBe(asked + 1);
-        GC.KeepAlive(kept);
-    }
+    // The between-frames collector it used to test here is the renderer's since 7.115, with its tests
+    // (SdlVulkan.Renderer.Tests.BetweenFramesCollectorTests).
 }
 
 /// <summary>

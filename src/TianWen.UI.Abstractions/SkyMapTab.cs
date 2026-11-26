@@ -605,9 +605,9 @@ namespace TianWen.UI.Abstractions
             var key = new LayerPaletteKey(
                 palette.OffsetAlong, palette.OffsetAcross, palette.Side, palette.Collapsed, palette.Fade, layers,
                 includeKeyHints, BaseFontSize);
-            if (!_keptLayerPalette.TryGet(key, contentRect, scale, fontPath, out var arranged))
+            if (!_keptLayerPalette.TryGet(key, contentRect, scale, fontPath, GuiTheme.PaletteGeneration, out var arranged))
             {
-                arranged = _keptLayerPalette.Keep(key, contentRect, scale, fontPath,
+                arranged = _keptLayerPalette.Keep(key, contentRect, scale, fontPath, GuiTheme.PaletteGeneration,
                     ArrangeLayout(LayerPaletteTree(scale, includeKeyHints), contentRect, fontPath, scale));
             }
 
@@ -1615,9 +1615,9 @@ namespace TianWen.UI.Abstractions
             var stripH = 24f * dpiScale;
             var stripY = rect.Y + rect.Height - stripH;
             var backRect = new RectF32(rect.X, stripY, rect.Width, stripH);
-            if (!_keptStripBack.TryGet(default, backRect, Scale, fontPath, out var back))
+            if (!_keptStripBack.TryGet(default, backRect, Scale, fontPath, GuiTheme.PaletteGeneration, out var back))
             {
-                back = _keptStripBack.Keep(default, backRect, Scale, fontPath,
+                back = _keptStripBack.Keep(default, backRect, Scale, fontPath, GuiTheme.PaletteGeneration,
                     ArrangeLayout(Layout.Builder.Spacer().Bg(InfoPanelBg), backRect));
             }
             PaintLayout(back);
@@ -1730,9 +1730,9 @@ namespace TianWen.UI.Abstractions
             // it leaves: the tree is the same one until the mode, the time's text or the room changes, so it is kept
             // across the frames of a pan (KeptLayout). The mode is in the key because the switch shows it.
             var stripKey = new InfoStripKey(State.Mode, timeText, timeColor, stripFont, dpiScale, fit.Steps, scrubbed);
-            if (!_keptInfoStrip.TryGet(stripKey, stripRect, DesignScale.One, fontPath, out var arranged))
+            if (!_keptInfoStrip.TryGet(stripKey, stripRect, DesignScale.One, fontPath, GuiTheme.PaletteGeneration, out var arranged))
             {
-                arranged = _keptInfoStrip.Keep(stripKey, stripRect, DesignScale.One, fontPath,
+                arranged = _keptInfoStrip.Keep(stripKey, stripRect, DesignScale.One, fontPath, GuiTheme.PaletteGeneration,
                     ArrangeLayout(
                         Layout.Builder.HStack(
                             BuildModeSwitch(stripFont, dpiScale),
