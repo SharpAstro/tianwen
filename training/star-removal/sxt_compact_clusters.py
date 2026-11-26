@@ -6,10 +6,15 @@ Our synthetic scenes call a compact cluster (half-light radius under 16 px on th
 2.07 arcsec a pixel) all stars, so a remover trained on them is asked to take a cluster's unresolved light whole. This reads
 what StarXTerminator (the judge) does with the real ones.
 
-The clusters: `lmc-clusters.csv` beside this script, the open and globular clusters of OpenNGC in and about 30 Doradus
-(OpenNGC's name, type, position in degrees and major and minor axes in arcmin), extracted 2026-10-20 when the scenes'
-groups were sized. The table of 2026-11-26 was read on the held-out Tarantula master (the SV605CC of 2026-10-17), with the
-plate builder's plate, StarXTerminator's, and R4h's two seeds as trained and through the chain, all of that master.
+The clusters: `lmc-clusters.csv` beside this script, extracted 2026-10-20 when the scenes' groups were sized: OpenNGC's
+open and globular clusters (its OCl and GCl rows, written `OpenCluster` and `GlobCluster`; its Cl+N rows, clusters with
+nebulosity such as NGC 2074, 2081, 2113 and 2122, are not in it), 47 of them with RA 81.37 to 88.24 and Dec -70.24 to
+-68.05 degrees, about the Tarantula masters' frame, each with its name, type, position in degrees and major and minor axes
+in arcmin. The table of 2026-11-26 was read on the
+held-out Tarantula master (the SV605CC of 2026-10-17, `synthetic-clusters/tarantula.fits` in the scratch root) with the
+plates the scorecard runs wrote of it, `f2-whole-master/w-<run>/tarantula_starless.fits` in the same root: `w-builder`
+(the plate builder), `w-sxt` (StarXTerminator), `w-r4h_synth32_s0b14` and `w-r4h_synth32_s1` (R4h as trained), and the
+same with `-pcs+floor5` (through the chain).
 
 Per catalogued cluster inside the frame, on the channels' mean: the light inside one catalogue radius above the median of a
 ring at 1.5 to 2 radii, on each plate. The plate builder's (`builder`) takes resolved stars only, so its excess is the

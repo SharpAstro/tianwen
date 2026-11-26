@@ -67,7 +67,8 @@ the owner's go" in section 6, which quotes no words): first the net 1.5 times as
 on R4h's data (R4l, registered there), then denser crowded scenes without compact groups, then the loss
 weighed up in crowded areas, then depth pairs for the faint stars on bright nebula. The free check that came first:
 on the held-out Tarantula StarXTerminator keeps about a third of a real compact cluster's unresolved glow and R4h
-less, so the scenes' rule that a compact cluster is all stars is further from the judge than the model already is.
+less at the median (cluster by cluster a lean, not a clear split), so the scenes' rule that a compact cluster is all
+stars is further from the judge than the model already is.
 The status of 2026-11-11 and the one of 2026-10-03 below are kept as the record.
 
 **Status, 2026-11-11: rounds 1 to 3 run (R2a to R3s, section 6), and NO model ships.** R2p was chosen on
@@ -10947,7 +10948,9 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
   - **What it says.** The judge keeps about a third of a real compact cluster's glow, with a wide spread from cluster
     to cluster, so it does not take a compact cluster as all stars. R4h leans the other way, cluster by cluster: a
     median of 0.06 to 0.17 less than the judge, keeping less in 18 to 23 of the clusters, a lean and not a clear
-    split. Either way the scenes' rule (keep none) is further from the judge than the model already is, and on route
+    split (seed 0 as trained keeps less in 19 of 35, a one-sided sign test's chance of about 0.37; at 30 times the noise or more,
+    14 of 27 with a median of -0.03). One cluster, NGC 2092 at 11 times its noise, reads 12.02 for the judge, an
+    outlier the medians and counts do not move. Either way the scenes' rule (keep none) is further from the judge than the model already is, and on route
     A's synthetic scenes the model left the drawn groups whole where on these it does not, so the drawn groups are not
     like the real ones. That is why the denser scenes above are to leave the groups out. The crowded row reads star by
     star, so a cluster's glow reaches it only through the stars inside the cluster; this check reads the glow, not
@@ -10968,8 +10971,9 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     and `r4l_synth32w_s1`; the plateau halves and stops as R4h's does.
   - **Before the launch, measured on the GTX 1070 (no weights kept):** a step of 8 tiles costs 327 ms against R4h's
     155 (forward and backward on tiles in memory), peak memory 1.92 GiB against 1.25, so a seed takes about twice
-    R4h's time: some 20 to 25 hours on the 1070 and about 25 on the T4 (R4h's seed 0 on the T4 reached its last step,
-    223,500, at 749 minutes by its trainer's log, `r4haz.log`; the step-time ratio gives the rest), under the
+    R4h's time: some 20 to 25 hours on the 1070 and about 26 on the T4 (R4h's seed 0 on the T4 reached its last step,
+    223,500, at 749 minutes by its trainer's log, `C:/temp/e2/r4haz-batch/r4haz.log`; 749 x 327 / 155 is about 1,580
+    minutes), under the
     36-hour cap R4h ran with; seed 0's cap is 48 hours, for a low-priority node's preemptions. 400 steps of R4h's
     line at this width, without its held-out checks, ran through on the cache on the 1070.
   - **Read first:** the 1:1 sheets R4h's read lists, with both seeds beside R4h's two and StarXTerminator; then the
