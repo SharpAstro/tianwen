@@ -321,8 +321,9 @@ public static class NarrowbandCombination
             }
             output.Release();
             // On the input's scale, so on a unit scale when the input was, and the deblur says so: a deblurred star stands
-            // above 2.0, where the peak alone would call the result ADU (#2504). Said in memory, so the viewer and image
-            // sharpen get it as well as a written file.
+            // above 2.0, where the peak alone would call the result ADU (#2504). Said in memory, so the combine, which
+            // composes the deblurred planes before anything is written, gets it as well as a written file. (The viewer and
+            // image sharpen deblur through SharpenPipeline's own step, which declares nothing.)
             var meta = declaresUnitScale && plane.IsUnitReferred && !plane.ImageMeta.UnitReferred
                 ? plane.ImageMeta with { UnitReferred = true }
                 : plane.ImageMeta;

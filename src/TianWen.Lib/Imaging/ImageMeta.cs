@@ -345,7 +345,8 @@ public record struct ImageMeta(
     /// scale, and the peak decides again.</para>
     /// <para><b>A model still takes <c>[0, 1]</c>.</b> GraXpert's and TianWen's ONNX models refuse a peak above 1.5, so a
     /// declared image above 1.0 reaches one divided by its peak (<see cref="Image.ModelRangeDivisor"/>): the gradient step
-    /// multiplies the result back, the enhance runs on the divided image as it did before (#2504).</para>
+    /// multiplies the result back, the enhance pipeline (<c>SharpenPipeline.ProcessAsync</c>, every route) runs on the
+    /// divided image as it did before (#2504).</para>
     /// <para><b>Not <c>SATURATE</c>.</b> That card says where saturation is, and a lifted star above 1.0 is not saturated:
     /// a reader that leaves out stars above <c>SATURATE</c> would leave out exactly the stars a deblur kept.</para>
     /// </remarks>

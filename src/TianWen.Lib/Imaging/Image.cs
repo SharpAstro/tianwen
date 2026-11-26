@@ -1289,7 +1289,8 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
     /// <see cref="ScaleFloatValuesToUnit"/>, and an image that says it is on a unit scale whose highlights stand above
     /// 1.0 divided by its peak as well (<see cref="ModelRangeDivisor"/>), for a model that takes <c>[0, 1]</c>. That is
     /// what such an image got before it could say its scale (#2504), so the programs that hand one to their models (the
-    /// enhance, the viewer's enhance) are as they were; the result is on <c>[0, 1]</c>, not on the input's scale.
+    /// enhance pipeline, at <c>SharpenPipeline.ProcessAsync</c>, for every route) are as they were; the result is on
+    /// <c>[0, 1]</c>, not on the input's scale.
     /// </summary>
     internal Image ScaleFloatValuesIntoModelRange() => ModelRangeDivisor > 1f ? ScaledByUnitScaleDivisor() : ScaleFloatValuesToUnit();
 

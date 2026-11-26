@@ -355,6 +355,21 @@ public sealed class SharpenPipeline(
         // that found it. No-op + same instance when already clean.
         var source = SanitiseForEnhance(request.Source, logger);
 
+        // Every model takes [0, 1]: GraXpert's background model and TianWen's ONNX denoiser, deconvolvers and star remover
+        // refuse a peak above 1.5. A deblurred master that says it is on a unit scale with a star above 1.0 (#2504) is
+        // divided by its peak here, once, for every route (the enhance step, image sharpen, the viewer, the node's enhance
+        // endpoint), as such a file was before it could say its scale; the result is on [0, 1]. Any other image is as it
+        // came. OWNERSHIP as the debayer below: the divided copy is pipeline-owned and becomes the working source, and the
+        // image it was made from stays the caller's (or is the sanitiser's copy of it).
+        if (source.ModelRangeDivisor > 1f)
+        {
+            var declared = source;
+            source = declared.ScaleFloatValuesIntoModelRange();
+            logger?.LogInformation(
+                "SharpenPipeline: the input says it is on a unit scale, with highlights up to {Peak}; divided by its peak for the models, which take [0, 1].",
+                declared.MaxValue);
+        }
+
         // A raw CFA mosaic is debayered ONCE, here, before any step sees it -- every enhancer in
         // the program applies a SPATIAL kernel, and a kernel over an interleaved mosaic blends
         // photosites of different colours into each other. Measured on a 3008x3008x1 RGGB sub: the

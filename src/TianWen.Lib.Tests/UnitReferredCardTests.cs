@@ -128,7 +128,26 @@ public sealed class UnitReferredCardTests(ITestOutputHelper output) : IDisposabl
     }
 
     [Fact]
-    public void AnEnhanceTakesADeclaredImageIntoItsModelsRangeAndLeavesAnyOtherAsItIs()
+    public async Task TheEnhancePipelineTakesADeclaredImageIntoItsModelsRangeForEveryRoute()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var declared = StarField(LiftedPeak, Meta() with { UnitReferred = true });
+        // A denoiser with the guard TianWen's ONNX models and GraXpert carry, in the whole-frame program, which is what
+        // every route (the enhance step, image sharpen, the viewer, the node's enhance endpoint) hands the pipeline.
+        var pipeline = new SharpenPipeline(denoiser: new GuardedDenoiser());
+
+        var result = await pipeline.ProcessAsync(new SharpenRequest(declared, [new DenoiseFrameStep()]), EnhanceOptions.Default, cancellationToken: ct);
+
+        var final = result.Final.ShouldNotBeNull("a declared 2.995 image reaches the guarded model divided by its peak, and is not refused");
+        final.MaxValue.ShouldBeLessThanOrEqualTo(1f + 1e-6f, "the enhance's result is on [0, 1], as such a file's was before #2504");
+    }
+
+    [Fact]
+    public void TheCombineIsVersionTwo()
+        => new CombineOperation().Description.Version.ShouldBe(2, "a combine with deblur keeps its masters' scale now, so a version 1 result runs again");
+
+    [Fact]
+    public void ScaleFloatValuesIntoModelRangeDividesADeclaredImageByItsPeakAndLeavesAnyOther()
     {
         var declared = StarField(LiftedPeak, Meta() with { UnitReferred = true });
         var plain = StarField(0.855f, Meta());
@@ -173,7 +192,7 @@ public sealed class UnitReferredCardTests(ITestOutputHelper output) : IDisposabl
 
         atCeiling.ShouldBe(0);
         deblurred[0].MaxValue.ShouldBeGreaterThan(2f, "premise: the lifted star stands above where the peak alone says unit scale");
-        deblurred[0].ImageMeta.UnitReferred.ShouldBeTrue("the viewer and image sharpen never read it through a step, so the routine says it");
+        deblurred[0].ImageMeta.UnitReferred.ShouldBeTrue("the combine composes the deblurred planes in memory, before any file, so the routine says it");
         deblurred[0].IsUnitReferred.ShouldBeTrue();
     }
 
@@ -255,6 +274,22 @@ public sealed class UnitReferredCardTests(ITestOutputHelper output) : IDisposabl
         var samples = image.GetChannelSpan(0).ToArray();
         Array.Sort(samples);
         return samples[samples.Length / 2];
+    }
+
+    /// <summary>A denoiser with the ONNX models' guard: it refuses a peak above 1.5, and otherwise hands back a copy.</summary>
+    private sealed class GuardedDenoiser : IDenoiseEnhancer
+    {
+        public string Name => "Test/Guarded denoiser";
+
+        public Task<Image> EnhanceAsync(Image input, System.Threading.CancellationToken cancellationToken = default)
+        {
+            if (input.MaxValue > 1.5f)
+            {
+                throw new ArgumentException($"requires input normalised to ~[0, 1], got MaxValue={input.MaxValue}");
+            }
+
+            return Task.FromResult(input.Clone());
+        }
     }
 
     /// <summary>A gradient model with GraXpert's guard: it refuses a peak above 1.5, and otherwise hands back a copy.</summary>
