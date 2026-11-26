@@ -1478,6 +1478,12 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
         };
         var nebulaShareOpt = new Option<double>("--nebula-share") { Description = "--export-skies: the share of skies with a nebula.", DefaultValueFactory = _ => 2.0 / 3.0 };
         var concurrencyOpt = new Option<int>("--concurrency") { Description = "--export-skies: skies rendered at once over the one shared source.", DefaultValueFactory = _ => 4 };
+        var exportMaxGroupsOpt = new Option<int>("--export-max-groups")
+        {
+            Description = "--export-skies: each sky draws 0 to this many compact groups (the scene table records each sky's count); 0 draws " +
+                          "none. The cap leaves every other value of a sky as it was.",
+            DefaultValueFactory = _ => SyntheticClusterExport.DefaultMaxGroups,
+        };
         var clusterStretchOpt = new Option<string?>("--stretch-from")
         {
             Description = "--export-skies: whose parameters both halves of a tile are stretched with, as degrade --mode stars: master (the " +
@@ -1496,7 +1502,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             Options = { masterOpt, plateOpt, outOpt, atOpt, sizeOpt, seedOpt, rotationsOpt, opticsOpt, nebulaOpt, nebulaAtOpt, clusterStarsOpt, coreOpt, tidalOpt,
                 fieldDensityOpt, saturatedOpt, glowShareOpt, glowSlopeOpt, lateralOpt, groupsOpt, groupHalfLightOpt, groupStarsOpt, groupGlowOpt,
                 poolMarginOpt, minSeparationOpt, nebulaPlateOpt, nebulaTextureFromOpt, nebulaLogNormalOpt, nebulaKnotsOpt, exportSkiesOpt,
-                nebulaShareOpt, concurrencyOpt, clusterStretchOpt, faintGrainInTruthOpt },
+                nebulaShareOpt, concurrencyOpt, exportMaxGroupsOpt, clusterStretchOpt, faintGrainInTruthOpt },
         };
         command.SetAction(async (parseResult, ct) =>
         {
@@ -1580,8 +1586,14 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             }
             if (parseResult.GetValue(exportSkiesOpt) is > 0 and var skies)
             {
+                if (parseResult.GetValue(exportMaxGroupsOpt) is < 0)
+                {
+                    consoleHost.WriteError("--export-max-groups takes 0 or more");
+                    return 1;
+                }
                 var result = await SyntheticClusterExport.RunAsync(run, spec.Seed, skies, optics.ToImmutable(), parseResult.GetValue(nebulaShareOpt),
-                    parseResult.GetValue(concurrencyOpt), clusterStretch is not "plate", new Progress<string>(line => consoleHost.WriteScrollable("[synthetic-cluster] " + line)), ct);
+                    parseResult.GetValue(concurrencyOpt), clusterStretch is not "plate", parseResult.GetValue(exportMaxGroupsOpt),
+                    new Progress<string>(line => consoleHost.WriteScrollable("[synthetic-cluster] " + line)), ct);
                 consoleHost.WriteScrollable(
                     $"[synthetic-cluster] {result.Skies} sk(ies) written, {result.Skipped} present; the manifest holds {result.TrainTiles} training and " +
                     $"{result.ValTiles} held-out input tiles in {parseResult.Required(outOpt)}");
