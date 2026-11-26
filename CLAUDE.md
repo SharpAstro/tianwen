@@ -341,7 +341,8 @@ Full rules: `docs/plans/ai-enhancement.md`, `docs/plans/rc-astro-enhancers.md`, 
 
 ### Operations and the workbench (`TianWen.Lib.Imaging.Workbench`)
 
-Full rules: `docs/architecture/workbench-operations.md`; the design: `docs/plans/stacking-workbench.md`.
+Full rules: `docs/architecture/workbench-operations.md`; the design: `docs/plans/stacking-workbench.md`; the app that
+runs it (`tianwen-edit`, the shared host, the screen): `docs/architecture/workbench-app.md`.
 
 - **A verb's file-to-file work is its operation's routine** (`Operation<TSettings>`): the verb builds the settings and
   calls the operation, and `WorkbenchRunner` reaches the same method. A new operation ships its step in

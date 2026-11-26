@@ -602,7 +602,8 @@ does it: [workbench-operations.md](../architecture/workbench-operations.md), "A 
 
 ### W2 The app's shell
 
-Tracked as #1642. The step bar left to right, Original / Enhanced / Comparison views (`SplitCompareController`), a job panel with progress and cancel fed
+Tracked as #1642. **Built** (2026-11-26): how it works is [workbench-app.md](../architecture/workbench-app.md); what it leaves out
+is settings editing (W6, W12), gates (W9), the other screens (W4 to W6) and packaging (W8). The design as planned: the step bar left to right, Original / Enhanced / Comparison views (`SplitCompareController`), a job panel with progress and cancel fed
 by the engines' `IProgress`, each step's command line. Built so `StandaloneViewerHost`'s headless test path drives it in CI at DPI 1
 and 1.5.
 
