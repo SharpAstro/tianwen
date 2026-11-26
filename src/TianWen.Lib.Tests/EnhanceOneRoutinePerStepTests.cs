@@ -7,6 +7,7 @@ using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Imaging.Workbench;
 using Xunit;
+using static TianWen.Lib.Tests.UnitScaleFakes;
 
 namespace TianWen.Lib.Tests;
 
@@ -71,13 +72,13 @@ public sealed class EnhanceOneRoutinePerStepTests(ITestOutputHelper output) : ID
     {
         var ct = TestContext.Current.CancellationToken;
         // Each pass takes half the noise off, more than the gate's 35 %, so every pass is kept up to the most there are.
-        var halving = new ShrinkingDenoiser(0.5f);
-        await NarrowbandCombination.DenoiseAsync([Plate()], halving, EnhanceOptions.Default, ct);
+        var halving = new DenoisePassGateTests.ScalingDenoiser(0.5f, 0.5f, 0.5f, 0.5f);
+        await NarrowbandCombination.DenoiseAsync([DenoisePassGateTests.Plate()], halving, EnhanceOptions.Default, ct);
         halving.Calls.ShouldBe(SharpenPipeline.MaxDenoisePasses, "image denoise runs the passes the enhance runs, where it ran one");
 
         // A second pass that takes a fifth off is run, measured, and discarded, and the passes stop.
-        var weak = new ShrinkingDenoiser(0.8f);
-        await NarrowbandCombination.DenoiseAsync([Plate()], weak, EnhanceOptions.Default, ct);
+        var weak = new DenoisePassGateTests.ScalingDenoiser(0.5f, 0.8f, 0.5f);
+        await NarrowbandCombination.DenoiseAsync([DenoisePassGateTests.Plate()], weak, EnhanceOptions.Default, ct);
         weak.Calls.ShouldBe(2);
     }
 
@@ -132,22 +133,6 @@ public sealed class EnhanceOneRoutinePerStepTests(ITestOutputHelper output) : ID
         return new Image([plane], BitDepth.Float32, peak, 0f, 0f, new ImageMeta { Instrument = "synth", SensorType = SensorType.Monochrome });
     }
 
-    // A flat sky at 0.1 with white noise, large enough for the 32 px band and its sky (DenoisePassGateTests' plate).
-    private static Image Plate()
-    {
-        const int size = 320;
-        var plane = new float[size, size];
-        var random = new Random(11);
-        for (var y = 0; y < size; y++)
-        {
-            for (var x = 0; x < size; x++)
-            {
-                plane[y, x] = 0.1f + (0.004f * (float)(random.NextDouble() - 0.5));
-            }
-        }
-        return new Image([plane], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta { Instrument = "synth" });
-    }
-
     // A colour plate of green stars: red and blue 0.2, green 0.5, with the colour balanced in its pixels or not.
     private static Image GreenStars(bool applied)
     {
@@ -169,45 +154,6 @@ public sealed class EnhanceOneRoutinePerStepTests(ITestOutputHelper output) : ID
             new ImageMeta { ColourCalibration = new ColourCalibration(1f, 1f, 1f, ColourCalibrationSource.Spcc, Applied: applied) });
     }
 
-    /// <summary>Lifts every value's height above the sky by a gain and stops at <c>[0, 1]</c>'s ceiling, as BlurX does.</summary>
-    private sealed class LiftingDeblurrer(float gain) : IImageDeblurrer
-    {
-        public string Name => "Test/Lifting";
-
-        public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
-        {
-            var src = input.GetChannelSpan(0).ToArray();
-            var sorted = src.AsSpan().ToArray();
-            Array.Sort(sorted);
-            var sky = sorted[sorted.Length / 2];
-            var plane = new float[input.Height, input.Width];
-            var max = float.NegativeInfinity;
-            var min = float.PositiveInfinity;
-            for (var y = 0; y < input.Height; y++)
-            {
-                for (var x = 0; x < input.Width; x++)
-                {
-                    var v = MathF.Min(1f, sky + (gain * (src[(y * input.Width) + x] - sky)));
-                    plane[y, x] = v;
-                    max = MathF.Max(max, v);
-                    min = MathF.Min(min, v);
-                }
-            }
-            return Task.FromResult(new Image([plane], BitDepth.Float32, max, min, 0f, input.ImageMeta));
-        }
-    }
-
-    /// <summary>A denoiser with the ONNX models' guard: it refuses a peak above 1.5, and otherwise hands back a copy.</summary>
-    private sealed class GuardedDenoiser : IDenoiseEnhancer
-    {
-        public string Name => "Test/Guarded denoiser";
-
-        public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
-            => input.MaxValue > 1.5f
-                ? throw new ArgumentException($"requires input normalised to ~[0, 1], got MaxValue={input.MaxValue}")
-                : Task.FromResult(input.Clone());
-    }
-
     /// <summary>A remover whose plate stands a little over its input everywhere, as a remover's can around a star.</summary>
     private sealed class OvershootingRemover : IStarRemover
     {
@@ -215,26 +161,5 @@ public sealed class EnhanceOneRoutinePerStepTests(ITestOutputHelper output) : ID
 
         public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
             => Task.FromResult(input.Affine(1.1, 0.01));
-    }
-
-    /// <summary>Shrinks each sample's distance from the plate's mean by a factor, which shrinks every band's noise by it.</summary>
-    private sealed class ShrinkingDenoiser(float factor) : IDenoiseEnhancer
-    {
-        public string Name => "Test/Shrinking";
-
-        public int Calls { get; private set; }
-
-        public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
-        {
-            Calls++;
-            var sum = 0.0;
-            var span = input.GetChannelSpan(0);
-            foreach (var v in span)
-            {
-                sum += v;
-            }
-            var mean = sum / span.Length;
-            return Task.FromResult(input.Affine(factor, mean * (1 - factor)));
-        }
     }
 }

@@ -13,11 +13,8 @@ namespace TianWen.Lib.Imaging.Workbench;
 /// of single steps does what the enhance does (the owner's choice, 2026-11-26). <c>image scnr</c> calls this.
 /// </summary>
 /// <remarks>
-/// <para><b>Balanced colour only.</b> A neutral star has red, green and blue equal only once the colour is balanced. On a
-/// raw OSC plate green is the strongest channel of almost every star (two green photosites, the QE peak), so SCNR there
-/// strips green from all of them and the balance applied afterwards turns them magenta (a whole globular cluster on the
-/// dataset gallery's Omega Centauri). So the step refuses a plate whose colour is not balanced in its pixels
-/// (<see cref="ColourCalibration.Applied"/>, the <c>WBAPPLD</c> card), as the enhance skips it there.</para>
+/// <para><b>Balanced colour only</b>, by the one rule the enhance's step skips by (<see cref="Image.ScnrRefusal"/>, where
+/// the reason is written): the step refuses a plate whose colour is not balanced in its pixels.</para>
 /// <para>The plate is read as written: a stars image is exactly zero wherever the remover left a pixel alone, which is a
 /// value there, not the absent ring a master marks with zero. The result is on the plate's own scale.</para>
 /// </remarks>
@@ -69,11 +66,9 @@ public sealed class ScnrOperation : Operation<ScnrSettings>
             return ValueTask.FromResult(OperationOutcome.BadInput($"{inputs[0].Name} is not colour, and SCNR takes green out of a colour image"));
         }
 
-        if (stars.ImageMeta.ColourCalibration is not { Applied: true })
+        if (Image.ScnrRefusal(stars.ImageMeta) is { } notBalanced)
         {
-            return ValueTask.FromResult(OperationOutcome.BadInput(
-                $"{inputs[0].Name}'s colour is not balanced in its pixels, so green is not where a neutral star has it and SCNR would turn "
-                + "its stars magenta: put the white balance in first (the enhance's whiteBalance, or a master the stack balanced)"));
+            return ValueTask.FromResult(OperationOutcome.BadInput($"{inputs[0].Name}: {notBalanced}"));
         }
 
         var result = stars.SubtractiveChromaticNoise(settings.Mode, settings.Amount);

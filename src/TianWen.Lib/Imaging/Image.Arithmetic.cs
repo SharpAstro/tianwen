@@ -458,6 +458,24 @@ public partial class Image
     }
 
     /// <summary>
+    /// Why SCNR may not run on a colour image whose metadata is <paramref name="meta"/>, or null when it may: the one rule for
+    /// the enhance's SCNR on its stars (<c>ScnrStarsStep</c>, which skips) and <c>image scnr</c> (which refuses).
+    /// </summary>
+    /// <remarks>
+    /// ONLY ON BALANCED COLOUR. SCNR takes green down to where a NEUTRAL star would have it, and a neutral star has
+    /// R = G = B only once the colour is balanced. On a raw OSC plate green is the strongest channel of almost every star
+    /// (two green photosites, the QE peak), so SCNR stripped green from all of them and the balance the render applied
+    /// afterwards turned them magenta: a whole globular cluster on the dataset gallery's Omega Centauri, and the enhanced
+    /// half of most cards lifted in R/G by up to 0.37. A balance in the pixels (<see cref="ColourCalibration.Applied"/>, the
+    /// <c>WBAPPLD</c> card, put in by the enhance's <c>WhiteBalanceStep</c> or the stack) is what makes it safe.
+    /// </remarks>
+    public static string? ScnrRefusal(ImageMeta meta)
+        => meta.ColourCalibration is { Applied: true }
+            ? null
+            : "the colour is not balanced in its pixels, so green is not where a neutral star has it and SCNR would turn the stars "
+                + "magenta: put the white balance in first";
+
+    /// <summary>
     /// Per-pixel Subtractive Chromatic Noise Reduction (SCNR) on the green
     /// channel, used to neutralise the green cast on stars (OSC sensors'
     /// 2:1 green-Bayer dominance). For each pixel <c>m = mode == Average ?
@@ -480,6 +498,7 @@ public partial class Image
     /// uses <c>(R + B) / 2</c>; <see cref="ScnrMode.Maximum"/> uses
     /// <c>max(R, B)</c> (more aggressive green removal).</param>
     /// <param name="amount">Strength in [0, 1]. Clamped.</param>
+    /// <seealso cref="ScnrRefusal"/>
     public Image SubtractiveChromaticNoise(ScnrMode mode, float amount = 1.0f)
     {
         if (mode is ScnrMode.None || ChannelCount < 3)

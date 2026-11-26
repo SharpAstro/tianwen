@@ -71,7 +71,7 @@ public class DenoisePassGateTests
     }
 
     // A flat sky at 0.1 with white noise, large enough for the 32 px band and its sky.
-    private static Image Plate()
+    internal static Image Plate()
     {
         const int size = 320;
         var plane = new float[size, size];
@@ -103,8 +103,10 @@ public class DenoisePassGateTests
         return (float)Math.Sqrt(sq / span.Length);
     }
 
-    /// <summary>Scales each sample's distance from 0.1 by the next factor in turn, which scales every band's noise by it.</summary>
-    private sealed class ScalingDenoiser(params float[] factors) : IDenoiseEnhancer
+    /// <summary>Scales each sample's distance from the image's mean by the next factor in turn, which scales every band's noise
+    /// by it and leaves the level: the same on whatever scale the denoise hands the plate over on (each pass goes in on the
+    /// plate's own one-scale divisor).</summary>
+    internal sealed class ScalingDenoiser(params float[] factors) : IDenoiseEnhancer
     {
         private readonly Queue<float> _factors = new(factors);
 
@@ -116,7 +118,13 @@ public class DenoisePassGateTests
         {
             Calls++;
             var k = _factors.Dequeue();
-            return Task.FromResult(input.Affine(k, 0.1 * (1 - k)));
+            var sum = 0.0;
+            var span = input.GetChannelSpan(0);
+            foreach (var v in span)
+            {
+                sum += v;
+            }
+            return Task.FromResult(input.Affine(k, sum / span.Length * (1 - k)));
         }
     }
 

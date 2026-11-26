@@ -360,13 +360,8 @@ internal sealed partial class ImageSubCommand
         var scnr = new ScnrOperation();
         cmd.SetAction(async (parseResult, ct) =>
         {
-            ScnrMode? mode = parseResult.GetValue(modeOpt) switch
-            {
-                "average" => ScnrMode.Average,
-                "maximum" => ScnrMode.Maximum,
-                _ => null,
-            };
-            if (mode is not { } chosen)
+            // The enum is the one list of modes; the step's own refusal says what a mode of none is.
+            if (!Enum.TryParse<ScnrMode>(parseResult.GetValue(modeOpt), ignoreCase: true, out var chosen))
             {
                 consoleHost.WriteError($"[scnr] --mode is average or maximum, not '{parseResult.GetValue(modeOpt)}'.");
                 return 1;

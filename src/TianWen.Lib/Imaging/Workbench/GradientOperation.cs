@@ -217,24 +217,9 @@ public sealed class GradientOperation(
         // A model takes [0, 1]: an input that says it is on a unit scale with highlights above 1.0 (a deblurred star, #2504)
         // goes in divided by its peak and its result comes back multiplied by it, so the step writes on its input's scale.
         // The classical fit above works on any scale and needs neither.
-        var divisor = normalised.ModelRangeDivisor;
-        var into = divisor > 1f ? normalised.MultipliedBy(1f / divisor, normalised.ImageMeta.Rescale(1f / divisor)) : normalised;
-        var (corrected, estimated) = keepBackground
+        var (corrected, estimated) = await normalised.ThroughModelRangeAsync(async into => keepBackground
             ? await gradientCorrector.EnhanceAndEstimateBackgroundAsync(into, cancellationToken)
-            : (await gradientCorrector.EnhanceAsync(into, cancellationToken), null);
-        if (divisor > 1f)
-        {
-            var back = corrected.MultipliedBy(divisor, corrected.ImageMeta.Rescale(divisor) with { UnitReferred = true });
-            var backBackground = estimated?.MultipliedBy(divisor, estimated.ImageMeta.Rescale(divisor) with { UnitReferred = true });
-            // A corrector that passed its input through handed back `into`, which is ours either way.
-            if (!ReferenceEquals(corrected, into))
-            {
-                corrected.Release();
-            }
-            estimated?.Release();
-            into.Release();
-            (corrected, estimated) = (back, backBackground);
-        }
+            : (await gradientCorrector.EnhanceAsync(into, cancellationToken), null));
 
         return (new GradientResult(corrected, keepBackground ? estimated : null), OperationOutcome.Done);
     }
