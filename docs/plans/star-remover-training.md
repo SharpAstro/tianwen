@@ -10807,8 +10807,8 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     (`--edge 3`), while the trainer's loss skips a 16 px rim (`BORDER` in `n2n_smoke.py`); counted again with
     `--edge 16` (2026-11-26, the same script and inputs), the 95 checked sessions hold 64,793 such stars, of which the
     builder took 68.8 % and the mask covers 64.4 % (24,256 / 34,410 / 6,127 at 20 to 40 / 40 to 80 / 80 and over,
-    covered 66.3 / 68.8 / 32.7 %; dark sky 289,396 stars, covered 77.8 %), so every share moves by 0.2 points or
-    less and the count is 41,700 where the table's reading gives 51,000. The pool is star-weighted: by the scratch
+    covered 66.3 / 68.8 / 32.7 %; dark sky 289,396 stars, covered 77.8 %), so the shares given here move by 0.2
+    points or less and the count is 41,700 where the table's reading gives 51,000. The pool is star-weighted: by the scratch
     coverage.txt only 39 of the 95 sessions carry 5 or more such stars, 15 of those cover under 50 % (13 % of the stars),
     the median session covers 56 % and the range is 15 to 93 %. Most of them at 20 to 80 sky
     sigma of nebula, where the builder takes seven in ten on these sessions against a tenth to a third on the Lagoon
