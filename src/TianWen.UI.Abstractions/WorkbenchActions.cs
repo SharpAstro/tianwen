@@ -22,8 +22,11 @@ namespace TianWen.UI.Abstractions;
 /// <param name="Message">Why the step was refused or blocked; null otherwise.</param>
 public sealed record WorkbenchStepItem(int Index, string Title, StepState State, string Words, string Mark, bool Changed, string? Message)
 {
+    /// <summary>The step's number and title as the bar and the panel show them.</summary>
+    public string Label => $"{Index + 1}  {Title}";
+
     /// <summary>The step's whole text for a hover, which the bar may have cut short.</summary>
-    public string Hover => $"{Index + 1}. {Title}: {Words}{(Message is { Length: > 0 } ? $". {Message}" : string.Empty)}"
+    public string Hover => $"{Label}: {Words}{(Message is { Length: > 0 } ? $". {Message}" : string.Empty)}"
         + (Changed ? ". Changed since the last run." : string.Empty);
 }
 

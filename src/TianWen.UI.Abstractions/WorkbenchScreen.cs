@@ -258,7 +258,7 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
 
         var index = step.Index;
         return Layout.Builder.VStack(
-                Layout.Builder.Text($"{step.Index + 1}  {step.Title}", BaseFontSize, ink).WStar().HStar(),
+                Layout.Builder.Text(step.Label, BaseFontSize, ink).WStar().HStar(),
                 Layout.Builder.HStack([.. stateRow]).WithGap(4f).CrossCenter().WStar().HStar())
             .Pad(Gap, 4f)
             .Bg(fill)
@@ -280,7 +280,7 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
         }
 
         var step = panel.Step;
-        var heading = $"{step.Index + 1}  {step.Title}";
+        var heading = step.Label;
         rows.Add(Layout.Builder.Text(heading, BaseFontSize * 1.15f, palette.BodyText).WStar().WithTooltip(heading));
         if (panel.Summary.Length > 0)
         {
