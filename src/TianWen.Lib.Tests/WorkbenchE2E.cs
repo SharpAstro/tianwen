@@ -222,6 +222,11 @@ internal sealed class WorkbenchE2E : IAsyncDisposable
         return new RectF32(found[0].X, found[0].Y, found[0].Width, found[0].Height);
     }
 
+    /// <summary>The rows of the open dropdown menu, in its order, as painted; empty while no menu is open.</summary>
+    internal ImmutableArray<RectF32> MenuRows()
+        => [.. Regions().Where(static r => r.Result is HitResult.ListItemHit { ListId: DropdownMenuState<string>.ListId })
+            .OrderBy(static r => ((HitResult.ListItemHit)r.Result).Index).Select(static r => new RectF32(r.X, r.Y, r.Width, r.Height))];
+
     /// <summary>The step cells of the step bar, left to right, as painted.</summary>
     internal ImmutableArray<RectF32> StepCells()
         => [.. Regions().Where(r => r.Result is HitResult.ButtonHit hit && hit.Action.StartsWith("Step:", StringComparison.Ordinal))

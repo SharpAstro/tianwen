@@ -35,6 +35,10 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
     private readonly ListScrollController _panelScroll = new();
     private readonly ListCursor _viewCursor = new();
     private readonly ListScrollController _jobScroll = new();
+    private readonly DropdownMenuState<string> _imageMenu = new();
+
+    /// <summary>The hit of the image choice's box; its menu hangs under where the frame arranged it.</summary>
+    internal const string ImageChoiceHit = "Image:Choose";
     private int _jobLinesDrawn;
 
     /// <param name="renderer">The surface the screen and the viewer draw on.</param>
@@ -95,23 +99,25 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
         var arranged = RenderLayout(Build(state, actions), new RectF32(0, 0, width, height));
         CanvasRect = ArrangedFills.RectOf(arranged, CanvasKey);
 
-        if (CanvasRect.Width <= 0f || CanvasRect.Height <= 0f)
+        if (CanvasRect.Width > 0f && CanvasRect.Height > 0f)
         {
-            return;
+            if (state.OriginalNote is { } note && actions.EffectiveView() is WorkbenchViewKind.Original)
+            {
+                RenderLayout(Layout.Builder.VStack(
+                        Layout.Builder.Text(note, BaseFontSize, palette.DimText, TextAlign.Center, TextAlign.Center).WStar().HStar())
+                    .Pad(Gap * 2).Bg(palette.PanelBg), CanvasRect);
+            }
+            else
+            {
+                _viewer.SetSurfaceSize((uint)Renderer.Width, (uint)Renderer.Height);
+                _viewer.SetContentRegion(CanvasRect);
+                // The texture upload a document swap asks for happens inside Render's PrepareFrame, before anything samples the
+                // channel views.
+                _viewer.Render(source, viewerState);
+            }
         }
 
-        if (state.OriginalNote is { } note && actions.EffectiveView() is WorkbenchViewKind.Original)
-        {
-            RenderLayout(Layout.Builder.VStack(
-                    Layout.Builder.Text(note, BaseFontSize, palette.DimText, TextAlign.Center, TextAlign.Center).WStar().HStar())
-                .Pad(Gap * 2).Bg(palette.PanelBg), CanvasRect);
-            return;
-        }
-
-        _viewer.SetSurfaceSize((uint)Renderer.Width, (uint)Renderer.Height);
-        _viewer.SetContentRegion(CanvasRect);
-        // The texture upload a document swap asks for happens inside Render's PrepareFrame, before anything samples the channel views.
-        _viewer.Render(source, viewerState);
+        RenderImageMenu(arranged, width, height);
     }
 
     private Layout.Node Build(WorkbenchState state, WorkbenchActions actions)
@@ -139,22 +145,27 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
         var view = state.View;
         var parts = new List<Layout.Node>();
         var folder = view?.Folder ?? "No project open";
+        var running = actions.Jobs.IsRunning;
         parts.Add(Layout.Builder.Text(folder, BaseFontSize, view is null ? palette.DimText : palette.BodyText, trim: TextTrim.Start)
             .WStar().HStar().WithTooltip(folder));
-        if (view is { ImageName: { } name })
+        if (view is { ImageName: { } name } && view.ImageNames.Length > 1)
         {
-            if (view.ImageNames.Length > 1)
+            parts.Add(ImageChoice(view, actions, running));
+        }
+        else
+        {
+            _imageMenu.Close();
+            if (view is { ImageName: { } only })
             {
-                parts.Add(ImageChoice(view, actions));
-            }
-            else
-            {
-                parts.Add(Layout.Builder.Text(name, BaseFontSize, palette.BodyText, TextAlign.Far).WAuto().HStar());
+                parts.Add(Layout.Builder.Text(only, BaseFontSize, palette.BodyText, TextAlign.Far).WAuto().HStar());
             }
         }
 
-        parts.Add(Layout.Builder.Button("Open project", Layout.ButtonKind.Standard, actions.ChooseProject, GuiTheme.Theme,
-            tooltip: "Open a workbench project folder"));
+        // While a run goes it writes the store, so no other project or image is read: the controls stay where they are, dimmed,
+        // and say why on hover (WorkbenchActions refuses them too).
+        var open = Layout.Builder.Button("Open project", Layout.ButtonKind.Standard, actions.ChooseProject, GuiTheme.Theme,
+            tooltip: "Open a workbench project folder");
+        parts.Add(running ? open.Disabled(WorkbenchActions.ChoiceWaitsForTheRun) : open);
         return Layout.Builder.HStack([.. parts]).WithGap(Gap).CrossCenter().Pad(Gap, 0f).Bg(palette.HeaderBg);
     }
 
@@ -184,18 +195,46 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
             .WithGap(Gap).CrossCenter().Pad(Gap, 0f).Bg(palette.HeaderBg);
     }
 
-    // Image names are the user's own and can be many and long, so the choice is one button that shows the image and steps to the
-    // next on a press, ellipsised by the engine inside its share of the row, with the whole name on hover.
-    private Layout.Node ImageChoice(WorkbenchView view, WorkbenchActions actions)
+    // Image names are the user's own and can be many and long, so the choice is the engine's dropdown: a box that shows the image on
+    // show, ellipsised inside its share of the row with the whole name on hover, and a menu of every image to pick from directly.
+    private Layout.Node ImageChoice(WorkbenchView view, WorkbenchActions actions, bool running)
     {
         var names = view.ImageNames;
         var current = view.ImageName ?? string.Empty;
-        var at = Math.Max(0, names.IndexOf(current));
-        var next = names[(at + 1) % names.Length];
-        return Layout.Builder.Button($"{current} ({at + 1} of {names.Length})", Layout.ButtonKind.Standard,
-            () => actions.ChooseImage(next), GuiTheme.Theme,
-            tooltip: $"{current}: image {at + 1} of {names.Length}. Press for {next}", hit: new HitResult.ButtonHit("Image:Next"))
-            .WStar();
+        var at = names.IndexOf(current);
+        _imageMenu.Items = [.. names.Select(static name => DropdownItem.Text(name))];
+        _imageMenu.OnSelect = item => actions.ChooseImage(item.Value);
+        if (running)
+        {
+            _imageMenu.Close();
+        }
+
+        var box = Layout.Builder.DropdownBox(current, _imageMenu, GuiTheme.Theme, new HitResult.ButtonHit(ImageChoiceHit),
+            tooltip: $"{current}: image {at + 1} of {names.Length}. Press to choose another").WStar();
+        return running ? box.Disabled(WorkbenchActions.ChoiceWaitsForTheRun) : box;
+    }
+
+    // The image menu, over everything the frame painted (the viewer included), hung under the box where this frame arranged it.
+    private void RenderImageMenu(ImmutableArray<Layout.ArrangedNode<float>> arranged, float width, float height)
+    {
+        if (!_imageMenu.IsOpen)
+        {
+            return;
+        }
+
+        var box = arranged.FirstOrDefault(static a => a.Node.Hit is HitResult.ButtonHit { Action: ImageChoiceHit });
+        if (box.Node is null)
+        {
+            _imageMenu.Close();
+            return;
+        }
+
+        // The anchor is the box's arranged rect, in surface units as the engine takes an anchor. The menu's height is a design
+        // size: the room below the box, in the units the tree is scaled from, so a long list scrolls instead of running off.
+        var anchor = new RectF32(box.Bounds.X, box.Bounds.Y, 0f, box.Bounds.Height);
+        var below = (height - (box.Bounds.Y + box.Bounds.Height)) / DpiScale;
+        RenderLayout(Layout.Builder.Dropdown(anchor, _imageMenu, GuiTheme.Theme, maxHeight: MathF.Max(BaseFontSize, below)),
+            new RectF32(0, 0, width, height));
     }
 
     // Each step numbered and named by its operation's title, with its state in words and a mark from the runner's answer.
@@ -348,7 +387,7 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
 
     // What a run does, said by the buttons themselves: where it starts, what it runs first, or that nothing needs to run. One run at
     // a time: while one goes, the starts are not offered and Cancel is.
-    private static void AddRun(List<Layout.Node> rows, WorkbenchState state, WorkbenchActions actions)
+    private void AddRun(List<Layout.Node> rows, WorkbenchState state, WorkbenchActions actions)
     {
         var palette = GuiTheme.Palette;
         rows.Add(Heading("Run"));
@@ -380,7 +419,7 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
     }
 
     // A start that can run is a button; one that cannot is its reason in words, so there is nothing to press and nothing cut.
-    private static Layout.Node RunButton(WorkbenchRunOffer offer, Action start, string tooltip, Layout.ButtonKind kind)
+    private Layout.Node RunButton(WorkbenchRunOffer offer, Action start, string tooltip, Layout.ButtonKind kind)
         => offer.CanRun
             ? Layout.Builder.Button(offer.Label, kind, start, GuiTheme.Theme, tooltip: tooltip).WStar()
             : Words(offer.Label, GuiTheme.Palette.DimText);
@@ -431,7 +470,7 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
     }
 
     // Which pictures the step has, and for one it has not, why, in words.
-    private static void AddViews(List<Layout.Node> rows, WorkbenchActions actions)
+    private void AddViews(List<Layout.Node> rows, WorkbenchActions actions)
     {
         var offer = actions.ViewOffer();
         if (offer is { ResultOffered: true, ComparisonOffered: true })
@@ -458,58 +497,79 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
         => Layout.Builder.Text(text, BaseFontSize * 0.9f, GuiTheme.Palette.Accent).WStar();
 
     // A sentence that wraps rather than clips (the engine's flow of words, as the viewer's panels do).
-    private static Layout.Node Words(string text, RGBAColor32 color)
+    private Layout.Node Words(string text, RGBAColor32 color)
+        => Flow(text.Split(' ', StringSplitOptions.RemoveEmptyEntries), color, tooltip: null);
+
+    // The command as one flow of arguments, wrapped, never cut. An argument too long for the panel (a path) is broken into pieces
+    // that each fit, so every character is on screen; Copy puts the unbroken line on the clipboard, and each piece's hover text
+    // is its whole argument.
+    private Layout.Node CommandLineText(WorkbenchStepPanel panel, RGBAColor32 color)
+        => Flow([.. panel.CommandLine.Select(static raw => StepCommandLine.Display([raw]))], color, tooltip: static word => word);
+
+    // The widest a run of text in the panel may be, in design units: the panel less the column's padding on both sides, the job
+    // list's own padding and room for a scroll bar. A word wider than this is broken by measurement (Pieces).
+    private const float TextRoom = PanelWidth - (6 * Gap);
+
+    // Words in one wrapping flow with no gap of the engine's own between leaves: the space between two words is the trailing
+    // space of the first, so the pieces of one broken word sit edge to edge and read as the word, never as a space inside a path.
+    private Layout.Node Flow(IReadOnlyList<string> words, RGBAColor32 color, Func<string, string>? tooltip)
     {
+        var ctx = MeasureContext();
+        var room = ctx.ToSurfaceX(TextRoom);
         var nodes = new List<Layout.Node>();
-        foreach (var word in text.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        for (var w = 0; w < words.Count; w++)
         {
-            // A word too long for the panel is broken into pieces that each fit, so no character is cut at the edge.
-            foreach (var piece in Pieces(word))
+            var word = words[w];
+            var text = w < words.Count - 1 ? word + " " : word;
+            foreach (var piece in Pieces(text, room, ctx))
             {
-                nodes.Add(Layout.Builder.Text(piece, BaseFontSize, color));
+                var leaf = Layout.Builder.Text(piece, BaseFontSize, color);
+                nodes.Add(tooltip is null ? leaf : leaf.WithTooltip(tooltip(word)));
             }
         }
 
-        return Layout.Builder.WrapH([.. nodes]).WithGap(BaseFontSize / 3).WStar();
+        return Layout.Builder.WrapH([.. nodes]).WithGap(0f).WStar();
     }
 
-    // The command as one flow of arguments, wrapped, never cut. An argument too long for the panel (a path) is broken after a
-    // separator into pieces that each fit, so every character is on screen; Copy puts the unbroken line on the clipboard.
-    private static Layout.Node CommandLineText(WorkbenchStepPanel panel, RGBAColor32 color)
+    // The text in the longest runs the engine measures as fitting the room, each ending after a path separator where one lies in
+    // its second half, so a path breaks at a folder where it can. A text that fits is one run.
+    private static List<string> Pieces(string text, float room, Layout.IMeasureContext<float> ctx)
     {
-        var nodes = new List<Layout.Node>();
-        foreach (var raw in panel.CommandLine)
-        {
-            var argument = StepCommandLine.Display([raw]);
-            foreach (var piece in Pieces(argument))
-            {
-                nodes.Add(Layout.Builder.Text(piece, BaseFontSize, color).WithTooltip(argument));
-            }
-        }
-
-        return Layout.Builder.WrapH([.. nodes]).WithGap(BaseFontSize / 3).WStar();
-    }
-
-    private const int LongestPiece = 24;
-
-    // The argument in runs of at most LongestPiece characters, each ending after a path separator where there is one.
-    private static IEnumerable<string> Pieces(string argument)
-    {
+        var pieces = new List<string>();
         var start = 0;
-        while (start < argument.Length)
+        while (start < text.Length)
         {
-            var end = Math.Min(argument.Length, start + LongestPiece);
-            if (end < argument.Length)
+            if (Width(text[start..], ctx) <= room)
             {
-                var cut = argument.LastIndexOfAny(['\\', '/', '-', '_', '.'], end - 1, end - start);
-                if (cut > start)
+                pieces.Add(text[start..]);
+                break;
+            }
+
+            // The longest prefix that fits, found by halving: widths grow with every character added.
+            var (fits, over) = (start + 1, text.Length);
+            while (over - fits > 1)
+            {
+                var mid = (fits + over) / 2;
+                if (Width(text[start..mid], ctx) <= room)
                 {
-                    end = cut + 1;
+                    fits = mid;
+                }
+                else
+                {
+                    over = mid;
                 }
             }
 
-            yield return argument[start..end];
+            var half = start + ((fits - start) / 2);
+            var cut = text.LastIndexOfAny(['\\', '/', '-', '_', '.'], fits - 1, fits - start);
+            var end = cut >= half ? cut + 1 : fits;
+            pieces.Add(text[start..end]);
             start = end;
         }
+
+        return pieces;
     }
+
+    private static float Width(string text, Layout.IMeasureContext<float> ctx)
+        => Layout.Engine.Measure(Layout.Builder.Text(text, BaseFontSize), new Layout.Size<float>(float.PositiveInfinity, float.PositiveInfinity), ctx).Width;
 }

@@ -209,6 +209,19 @@ public sealed class WorkbenchCaptureTests : IDisposable
             r.X.ShouldBeGreaterThanOrEqualTo(0f);
             (r.X + r.Width).ShouldBeLessThanOrEqualTo(width + 0.5f, "a top bar control lies inside the window");
         }
+
+        // The image choice's menu: every image a row, inside the window, over the canvas, each name whole or on hover.
+        e2e.Click(e2e.Region(WorkbenchScreen<RgbaImage>.ImageChoiceHit));
+        var rows = e2e.MenuRows();
+        rows.Length.ShouldBe(6, "every image is a row of the menu");
+        foreach (var row in rows)
+        {
+            row.X.ShouldBeGreaterThanOrEqualTo(0f);
+            (row.X + row.Width).ShouldBeLessThanOrEqualTo(width + 0.5f, "a menu row lies inside the window");
+            (row.Y + row.Height).ShouldBeLessThanOrEqualTo(height + 0.5f, "a menu row lies inside the window");
+        }
+
+        Keep(e2e, $"workbench-image-menu-{width}x{height}-Dark-dpi{dpi:0.0}");
     }
 
     // Each step's words and marks against the fill the cell is drawn on, read off the painted pixels beside the text.

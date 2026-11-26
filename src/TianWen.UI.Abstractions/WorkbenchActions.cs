@@ -82,8 +82,9 @@ public sealed class WorkbenchActions(
     private static void Settled(WorkbenchJobSettled settled, WorkbenchState state, WorkbenchRunner runner,
         BackgroundTaskTracker tracker, ILogger logger, CancellationToken appToken)
     {
-        // The person may have opened another project or image while the run went: what the run left is then not what is on show.
-        if (state.View is not { } shown || !string.Equals(shown.Folder, settled.Folder, StringComparison.Ordinal)
+        // What the run left is read only when it is what is on show and no read of another answer is on its way: a read in
+        // flight is the person's own choice, and the run's end must not supersede it through the one status slot.
+        if (state.IsReading || state.View is not { } shown || !string.Equals(shown.Folder, settled.Folder, StringComparison.Ordinal)
             || !string.Equals(shown.ImageName, settled.Image, StringComparison.Ordinal))
         {
             state.NeedsRedraw = true;
@@ -91,53 +92,78 @@ public sealed class WorkbenchActions(
         }
 
         state.SelectAfterStatus = settled.SelectStep;
+        StartRead(state, runner, tracker, logger, appToken, settled.Folder, settled.Image, "Read the workbench project after a run");
+    }
+
+    // Asks the runner where every edit of the image stands, off the caller's thread: the folder (or its project.json) is resolved
+    // there too, so no file is touched on the render thread. A newer read supersedes an older one through the one slot.
+    private static void StartRead(WorkbenchState state, WorkbenchRunner runner, BackgroundTaskTracker tracker, ILogger logger,
+        CancellationToken appToken, string folder, string? image, string description)
+    {
         state.IsReading = true;
         state.NeedsRedraw = true;
-        tracker.RunExclusive<WorkbenchView>(StatusSlot, ct => ReadViewAsync(runner, settled.Folder, settled.Image, ct), appToken, logger,
-            "Read the workbench project after a run",
-            onError: ex => state.View = new WorkbenchView(settled.Folder, null, [], null, null, $"The project could not be read: {ex.Message}"),
+        tracker.RunExclusive<WorkbenchView>(StatusSlot, ct => ReadViewAsync(runner, ProjectFolder(folder), image, ct),
+            appToken, logger, description,
+            onError: ex => state.View = new WorkbenchView(folder, null, [], null, null, $"The project could not be read: {ex.Message}"),
             onFinally: () => state.NeedsRedraw = true);
     }
+
+    private static string ProjectFolder(string folder)
+        => Path.GetFullPath(File.Exists(folder) ? Path.GetDirectoryName(folder) ?? folder : folder);
+
+    /// <summary>Why the project and the image cannot be changed while a run goes; the screen shows it on the dimmed controls.</summary>
+    public const string ChoiceWaitsForTheRun = "A run is going: another project or image can be chosen when it ends";
 
     /// <summary>
     /// Opens the project in <paramref name="folder"/> (or its <c>project.json</c>) and asks the runner where every edit of the
-    /// image stands. Off the render thread; the answer is adopted by <see cref="TryAdoptStatus"/>. A newer call supersedes an
-    /// older one that is still reading.
+    /// image stands. Off the render thread, the path included; the answer is adopted by <see cref="TryAdoptStatus"/>. A newer
+    /// call supersedes an older one that is still reading. False, and nothing asked, while a run goes: the run is writing the
+    /// store, so no status is asked of it then, as no plan is (<see cref="RequestPlan"/>).
     /// </summary>
-    public void OpenProject(string folder, string? image = null)
+    public bool OpenProject(string folder, string? image = null)
     {
-        var projectFolder = Path.GetFullPath(File.Exists(folder) ? Path.GetDirectoryName(folder) ?? folder : folder);
-        state.IsReading = true;
-        state.NeedsRedraw = true;
-        tracker.RunExclusive<WorkbenchView>(StatusSlot, ct => ReadViewAsync(runner, projectFolder, image, ct), appToken, logger,
-            "Read the workbench project",
-            onError: ex => state.View = new WorkbenchView(projectFolder, null, [], null, null, $"The project could not be read: {ex.Message}"),
-            onFinally: () => state.NeedsRedraw = true);
+        if (_jobs.IsRunning)
+        {
+            state.NeedsRedraw = true;
+            return false;
+        }
+
+        StartRead(state, runner, tracker, logger, appToken, folder, image, "Read the workbench project");
+        return true;
     }
 
-    /// <summary>The Open project button: a folder dialog, then <see cref="OpenProject"/>.</summary>
+    /// <summary>The Open project button: a folder dialog, then <see cref="OpenProject"/>. Not offered while a run goes.</summary>
     public void ChooseProject()
-        => tracker.RunGuarded(async ct =>
+    {
+        if (_jobs.IsRunning)
+        {
+            return;
+        }
+
+        tracker.RunGuarded(async ct =>
         {
             var result = await dialogs.OpenFolderAsync(new FileDialogRequest
             {
                 Title = "Open a workbench project",
                 InitialDirectory = state.View?.Folder,
             }, ct);
-            if (result.Path is { } picked)
+            if (result.Path is { } picked && !OpenProject(picked))
             {
-                OpenProject(picked);
+                logger.LogInformation("{Folder} was not opened: {Why}", picked, ChoiceWaitsForTheRun);
             }
         }, appToken, logger, "Choose a workbench project", onError: _ => state.NeedsRedraw = true);
+    }
 
-    /// <summary>Shows another image of the project.</summary>
+    /// <summary>Shows another image of the project. Refused while a run goes, as <see cref="OpenProject"/> is.</summary>
     public void ChooseImage(string name)
     {
-        if (state.View is { } view && !string.Equals(view.ImageName, name, StringComparison.Ordinal))
+        if (_jobs.IsRunning || state.View is not { } view || string.Equals(view.ImageName, name, StringComparison.Ordinal))
         {
-            state.SelectedStep = -1;
-            OpenProject(view.Folder, name);
+            return;
         }
+
+        state.SelectedStep = -1;
+        OpenProject(view.Folder, name);
     }
 
     /// <summary>Selects a step: its panel is drawn. Nothing runs and nothing about any step's state changes.</summary>

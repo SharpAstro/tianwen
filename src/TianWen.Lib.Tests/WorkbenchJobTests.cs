@@ -126,29 +126,46 @@ public sealed class WorkbenchJobTests : IDisposable
         var next = await ProjectAsync(WorkbenchFixtures.Edit("gate2"));
         WorkbenchJobs? jobs = null;
         var again = 0;
+        var runningWithoutSource = 0;
+        var startedInsideTheEnd = false;
         jobs = new WorkbenchJobs(new WorkbenchRunner(catalog), catalog, _tracker, NullLogger.Instance, _app.Token,
-            () => Interlocked.Increment(ref _redraws),
-            settled =>
+            () =>
             {
-                _settled.Enqueue(settled);
-                // The click on the frame the end asked for: it lands inside the end of the first run.
-                if (Interlocked.Exchange(ref again, 1) == 0)
+                Interlocked.Increment(ref _redraws);
+                if (jobs?.State is not { } state)
                 {
-                    jobs?.TryStart(next, "m", through: null).ShouldBeTrue("the first run is over, so the slot is free");
+                    return;
                 }
-            });
+
+                if (state is { Running: true, Owner: null })
+                {
+                    Interlocked.Increment(ref runningWithoutSource);
+                }
+
+                // The frame the first run's end asks for, drawn while that run is still ending: Finish has said Running is
+                // false, and the run has not yet disposed its own source nor told the screen it settled. A start pressed on
+                // that frame is the one that once lost its source to the ending run.
+                if (state is { Running: false, Outcome: WorkbenchJobOutcome.Finished } && _settled.IsEmpty
+                    && Interlocked.Exchange(ref again, 1) == 0)
+                {
+                    startedInsideTheEnd = jobs.TryStart(next, "m", through: null);
+                }
+            },
+            _settled.Enqueue);
 
         jobs.TryStart(first, "m", through: null).ShouldBeTrue();
         await _gate.Started.Task.WaitAsync(TestContext.Current.CancellationToken);
         _gate.Release.SetResult();
         await second.Started.Task.WaitAsync(TestContext.Current.CancellationToken);
 
+        startedInsideTheEnd.ShouldBeTrue("the first run had said it was over, so the slot was free on the frame its end asked for");
         jobs.IsRunning.ShouldBeTrue("the second run is going");
         jobs.Cancel();
         await _tracker.DrainAsync();
 
         jobs.State.Outcome.ShouldBe(WorkbenchJobOutcome.Cancelled, "the second run could be cancelled; it held its own source");
         jobs.IsRunning.ShouldBeFalse();
+        runningWithoutSource.ShouldBe(0, "a state that says a run is going always carries that run's source");
     }
 
     [Fact(Timeout = 120_000)]

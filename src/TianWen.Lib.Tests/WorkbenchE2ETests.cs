@@ -474,6 +474,100 @@ public sealed class WorkbenchE2ETests : IDisposable
         e2e.Texts().ShouldNotContain(t => t.Text == "Result");
     }
 
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task TheImageDropdownListsEveryImageAndAPickShowsThatImageDirectly(float dpi)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = await ImagesProjectAsync("images-", ct);
+        await using var e2e = WorkbenchE2E.Start(dpi, Runner(), Catalog());
+        await e2e.OpenProjectAsync(folder, ct, "a");
+        e2e.MenuRows().ShouldBeEmpty("the menu is closed until the box is pressed");
+
+        foreach (var (pick, expected) in new[] { (2, "c"), (0, "a"), (1, "b") })
+        {
+            e2e.Click(e2e.Region(WorkbenchScreen<RgbaImage>.ImageChoiceHit));
+            var rows = e2e.MenuRows();
+            rows.Length.ShouldBe(3, "every image of the project is a row");
+            e2e.TextsIn(rows[pick]).ShouldContain(expected);
+
+            e2e.Click(rows[pick]);
+            await e2e.PumpUntilAsync(() => e2e.State.View?.ImageName == expected && !e2e.State.IsReading, $"image {expected} on show", ct);
+            e2e.MenuRows().ShouldBeEmpty("a pick closes the menu");
+            e2e.State.SelectedStep.ShouldBe(0, "a new image's first step is selected");
+            e2e.TextsIn(e2e.Region(WorkbenchScreen<RgbaImage>.ImageChoiceHit)).ShouldContain(expected, "the box names the image on show");
+        }
+    }
+
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task WhileARunGoesNoOtherImageOrProjectIsReadAndTheViewStaysOnTheRunsImage(float dpi)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("during-").FullName;
+        var master = WorkbenchFixtures.WriteMaster(folder, "master", WorkbenchFixtures.Master(seed: 1));
+        await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("m", master, WorkbenchFixtures.Edit("add", Amount(1)), WorkbenchFixtures.Edit("gate")),
+            WorkbenchFixtures.Picture("n", master, WorkbenchFixtures.Edit("add", Amount(2)))), ct);
+        await using var e2e = WorkbenchE2E.Start(dpi, Runner(), Catalog());
+        await e2e.OpenProjectAsync(folder, ct, "m");
+        await SelectAsync(e2e, 1, ct);
+
+        e2e.ClickText("Run to here (runs 1 first)");
+        await e2e.PumpFramesUntilAsync(() => _gate.Started.Task.IsCompleted, "the step at its gate", ct);
+
+        // The run writes the store, so no status is asked of it: the box does not open, and the actions refuse.
+        e2e.Click(e2e.Region(WorkbenchScreen<RgbaImage>.ImageChoiceHit));
+        e2e.MenuRows().ShouldBeEmpty("the image choice is dimmed while a run goes");
+        e2e.Actions.ChooseImage("n");
+        e2e.Actions.OpenProject(folder, "n").ShouldBeFalse();
+        e2e.State.IsReading.ShouldBeFalse("nothing was asked of the runner");
+        e2e.Regions().ShouldContain(r => r.Result is HitResult.ButtonHit { Action: WorkbenchScreen<RgbaImage>.ImageChoiceHit }
+            && r.Tooltip != null && r.Tooltip.Contains(WorkbenchActions.ChoiceWaitsForTheRun, StringComparison.Ordinal),
+            "the dimmed choice says why on hover");
+
+        _gate.Release.SetResult();
+        await SettleAsync(e2e, ct);
+
+        e2e.State.View.ShouldNotBeNull().ImageName.ShouldBe("m", "the run's own image stays on show");
+        var answer = Image(await Runner().StatusAsync(folder, "m", ct)).Steps;
+        e2e.TextsIn(e2e.StepCells()[1]).ShouldContain(answer[1].Words, "and is read afresh after the run");
+        e2e.Click(e2e.Region(WorkbenchScreen<RgbaImage>.ImageChoiceHit));
+        e2e.MenuRows().Length.ShouldBe(2, "once the run ended the choice is open again");
+    }
+
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task ARunsEndDoesNotReadOverAnImageWhoseReadIsOnItsWay(float dpi)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = await ImagesProjectAsync("settled-", ct);
+        await using var e2e = WorkbenchE2E.Start(dpi, Runner(), Catalog());
+        await e2e.OpenProjectAsync(folder, ct, "a");
+
+        // The person chose b, and before its answer was adopted a run of a (on show) started and ended: the run's end leaves the
+        // read of b alone rather than superseding it with a read of a through the one status slot.
+        e2e.Actions.OpenProject(folder, "b").ShouldBeTrue();
+        e2e.Actions.Jobs.TryStart(e2e.State.View.ShouldNotBeNull().Folder, "a", through: null).ShouldBeTrue();
+        await e2e.PumpUntilAsync(() => !e2e.Actions.Jobs.IsRunning && !e2e.State.IsReading && e2e.State.View?.ImageName == "b",
+            "the chosen image on show", ct);
+        e2e.State.View.ShouldNotBeNull().ImageName.ShouldBe("b");
+    }
+
+    private async Task<string> ImagesProjectAsync(string name, System.Threading.CancellationToken ct)
+    {
+        var folder = _folders.Create(name).FullName;
+        var master = WorkbenchFixtures.WriteMaster(folder, "master", WorkbenchFixtures.Master(seed: 1));
+        await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("a", master, WorkbenchFixtures.Edit("add", Amount(1))),
+            WorkbenchFixtures.Picture("b", master, WorkbenchFixtures.Edit("add", Amount(2))),
+            WorkbenchFixtures.Picture("c", master, WorkbenchFixtures.Edit("add", Amount(3)))), ct);
+        return folder;
+    }
+
     private static bool SameFile(string? a, string? b)
         => a is not null && b is not null && string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
 

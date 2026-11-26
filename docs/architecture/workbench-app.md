@@ -26,7 +26,8 @@ The pieces it holds:
 
 ## The screen and the layout
 
-One `Layout` tree, built each frame from the state: the top bar (the project's folder, the image button where the project has several (it shows the image and steps to the next, ellipsised with the whole name on hover), and Open project), the step bar, a
+One `Layout` tree, built each frame from the state: the top bar (the project's folder, the image choice where the project
+has several, and Open project), the step bar, a
 340-wide panel on the left and, beside it, the view row with the viewer's own renderer in a keyed canvas. The viewer's
 toolbar is cut to the controls that are about looking (`ViewerOffer`): no Open file, Enhance, crop or solve, because
 those are operations here, and no file list.
@@ -37,13 +38,25 @@ The look follows `.github/docs/ui-changes.md`. Specifically:
   hover text, so a cut title is cut with an ellipsis and its whole text is on hover.
 - Step words and marks use the palette's body or error ink and meet contrast in every palette; Night is judged against a
   lower floor than Light and Dark.
+- The image choice is the engine's dropdown (`Layout.Builder.DropdownBox` and `Dropdown` over a `DropdownMenuState`): the
+  box shows the image on show, ellipsised with the whole name on hover, and its menu lists every image of the project to
+  pick directly. The menu hangs under the box where the frame arranged it and is painted after the viewer, so it is over
+  the canvas.
 - The panel scrolls (`WithScroll`) rather than cutting what does not fit; the job's lines scroll and follow the end.
+- Text in the panel wraps word by word. A word wider than the panel (a path in a command line) is broken into the longest
+  pieces the engine measures as fitting, after a folder separator where one lies in the second half of a piece. The pieces
+  sit edge to edge (the space between words is a word's own trailing space, not a gap between leaves), so a broken path
+  never reads as two words.
 - `WorkbenchCaptureTests` renders the guided screen at 1280x800 and 2000x1100 in Dark and Night, and 2000x1100 at DPI 1.5,
   with 14 steps, long titles, a refused step with its reason, a long command line and run lines in the job panel. It
   asserts that no text is cut without an ellipsis and its whole text on hover, that step words and marks meet contrast
   against the cell's painted fill, and that the step row's controls share one height and one middle. With
   `TIANWEN_KEEP_TEST_OUTPUT=1` it keeps a PNG per case in the test binary's folder. The class is in `ThemeCollection`
   because it applies a theme, which is process-wide.
+- The test host paints the chrome on a CPU surface and **paints no image**: the viewer's draw of a picture is Vulkan's. So
+  every capture, Result and Comparison included, shows the screen's chrome over an empty canvas; a capture named Result
+  or Comparison shows which view is chosen and what the panel says, not the picture or the split. The picture in a live
+  window is the controller's to look at.
 
 ## Step-bar states
 
@@ -69,6 +82,17 @@ operation reports one, every line, how it ended) and says when it ended. A secon
 screen offers it. The panel shows the running step, a bar, the lines, and Cancel, which ends the run at its next check of
 the token. A run ends as Finished, Stopped (at a refused or blocked step, with the reason), Cancelled or Failed (an
 exception). What a run did to the steps is never read from the job: the settled callback asks the runner afresh.
+
+The cancel source is made before a run is published and travels in the same `WorkbenchJobState` swap that says it is
+running (`Owner`), so Cancel finds it from the first moment `Running` is true, and a run's end clears only its own state:
+a start pressed on the very frame the previous run's end asked for keeps its own source and can be cancelled
+(`WorkbenchJobTests.AStartTheMomentTheFirstRunEndedCanBeCancelledAndKeepsItsOwnSource`).
+
+While a run goes it writes the step store, so nothing else asks the runner for a status: no plan is asked for, and the
+image choice and Open project are dimmed with the reason on hover (`WorkbenchActions.ChoiceWaitsForTheRun`);
+`OpenProject` and `ChooseImage` refuse too. When the run ends, the image on show is read afresh, unless a read of
+another answer is already on its way, which the run's end then leaves alone rather than superseding it through the one
+status slot. A project's path is resolved inside that read, off the render thread.
 
 ## The three views
 
