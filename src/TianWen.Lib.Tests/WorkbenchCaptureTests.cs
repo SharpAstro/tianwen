@@ -142,16 +142,14 @@ public sealed class WorkbenchCaptureTests : IDisposable
     // Each step's words and marks against the fill the cell is drawn on, read off the painted pixels beside the text.
     private static void StepWordsAndMarksMeetContrast(WorkbenchE2E e2e, UiThemeState theme)
     {
-        var surface = e2e.Renderer.Surface;
         var cells = e2e.StepCells();
         var worst = double.MaxValue;
         string? worstText = null;
         foreach (var cell in cells)
         {
-            var fill = PixelAt(surface, (int)cell.X + 2, (int)cell.Y + 2);
-            foreach (var (text, bounds) in e2e.Texts().Where(t => Inside(cell, t.Bounds)))
+            var fill = PixelAt(e2e, (int)cell.X + 2, (int)cell.Y + 2);
+            foreach (var (text, _, ink) in e2e.TextInks().Where(t => Inside(cell, t.Bounds)))
             {
-                var ink = InkOf(e2e, text, bounds);
                 var ratio = Contrast(ink, fill);
                 if (ratio < worst)
                 {
@@ -205,15 +203,11 @@ public sealed class WorkbenchCaptureTests : IDisposable
         => inner.X >= outer.X - 0.5f && inner.Y >= outer.Y - 0.5f
             && inner.X + inner.Width <= outer.X + outer.Width + 0.5f && inner.Y + inner.Height <= outer.Y + outer.Height + 0.5f;
 
-    private static RGBAColor32 InkOf(WorkbenchE2E e2e, string text, RectF32 bounds)
-        => e2e.Host.Screen.TextColorOf(text, bounds);
-
-    private static RGBAColor32 PixelAt(dynamic surface, int x, int y)
+    private static RGBAColor32 PixelAt(WorkbenchE2E e2e, int x, int y)
     {
-        int width = surface.Width;
-        byte[] pixels = surface.Pixels;
-        var i = ((y * width) + x) * 4;
-        return new RGBAColor32(pixels[i], pixels[i + 1], pixels[i + 2], 255);
+        var surface = e2e.Renderer.Surface;
+        var i = ((y * (int)surface.Width) + x) * 4;
+        return new RGBAColor32(surface.Pixels[i], surface.Pixels[i + 1], surface.Pixels[i + 2], 255);
     }
 
     private static double Linear(byte c)
@@ -237,7 +231,7 @@ public sealed class WorkbenchCaptureTests : IDisposable
         {
             var surface = e2e.Renderer.Surface;
             File.WriteAllBytes(Path.Combine(AppContext.BaseDirectory, name + ".png"),
-                PngWriter.Encode(surface.Pixels, surface.Width, surface.Height));
+                Helpers.DisplayImageWriter.EncodePng(surface.Pixels, (int)surface.Width, (int)surface.Height));
         }
     }
 }

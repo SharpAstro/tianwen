@@ -229,6 +229,19 @@ internal sealed class WorkbenchE2E : IAsyncDisposable
                 new RectF32(n.Bounds.X, n.Bounds.Y, n.Bounds.Width, n.Bounds.Height)))];
     }
 
+    /// <summary>Every text leaf the last frame painted with the colour its author gave the glyphs.</summary>
+    internal ImmutableArray<(string Text, RectF32 Bounds, RGBAColor32 Ink)> TextInks()
+    {
+        var nodes = new List<Layout.ArrangedNode<float>>();
+        Host.Screen.CollectPaintedNodes(nodes);
+        return [.. nodes.Where(static n => n.Node is Layout.Node.Leaf { Content: Layout.Content.Text })
+            .Select(static n =>
+            {
+                var text = (Layout.Content.Text)((Layout.Node.Leaf)n.Node).Content;
+                return (text.Value, new RectF32(n.Bounds.X, n.Bounds.Y, n.Bounds.Width, n.Bounds.Height), text.Color);
+            })];
+    }
+
     /// <summary>The text leaves whose box lies inside <paramref name="rect"/>, left to right.</summary>
     internal IEnumerable<string> TextsIn(RectF32 rect)
         => Texts().Where(t => t.Bounds.X >= rect.X - 0.5f && t.Bounds.Y >= rect.Y - 0.5f
