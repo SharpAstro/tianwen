@@ -174,7 +174,7 @@ public sealed class EnhanceChain10PProbe(ITestOutputHelper output)
             var plane = image.GetChannelSpan(c);
             var sky = new float[width * height];
             var n = 0;
-            var peak = double.MinValue;
+            var peak = double.NegativeInfinity;
             for (var y = 0; y < height; y++)
             {
                 for (var x = 0; x < width; x++)
@@ -185,13 +185,22 @@ public sealed class EnhanceChain10PProbe(ITestOutputHelper output)
                     }
 
                     var v = plane[y * width + x];
+                    // A non-finite value is kept out of the peak as of the sky: Math.Max(x, NaN) is NaN, and a NaN peak
+                    // would pass the peak bar whatever the real peaks are.
+                    if (!float.IsFinite(v))
+                    {
+                        continue;
+                    }
+
                     peak = Math.Max(peak, v);
-                    if (!stars[y, x] && float.IsFinite(v))
+                    if (!stars[y, x])
                     {
                         sky[n++] = v;
                     }
                 }
             }
+
+            double.IsFinite(peak).ShouldBeTrue($"premise: channel {c} has a finite value outside the ring to take a peak of");
 
             Array.Sort(sky, 0, n);
             levels[c] = n == 0 ? double.NaN : sky[n / 2];
