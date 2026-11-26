@@ -152,10 +152,13 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
             kinds.Add(new(WorkbenchViewKind.Comparison, "Comparison") { Hit = new HitResult.ButtonHit("View:Comparison") });
         }
 
+        // The group shares the width it is given equally, so it is given what its segments need: each as wide as the longest word.
+        var segment = BaseFontSize * 0.62f * "Comparison".Length + Gap * 3;
         var style = new Layout.ButtonGroupStyle(palette.Selection, palette.RaisedBg, palette.SelectionText, palette.BodyText,
-            GuiTheme.Hover(palette.RaisedBg)) { Gap = 1f };
+            GuiTheme.Hover(palette.RaisedBg)) { Gap = 1f, SegmentWidth = segment };
         return Layout.Builder.HStack(
-                Layout.Builder.ButtonGroup<WorkbenchViewKind>([.. kinds], actions.EffectiveView(), actions.ChooseView, style, BaseFontSize).WAuto().HStar())
+                Layout.Builder.ButtonGroup<WorkbenchViewKind>([.. kinds], actions.EffectiveView(), actions.ChooseView, style, BaseFontSize)
+                    .WFixed((segment + 1f) * kinds.Count).HStar())
             .WithGap(Gap).CrossCenter().Pad(Gap, 0f).Bg(palette.HeaderBg);
     }
 
@@ -171,9 +174,11 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
             };
         }
 
+        var segment = Math.Max(96f, view.ImageNames.Max(static n => n.Length) * BaseFontSize * 0.62f + Gap * 3);
         var style = new Layout.ButtonGroupStyle(palette.Selection, palette.RaisedBg, palette.SelectionText, palette.BodyText,
-            GuiTheme.Hover(palette.RaisedBg)) { Gap = 1f };
-        return Layout.Builder.ButtonGroup<string>(options, view.ImageName, actions.ChooseImage, style, BaseFontSize).WAuto().HStar();
+            GuiTheme.Hover(palette.RaisedBg)) { Gap = 1f, SegmentWidth = segment };
+        return Layout.Builder.ButtonGroup<string>(options, view.ImageName, actions.ChooseImage, style, BaseFontSize)
+            .WFixed((segment + 1f) * options.Length).HStar();
     }
 
     // Each step numbered and named by its operation's title, with its state in words and a mark from the runner's answer.
