@@ -373,3 +373,22 @@ so the window's paint under a clock frame had come down to under a millisecond. 
 its full frames, one to four every five seconds at 1.5 to 2.2 ms each: a time-driven frame for the sky's drift, a
 redraw flag the app raises about every 25 s on an idle window, not yet traced to what raises it, and the two clock frames after either,
 which land on swapchain images that missed it and are painted whole.
+
+The same on lavapipe, in WSL on the same laptop (`docs/architecture/running-on-wsl.md`, "On the x64 laptop"), share of
+one core over 120 s of the idle Sky Map: 3.52 % with every clock frame painting the window, 3.32 % with the clock
+alone. Small there too, for the same reason: the frame's scissor already made the rest of a clock frame cheap.
+
+What the full frames cost is what is left, and the two clock frames after each are the renderer's to remove. Its
+retained frame (`SDLVK_RETAINED_FRAME`) paints into one image and copies each swapchain image only what it is missing,
+so a full frame no longer makes the next two full. On by default on a software rasteriser, where it is most of the idle
+load: 7.80 % of a core with the swapchain, 3.32 % with it. On the Iris Xe, where it is off by default, turning it on cut
+the idle Sky Map's full frames from 2.24 to 0.86 every five seconds, the frames' processor time from 5.5 to 2.7 ms and
+their GPU time from 7.66 to 5.12 ms, for 0.8 ms of GPU added to every full frame (a copy of the whole surface, a pan's
+frames included). Whether to make it the GUI's default on a GPU is open.
+
+And the present: SdlVulkan.Renderer 7.119 names the rectangle that changed since the last present
+(`VK_KHR_incremental_present`), so a clock frame's present names the clock. Without it Mesa's X11 present for a software
+rasteriser without MIT-SHM sends the whole image down the X socket every frame. In WSL, whose Xwayland takes MIT-SHM
+pixmaps and whose compositor sends only changed tiles, it made no difference that could be measured (the app, Xwayland
+and weston together, 5.66 % of a core against 5.78 %); a native X server with no compositor, a Raspberry Pi's, is
+unmeasured.
