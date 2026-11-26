@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using Shouldly;
 using TianWen.AI.Imaging;
 using TianWen.Lib.Imaging;
@@ -189,21 +190,51 @@ public sealed class SyntheticClusterSceneTests
         }
     }
 
-    /// <summary>One export output holds one truth rule: an output with no sky takes any, a recorded rule is read back, and an
-    /// output whose skies predate the record was written under the faint grain's rule, so a resumed run cannot mix them.</summary>
+    /// <summary>One export output holds one truth rule: an output with no sky takes any (whatever a stopped run recorded), a
+    /// recorded rule is read back, and an output whose skies predate the record was written under the faint grain's rule, so a
+    /// resumed run cannot mix them.</summary>
     [Fact]
     public void AnExportOutputSaysWhichTruthItsSkiesWereRenderedUnder()
     {
         using var folders = new TempFolders();
         var outDir = folders.Create("cluster-export").FullName;
+        var truthFile = Path.Combine(outDir, SyntheticClusterExport.TruthFileName);
 
         SyntheticClusterExport.WrittenTruthRule(outDir).ShouldBeNull("no sky yet");
+        File.WriteAllText(truthFile, SyntheticClusterExport.TruthRule(faintGrainInTruth: false) + "\n");
         Directory.CreateDirectory(Path.Combine(outDir, SyntheticClusterExport.FragmentDir));
-        SyntheticClusterExport.WrittenTruthRule(outDir).ShouldBeNull("an empty fragment folder holds no sky");
+        SyntheticClusterExport.WrittenTruthRule(outDir).ShouldBeNull("a rule recorded by a run that wrote no sky binds nothing");
         File.WriteAllText(Path.Combine(outDir, SyntheticClusterExport.FragmentDir, "s0001.jsonl"), "{}\n");
+        SyntheticClusterExport.WrittenTruthRule(outDir).ShouldBe("no-faint-grain", "the recorded rule");
+        File.Delete(truthFile);
         SyntheticClusterExport.WrittenTruthRule(outDir).ShouldBe("faint-grain", "skies from before the rule was recorded kept the grain");
-        File.WriteAllText(Path.Combine(outDir, SyntheticClusterExport.TruthFileName), SyntheticClusterExport.TruthRule(faintGrainInTruth: false) + "\n");
-        SyntheticClusterExport.WrittenTruthRule(outDir).ShouldBe("no-faint-grain", "the recorded rule wins");
+    }
+
+    /// <summary>An export run under the other truth rule than its output's skies is refused before it opens anything, and
+    /// records nothing; a run under the output's own rule passes the check and records the rule (this one then stops at its
+    /// missing master).</summary>
+    [Fact]
+    public async Task AnExportRunUnderTheOtherTruthRuleIsRefused()
+    {
+        using var folders = new TempFolders();
+        var outDir = folders.Create("cluster-export").FullName;
+        var truthFile = Path.Combine(outDir, SyntheticClusterExport.TruthFileName);
+        Directory.CreateDirectory(Path.Combine(outDir, SyntheticClusterExport.FragmentDir));
+        File.WriteAllText(Path.Combine(outDir, SyntheticClusterExport.FragmentDir, "s0001.jsonl"), "{}\n");
+        var spec = new SyntheticClusterSpec(256, 0, 0, 0.0, 1500, 40.0, 400.0, 0.006, 6, 0.25, 1.12, 0.0, 0, 0, ClusterOptics.Plain, [], 1);
+        var run = new SyntheticClusterRun(Path.Combine(outDir, "no-master.fits"), Path.Combine(outDir, "no-plate.fits"), outDir, spec,
+            [ClusterOptics.Plain], [0.0], [0.0]);
+        var ct = TestContext.Current.CancellationToken;
+
+        var refused = await Should.ThrowAsync<InvalidOperationException>(
+            () => SyntheticClusterExport.RunAsync(run, 2, 1, [ClusterOptics.Plain], 0.5, 1, stretchFromMaster: true, progress: null, ct));
+        refused.Message.ShouldContain("rendered under the faint-grain truth; a run under the no-faint-grain truth");
+        File.Exists(truthFile).ShouldBeFalse("a refused run records nothing");
+
+        var oldRule = run with { Base = spec with { FaintGrainInTruth = true } };
+        await Should.ThrowAsync<InvalidDataException>(
+            () => SyntheticClusterExport.RunAsync(oldRule, 2, 1, [ClusterOptics.Plain], 0.5, 1, stretchFromMaster: true, progress: null, ct));
+        File.ReadAllText(truthFile).Trim().ShouldBe("faint-grain", "the output's own rule passes and is recorded");
     }
 
     [Theory]

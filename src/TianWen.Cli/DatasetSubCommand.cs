@@ -1564,8 +1564,11 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 parseResult.GetValue(clusterStarsOpt), parseResult.GetValue(coreOpt), parseResult.GetValue(tidalOpt), parseResult.GetValue(fieldDensityOpt),
                 parseResult.GetValue(saturatedOpt), parseResult.GetValue(glowShareOpt), parseResult.GetValue(glowSlopeOpt),
                 0.0, nebulaAt.Item1, nebulaAt.Item2, ClusterOptics.Plain, lateral, parseResult.GetValue(seedOpt),
-                parseResult.GetValue(groupsOpt), halfLightMin, halfLightMax, (int)groupStarsMin, (int)groupStarsMax, groupGlowMin, groupGlowMax,
-                parseResult.GetValue(minSeparationOpt), parseResult.GetValue(nebulaKnotsOpt), parseResult.GetValue(faintGrainInTruthOpt));
+                // The optional tail by name, so a reordering of the record's parameters cannot silently move an option.
+                SubClusters: parseResult.GetValue(groupsOpt), SubClusterHalfLightMinPx: halfLightMin, SubClusterHalfLightMaxPx: halfLightMax,
+                SubClusterStarsMin: (int)groupStarsMin, SubClusterStarsMax: (int)groupStarsMax, SubClusterGlowMin: groupGlowMin, SubClusterGlowMax: groupGlowMax,
+                MinSeparationPx: parseResult.GetValue(minSeparationOpt), NebulaKnots: parseResult.GetValue(nebulaKnotsOpt),
+                FaintGrainInTruth: parseResult.GetValue(faintGrainInTruthOpt));
             var run = new SyntheticClusterRun(parseResult.Required(masterOpt), parseResult.Required(plateOpt), parseResult.Required(outOpt), spec,
                 optics.ToImmutable(), nebulae, rotations, parseResult.GetValue(poolMarginOpt), parseResult.GetValue(nebulaPlateOpt),
                 (int)Math.Round(Math.Log2(Math.Clamp(parseResult.GetValue(nebulaTextureFromOpt), 1, 32))), parseResult.GetValue(nebulaLogNormalOpt));

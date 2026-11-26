@@ -71,19 +71,19 @@ public static class SyntheticClusterExport
     public static string TruthRule(bool faintGrainInTruth) => faintGrainInTruth ? "faint-grain" : "no-faint-grain";
 
     /// <summary>
-    /// The truth rule <paramref name="outDir"/>'s skies were rendered under, or null for an output with no sky yet: its
-    /// <see cref="TruthFileName"/>, else the faint grain's rule when it holds a sky's fragment (every export before the rule was
-    /// recorded kept the grain).
+    /// The truth rule <paramref name="outDir"/>'s skies were rendered under, or null for an output with no sky's fragment yet
+    /// (whatever its <see cref="TruthFileName"/> says, since a run that stopped before its first sky binds nothing): its
+    /// <see cref="TruthFileName"/>, else the faint grain's rule (every export before the rule was recorded kept the grain).
     /// </summary>
     internal static string? WrittenTruthRule(string outDir)
     {
-        var truthFile = Path.Combine(outDir, TruthFileName);
-        if (File.Exists(truthFile))
-        {
-            return File.ReadAllText(truthFile).Trim();
-        }
         var fragments = Path.Combine(outDir, FragmentDir);
-        return Directory.Exists(fragments) && Directory.EnumerateFiles(fragments, "s*.jsonl").Any() ? TruthRule(faintGrainInTruth: true) : null;
+        if (!Directory.Exists(fragments) || !Directory.EnumerateFiles(fragments, "s*.jsonl").Any())
+        {
+            return null;
+        }
+        var truthFile = Path.Combine(outDir, TruthFileName);
+        return File.Exists(truthFile) ? File.ReadAllText(truthFile).Trim() : TruthRule(faintGrainInTruth: true);
     }
 
     /// <summary>Every <see cref="ValEvery"/>-th seed is a held-out sky (seeds 10, 20, ...): one in ten, by seed alone, so a
