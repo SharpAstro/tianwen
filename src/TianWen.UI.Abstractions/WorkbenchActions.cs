@@ -246,7 +246,8 @@ public sealed class WorkbenchActions(
     {
         var steps = Steps();
         var selected = state.SelectedStep;
-        if (_jobs.IsRunning || selected < 0 || selected >= steps.Length)
+        // A read in flight is another answer on its way (the view on show is the old one): a run then would start on the wrong image.
+        if (_jobs.IsRunning || state.IsReading || selected < 0 || selected >= steps.Length)
         {
             return new WorkbenchRunOffer("Run to here", false, selected);
         }
@@ -282,7 +283,7 @@ public sealed class WorkbenchActions(
     public WorkbenchRunOffer RunOnOffer()
     {
         var steps = Steps();
-        if (_jobs.IsRunning || steps.IsEmpty)
+        if (_jobs.IsRunning || state.IsReading || steps.IsEmpty)
         {
             return new WorkbenchRunOffer(state.RunOn ? "Run on" : "Run next step", false, -1);
         }

@@ -558,6 +558,29 @@ public sealed class WorkbenchE2ETests : IDisposable
         e2e.State.View.ShouldNotBeNull().ImageName.ShouldBe("b");
     }
 
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task NoRunStartsWhileAnotherImagesReadIsInFlight(float dpi)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = await ImagesProjectAsync("reading-", ct);
+        await using var e2e = WorkbenchE2E.Start(dpi, Runner(), Catalog());
+        await e2e.OpenProjectAsync(folder, ct, "a");
+        await SelectAsync(e2e, 0, ct);
+
+        // The view on show is still a's while b is read: a run asked for now would make a's step, not the image the person chose.
+        e2e.Actions.OpenProject(folder, "b").ShouldBeTrue();
+        e2e.State.IsReading.ShouldBeTrue("premise: the read of b is in flight");
+        e2e.Actions.RunToHereOffer().CanRun.ShouldBeFalse();
+        e2e.Actions.RunOnOffer().CanRun.ShouldBeFalse();
+        e2e.Actions.RunToHere();
+        e2e.Actions.RunOn();
+        e2e.Actions.Jobs.IsRunning.ShouldBeFalse("no run started on the old image");
+
+        await e2e.PumpUntilAsync(() => !e2e.State.IsReading && e2e.State.View?.ImageName == "b", "b on show", ct);
+    }
+
     private async Task<string> ImagesProjectAsync(string name, System.Threading.CancellationToken ct)
     {
         var folder = _folders.Create(name).FullName;

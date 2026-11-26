@@ -105,6 +105,8 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
             arranged = ArrangeLayout(Build(state, actions), bounds);
         }
 
+        // The second build's flows are never looked up (the next frame's build fills the map afresh), so say they are done with.
+        _flows.Clear();
         PaintLayout(arranged);
         CanvasRect = ArrangedFills.RectOf(arranged, CanvasKey);
 
