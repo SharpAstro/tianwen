@@ -906,7 +906,9 @@ public sealed class SharpenPipeline(
                         //   fg = sharpened > raw starsOnly
                         var bg = denoisedStarless ?? deconvolvedStarless ?? Require(starless);
                         var fg = sharpenedStars ?? Require(starsOnly);
-                        final = recombineStep.Mode == RecombineMode.Screen ? bg.Screen(fg) : bg.Add(fg);
+                        // Additive is image add-stars' routine (NarrowbandCombination.WithStars), so a chain's add-stars and
+                        // the enhance's recombine are one sum.
+                        final = recombineStep.Mode == RecombineMode.Screen ? bg.Screen(fg) : NarrowbandCombination.WithStars(bg, fg);
                         timings.Add(("recombine", phaseSw.ElapsedMilliseconds, final.EstimateNoiseProfile()));
                         // Recombine may be followed by a post-recombine stretch
                         // step (MtfStretchFinalStep / GhsStretchFinalStep); the

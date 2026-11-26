@@ -153,6 +153,7 @@ its own image, and every setting at its default. An edit names an operation by i
 | `fill-digs` | stored | `image fill-digs` | `input`: the master the stars were removed from. Its own image is the starless plate |
 | `protect-cores` | stored | `image protect-cores` | `input`: the master the stars were removed from. Its own image is the starless plate |
 | `scnr` | stored | `image scnr` | none. Its own image is a stars plate whose colour is balanced in its pixels (`WBAPPLD`); any other is refused |
+| `white-balance` | stored | `image white-balance` | none. Its own image is a colour master; the balance is the stated one or its own WB cards', broadband SPCC only (the enhance's rule) |
 | `match-psf` | stored, one run for several | `image match-psf` | the other masters of the run |
 | `deblur` | stored, one run for several | `image deblur` | the other masters of the run |
 | `denoise` | stored, one run for several | `image denoise` | the other masters of the run |

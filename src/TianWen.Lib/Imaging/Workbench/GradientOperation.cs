@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Linq;
 using System.Numerics;
 using System.Text.Json.Serialization.Metadata;
@@ -36,9 +37,12 @@ public sealed class GradientOperation(
     public const string Id = "gradient";
 
     /// <inheritdoc/>
+    /// <remarks>Version 2 (2026-11-26, the enhance retrofit): the background stage the enhance runs, the gradient and then, on a
+    /// colour frame, the sky levelled in the pixels, so a chain of single steps is the enhance; the same settings give other
+    /// pixels on a colour frame.</remarks>
     public override OperationDescription Description { get; } = new(
         Id,
-        Version: 1,
+        Version: 2,
         Title: "Gradient",
         Verb: "image flatten",
         OperationOutputKind.Stored,
@@ -211,7 +215,7 @@ public sealed class GradientOperation(
                     + $", {plane.Iterations} iterations{(plane.Converged ? "" : " (NOT converged)")}");
             }
 
-            return (new GradientResult(extraction.Cleaned, keepBackground ? extraction.Background : null), OperationOutcome.Done);
+            return (new GradientResult(SkyLevelled(extraction.Cleaned, normalised, say), keepBackground ? extraction.Background : null), OperationOutcome.Done);
         }
 
         // A model takes [0, 1]: an input that says it is on a unit scale with highlights above 1.0 (a deblurred star, #2504)
@@ -221,7 +225,27 @@ public sealed class GradientOperation(
             ? await gradientCorrector.EnhanceAndEstimateBackgroundAsync(into, cancellationToken)
             : (await gradientCorrector.EnhanceAsync(into, cancellationToken), null));
 
-        return (new GradientResult(corrected, keepBackground ? estimated : null), OperationOutcome.Done);
+        return (new GradientResult(SkyLevelled(corrected, normalised, say), keepBackground ? estimated : null), OperationOutcome.Done);
+    }
+
+    // The background stage is the gradient AND the level, as the enhance runs it (SharpenPipeline's GradientCorrectionStep):
+    // a gradient corrector flattens each channel about its own level and leaves the sky's tint, so on a colour frame the sky
+    // is levelled here, in the pixels (Image.WithBackgroundNeutralised); a sky already level takes a zero offset.
+    private static Image SkyLevelled(Image corrected, Image input, Action<string>? say)
+    {
+        if (corrected.ChannelCount < 3)
+        {
+            return corrected;
+        }
+
+        var (levelled, offsets) = corrected.WithBackgroundNeutralised();
+        // A corrector that passed its input through handed back the caller's image, which is not ours to release.
+        if (!ReferenceEquals(corrected, input))
+        {
+            corrected.Release();
+        }
+        say?.Invoke(string.Create(CultureInfo.InvariantCulture, $"  sky levelled by {offsets[0]:E2}, {offsets[1]:E2}, {offsets[2]:E2}"));
+        return levelled;
     }
 
     // The classical fit's options for these settings: the reference defaults with the settings over them.

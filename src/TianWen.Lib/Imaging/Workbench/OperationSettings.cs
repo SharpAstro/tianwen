@@ -97,6 +97,14 @@ public sealed record FillDigsSettings
     public bool KeepOvershoot { get; set; }
 }
 
+/// <summary>The settings of <see cref="WhiteBalanceOperation"/>.</summary>
+public sealed record WhiteBalanceSettings
+{
+    /// <summary>An SPCC white balance as three numbers (red, green, blue); empty is the one the master's WB cards state
+    /// (<c>--white-balance</c>), as the enhance's <see cref="EnhanceSettings.WhiteBalance"/>.</summary>
+    public ImmutableArray<float> WhiteBalance { get; set; } = [];
+}
+
 /// <summary>The settings of <see cref="ScnrOperation"/>.</summary>
 public sealed record ScnrSettings
 {
@@ -240,6 +248,7 @@ public sealed record ContinuumSettings
 [JsonSerializable(typeof(LrgbSettings))]
 [JsonSerializable(typeof(FillDigsSettings))]
 [JsonSerializable(typeof(ScnrSettings))]
+[JsonSerializable(typeof(WhiteBalanceSettings))]
 [JsonSerializable(typeof(ContinuumSettings))]
 [JsonSerializable(typeof(ProtectCoresSettings))]
 [JsonSerializable(typeof(DeblurSettings))]

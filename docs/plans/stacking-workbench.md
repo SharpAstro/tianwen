@@ -655,7 +655,12 @@ removals and the two denoises were different routines, and SCNR on the stars had
 
 So the enhance program's deblur, star removal and starless denoise call the single steps' routines (`enhance` version 2;
 `denoise`, `denoise-colour` version 2; `combine` version 3), each model taking a lifted frame on its own range and handing it
-back on the frame's scale. What is left for W9 proper: the enhance written as a workflow of those steps, kept step by step,
+back on the frame's scale. Two more steps of the enhance had no single step that did the same, and now have one, by the same
+rule: the **white balance** the enhance puts in first (`white-balance`, `image white-balance`, on the enhance's own
+`EnhanceOperation.WhiteBalanceToApplyAsync`; without it the chain's stars were never balanced, and SCNR refuses unbalanced
+colour), and the **sky levelled** after the gradient (`gradient` version 2, `Image.WithBackgroundNeutralised` as the enhance
+calls it). The recombine is `add-stars`' sum (`NarrowbandCombination.WithStars`). The 2026-11-24 measure's green share of star
+light (0.58 in the chain, 0.64 in the enhance) is the balance the chain did not put in. What is left for W9 proper: the enhance written as a workflow of those steps, kept step by step,
 and the chain measured against the one-step enhance again on the 10P master.
 
 ### W10 The missing operation verbs

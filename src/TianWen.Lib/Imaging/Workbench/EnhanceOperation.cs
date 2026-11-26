@@ -164,9 +164,9 @@ public sealed class EnhanceOperation(SharpenPipeline pipeline, ILogger<EnhanceOp
             return "gradientBackend chooses the extractor of a gradient step that gradient leaves out: give one or the other";
         }
 
-        if (settings.WhiteBalance.IsDefault || (settings.WhiteBalance.Length is not (0 or 3)) || settings.WhiteBalance.Any(static gain => !float.IsFinite(gain) || gain <= 0f))
+        if (WhiteBalanceRefusal(settings.WhiteBalance) is { } whiteBalance)
         {
-            return "whiteBalance is three positive numbers (red, green, blue), or left out";
+            return whiteBalance;
         }
 
         // The verb reads a value below these ranges as "not stated" (its options' own sentinels), so a step that kept one
@@ -500,17 +500,7 @@ public sealed class EnhanceOperation(SharpenPipeline pipeline, ILogger<EnhanceOp
 
         // A broadband SPCC balance the input states, or the one the settings give, goes into the linear data first, as
         // stack --enhance and the viewer apply theirs.
-        var (stated, note) = ResolveWhiteBalance(start.Normalised.ImageMeta.ColourCalibration, settings.WhiteBalance);
-        if (note is not null)
-        {
-            say?.Invoke(note);
-        }
-
-        var whiteBalance = await MasterPreviewRenderer.StatedToApplyAsync(stated, start.Normalised.ImageMeta, cancellationToken);
-        if (whiteBalance is { } applying)
-        {
-            say?.Invoke($"{ColourCalibration.CardOf(applying.Source)} white balance ({applying.R:F3}, {applying.G:F3}, {applying.B:F3}) applied to the linear input before the enhance");
-        }
+        var whiteBalance = await WhiteBalanceToApplyAsync(start.Normalised.ImageMeta, settings.WhiteBalance, say, cancellationToken);
 
         // THE STEP ORDER IS NOT WRITTEN HERE. LinearEnhanceProgram.For is the one place it lives, and the viewer's
         // Enhance button, the hosted endpoint and MasterPostProcessor all read it from there too; this only says which
@@ -557,6 +547,38 @@ public sealed class EnhanceOperation(SharpenPipeline pipeline, ILogger<EnhanceOp
         // is never read without knowing whether RC-Astro, GraXpert or an in-house model made it.
         say?.Invoke($"served by: {pipeline.DescribeRoles(start.Options, program)}; scnr {(program.SplitStars ? program.Scnr.ToString().ToLowerInvariant() : "left out")}");
         return program;
+    }
+
+    /// <summary>Why a stated white balance is not one, or null: three positive numbers (red, green, blue), or left out. The
+    /// enhance's <c>whiteBalance</c> and the white-balance step's are one setting.</summary>
+    public static string? WhiteBalanceRefusal(ImmutableArray<float> stated)
+        => stated.IsDefault || stated.Length is not (0 or 3) || stated.Any(static gain => !float.IsFinite(gain) || gain <= 0f)
+            ? "whiteBalance is three positive numbers (red, green, blue), or left out"
+            : null;
+
+    /// <summary>
+    /// The balance multiplied into the linear input before anything else, or null for none: the one rule for the enhance's
+    /// <see cref="WhiteBalanceStep"/> and the white-balance step (<see cref="WhiteBalanceOperation"/>). A stated triple wins
+    /// over the input's own WB cards (<see cref="ResolveWhiteBalance"/>), and only a broadband SPCC balance is applied
+    /// (<see cref="MasterPreviewRenderer.StatedToApplyAsync"/>): the sky-background fallback and a fit through a
+    /// line-selective filter stay display multipliers.
+    /// </summary>
+    public static async Task<ColourCalibration?> WhiteBalanceToApplyAsync(ImageMeta meta, ImmutableArray<float> stated, Action<string>? say,
+        CancellationToken cancellationToken)
+    {
+        var (chosen, note) = ResolveWhiteBalance(meta.ColourCalibration, stated);
+        if (note is not null)
+        {
+            say?.Invoke(note);
+        }
+
+        var applying = await MasterPreviewRenderer.StatedToApplyAsync(chosen, meta, cancellationToken);
+        if (applying is { } balance)
+        {
+            say?.Invoke($"{ColourCalibration.CardOf(balance.Source)} white balance ({balance.R:F3}, {balance.G:F3}, {balance.B:F3}) applied to the linear input");
+        }
+
+        return applying;
     }
 
     /// <summary>

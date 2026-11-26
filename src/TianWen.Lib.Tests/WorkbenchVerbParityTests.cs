@@ -237,11 +237,18 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
         => new([SyntheticStarFieldRenderer.Render(FieldSize, FieldSize, defocusSteps: 0, exposureSeconds: 10, skyBackground: 100, readNoise: 5,
             starCount: 250, seed: 5, noiseSeed: noiseSeed)], BitDepth.Float32, 65535f, 0f, 0f, new ImageMeta());
 
-    // Three fields as one colour image whose colour says it is balanced in its pixels (WBAPPLD), as SCNR requires.
-    private static Image BalancedColour(Image red, Image green, Image blue)
+    // Three fields as one OSC colour image through a broadband filter the curves know, stating an SPCC balance that is not
+    // in its pixels yet: what a stacked master states, and what the enhance (and the white-balance step) put in.
+    private static Image StatingABalance(Image red, Image green, Image blue)
         => new([red.GetChannelArray(0), green.GetChannelArray(0), blue.GetChannelArray(0)], BitDepth.Float32,
             MathF.Max(red.MaxValue, MathF.Max(green.MaxValue, blue.MaxValue)), MathF.Min(red.MinValue, MathF.Min(green.MinValue, blue.MinValue)), 0f,
-            new ImageMeta { ColourCalibration = new ColourCalibration(1f, 1f, 1f, ColourCalibrationSource.Spcc, Applied: true) });
+            new ImageMeta
+            {
+                Instrument = "SVBONY SV605CC",
+                SensorType = SensorType.Color,
+                Filter = Filter.FromName("Optolong L-Quad Enhance"),
+                ColourCalibration = new ColourCalibration(1.52f, 1f, 1.78f, ColourCalibrationSource.Spcc),
+            });
 
     private static string WriteField(string folder, string name, Image field)
     {
@@ -266,8 +273,9 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
         // Another night of the same sky, turned and shifted.
         var turn = Matrix3x2.CreateRotation(3f * MathF.PI / 180f, new Vector2(FieldSize / 2f, FieldSize / 2f)) * Matrix3x2.CreateTranslation(14.5f, -9.25f);
         var moved = WriteField(folder, "moved", await Field(noiseSeed: 5).WarpToReferenceGridAsync(turn, FieldSize, FieldSize, ct));
-        // A colour stars plate whose colour is balanced in its pixels, the only plate SCNR takes.
-        var balanced = WriteField(folder, "stars-balanced", BalancedColour(Field(noiseSeed: 6), Field(noiseSeed: 7), Field(noiseSeed: 8)));
+        // A colour plate that states a broadband SPCC balance not yet in its pixels: white-balance puts it in, and SCNR then
+        // takes the stars of the balanced colour, the only colour it runs on.
+        var stated = WriteField(folder, "stars-stated", StatingABalance(Field(noiseSeed: 6), Field(noiseSeed: 7), Field(noiseSeed: 8)));
         // An image another takes is listed before it.
         await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(
             WorkbenchFixtures.Picture("red", red),
@@ -282,7 +290,9 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
             WorkbenchFixtures.Picture("red-with-stars", red, WorkbenchFixtures.Edit(AddStarsOperation.Id, null, "blue")),
             WorkbenchFixtures.Picture("red-filled", red, WorkbenchFixtures.Edit(FillDigsOperation.Id, new JsonObject { ["keepOvershoot"] = true }, "green")),
             WorkbenchFixtures.Picture("red-cores", red, WorkbenchFixtures.Edit(ProtectCoresOperation.Id, new JsonObject { ["catalogue"] = "none" }, "green")),
-            WorkbenchFixtures.Picture("stars-scnr", balanced, WorkbenchFixtures.Edit(ScnrOperation.Id, new JsonObject { ["mode"] = "maximum", ["amount"] = 0.5 }))), ct);
+            WorkbenchFixtures.Picture("stars-scnr", stated,
+                WorkbenchFixtures.Edit(WhiteBalanceOperation.Id),
+                WorkbenchFixtures.Edit(ScnrOperation.Id, new JsonObject { ["mode"] = "maximum", ["amount"] = 0.5 }))), ct);
         var runner = new WorkbenchRunner(Catalog());
 
         var report = await runner.RunAsync(folder, new WorkbenchRunOptions { Say = output.WriteLine }, ct);
@@ -302,7 +312,7 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
         compared.ShouldBe(
         [
             AlignOperation.Id, ContinuumOperation.Id, AddLineOperation.Id, LuminanceOperation.Id, LrgbOperation.Id, AddStarsOperation.Id,
-            FillDigsOperation.Id, ProtectCoresOperation.Id, ScnrOperation.Id,
+            FillDigsOperation.Id, ProtectCoresOperation.Id, WhiteBalanceOperation.Id, ScnrOperation.Id,
         ]);
     }
 
