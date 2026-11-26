@@ -20,7 +20,8 @@ namespace TianWen.Lib.Tests;
 /// each image's last edit names its stored result. <c>TIANWEN_ENHANCE_10P_REPEAT</c>, optional, is a second project
 /// holding the same <c>enhanced</c> image, run on its own store, so the enhance ran twice: what RC-Astro's GPU path
 /// leaves between two runs of one tool is then measured on this machine, and the chain is held to it. Without it the
-/// probe checks its premises and prints the reading only.</para>
+/// probe checks its premises, prints the reading and reports itself skipped, so a run with no null to hold the chain to
+/// never reads as a pass.</para>
 /// <para><b>What is read</b> (the measure of 2026-11-24, in .NET): the sky level and the green sky sigma of each
 /// result; the pixels whose value differs by more than <see cref="DifferBy"/> in any channel, and how many of them lie on
 /// a star (the chain's own stars layer, its result less <c>chain-starless</c>, over five times the starless plate's green
@@ -64,10 +65,10 @@ public sealed class EnhanceChain10PProbe(ITestOutputHelper output)
         diff.Read.ShouldBeGreaterThan(0, "premise: pixels outside the ring to compare");
         starMask.PopCount().ShouldBeGreaterThan(0, "premise: the stars layer found stars");
 
-        if (repeatFolder.Length == 0)
-        {
-            return;
-        }
+        // A run without the second enhance has no measured null to hold the chain to, so it prints the reading and is
+        // reported as skipped, never as a pass that reads like agreement.
+        Assert.SkipWhen(repeatFolder.Length == 0,
+            "the reading is printed above; set TIANWEN_ENHANCE_10P_REPEAT to a project that ran the enhance again to hold the chain to RC-Astro's own run-to-run difference");
 
         var repeat = await ResultAsync(repeatFolder, "enhanced", ct);
         repeat.Shape.ShouldBe(enhanced.Shape, "premise: the second enhance is of the same master");
@@ -210,7 +211,7 @@ public sealed class EnhanceChain10PProbe(ITestOutputHelper output)
             }
         }
 
-        image.TryEstimateSkyNoise(1, ring, out var greenSigma);
+        image.TryEstimateSkyNoise(1, ring, out var greenSigma).ShouldBeTrue("premise: the result has sky to read its green noise on");
         return new Reading(levels[1], greenSigma, peaks, light[1] / (light[0] + light[1] + light[2]));
     }
 
@@ -234,9 +235,13 @@ public sealed class EnhanceChain10PProbe(ITestOutputHelper output)
 
                 read++;
                 var i = y * width + x;
-                double worst = Math.Max(Math.Abs(r1[i] - r2[i]), Math.Max(Math.Abs(g1[i] - g2[i]), Math.Abs(b1[i] - b2[i])));
+                // A value finite in one result and not in the other differs, whatever its size; it is counted, and kept
+                // out of the largest so a NaN does not hide the largest real difference.
+                var oneSided = float.IsFinite(r1[i]) != float.IsFinite(r2[i]) || float.IsFinite(g1[i]) != float.IsFinite(g2[i])
+                    || float.IsFinite(b1[i]) != float.IsFinite(b2[i]);
+                var worst = Math.Max(Gap(r1[i], r2[i]), Math.Max(Gap(g1[i], g2[i]), Gap(b1[i], b2[i])));
                 largest = Math.Max(largest, worst);
-                if (worst > DifferBy)
+                if (oneSided || worst > DifferBy)
                 {
                     count++;
                     if (stars[y, x])
@@ -249,4 +254,8 @@ public sealed class EnhanceChain10PProbe(ITestOutputHelper output)
 
         return new Difference(count, onStars, read, largest);
     }
+
+    // The gap between two values where both are finite; 0 where either is not (one-sided values are counted apart).
+    private static double Gap(float first, float second)
+        => float.IsFinite(first) && float.IsFinite(second) ? Math.Abs(first - second) : 0.0;
 }
