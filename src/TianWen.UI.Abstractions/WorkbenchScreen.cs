@@ -185,8 +185,25 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
             .WithGap(Gap).CrossCenter().Pad(Gap, 0f).Bg(palette.HeaderBg);
     }
 
+    // A few short names are one segmented choice; many or long names would run past the window, so they are one button that shows
+    // the image and steps to the next on a press, ellipsised inside its share of the row with the whole name on hover.
+    private const int MostSegmentedChars = 36;
+    private const int MostSegmentedImages = 3;
+
     private Layout.Node ImageChoice(WorkbenchView view, WorkbenchActions actions)
     {
+        var names = view.ImageNames;
+        if (names.Length > MostSegmentedImages || names.Sum(static n => n.Length) > MostSegmentedChars)
+        {
+            var at = Math.Max(0, names.IndexOf(view.ImageName ?? string.Empty));
+            var next = names[(at + 1) % names.Length];
+            var current = view.ImageName ?? string.Empty;
+            return Layout.Builder.Button($"{current} ({at + 1} of {names.Length})", Layout.ButtonKind.Standard,
+                () => actions.ChooseImage(next), GuiTheme.Theme,
+                tooltip: $"{current}: image {at + 1} of {names.Length}. Press for {next}", hit: new HitResult.ButtonHit("Image:Next"))
+                .WStar();
+        }
+
         var options = new Layout.ButtonGroupOption<string>[view.ImageNames.Length];
         for (var i = 0; i < options.Length; i++)
         {
