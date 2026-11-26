@@ -60,6 +60,31 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
     /// <summary>Where the canvas was placed by the last frame, in device pixels.</summary>
     public RectF32 CanvasRect { get; private set; }
 
+    /// <summary>
+    /// Every text the last frame drew shorter than it is: the whole text, what the painter's own fit shows of it in its arranged
+    /// width, and where it was arranged. The capture tests ask that each of these carries its whole text on hover.
+    /// </summary>
+    internal ImmutableArray<(string Full, string Shown, RectF32 Bounds)> CutTexts()
+    {
+        var nodes = new List<Layout.ArrangedNode<float>>();
+        CollectPaintedNodes(nodes);
+        var ctx = MeasureContext(scale: DesignScale.One);
+        var cut = ImmutableArray.CreateBuilder<(string, string, RectF32)>();
+        foreach (var node in nodes)
+        {
+            if (node.Node is Layout.Node.Leaf { Content: Layout.Content.Text text } && text.Value.Length > 0)
+            {
+                var shown = TextFit.ForWidth(Renderer, text.Value, ctx.FontPath, ctx.Fallback, text.FontSize * ctx.FontScale, node.Bounds.Width, text.Trim).Text;
+                if (shown != text.Value)
+                {
+                    cut.Add((text.Value, shown, new RectF32(node.Bounds.X, node.Bounds.Y, node.Bounds.Width, node.Bounds.Height)));
+                }
+            }
+        }
+
+        return cut.ToImmutable();
+    }
+
     /// <summary>Paints the screen and the viewer in its canvas.</summary>
     public void Render(WorkbenchState state, WorkbenchActions actions, ViewerState viewerState, IPreviewSource? source, float width, float height)
     {

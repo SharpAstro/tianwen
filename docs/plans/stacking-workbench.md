@@ -518,8 +518,8 @@ W10 waits on nothing, the owner's W0 included: its verbs are useful from the com
 ### W0 Where it lives
 
 Tracked as #1640. Decided by the owner from the three choices above, with the name. **Decided 2026-11-22**: B, a product of
-its own, named Astro Photo Stacker ([Where it lives](#where-it-lives-w0-the-owners-decision)). The executable's name is
-still open, and W1 does not wait on it.
+its own, named Astro Photo Stacker ([Where it lives](#where-it-lives-w0-the-owners-decision)). The owner's names (2026-11-26): executable `tianwen-edit`, project
+`TianWen.UI.Workbench`.
 
 ### W1 The step runner and the project, headless
 
