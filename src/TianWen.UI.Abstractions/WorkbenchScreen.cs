@@ -33,7 +33,6 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
     private readonly ImageRendererBase<TSurface> _viewer;
     private readonly IReadOnlyList<PixelWidgetBase<TSurface>> _children;
     private readonly ListScrollController _panelScroll = new();
-    private readonly ListCursor _imageCursor = new();
     private readonly ListCursor _viewCursor = new();
     private readonly ListScrollController _jobScroll = new();
     private int _jobLinesDrawn;
@@ -69,7 +68,7 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
     {
         var nodes = new List<Layout.ArrangedNode<float>>();
         CollectPaintedNodes(nodes);
-        var ctx = MeasureContext(scale: DesignScale.One);
+        var ctx = MeasureContext();
         var cut = ImmutableArray.CreateBuilder<(string, string, RectF32)>();
         foreach (var node in nodes)
         {
@@ -185,37 +184,18 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
             .WithGap(Gap).CrossCenter().Pad(Gap, 0f).Bg(palette.HeaderBg);
     }
 
-    // A few short names are one segmented choice; many or long names would run past the window, so they are one button that shows
-    // the image and steps to the next on a press, ellipsised inside its share of the row with the whole name on hover.
-    private const int MostSegmentedChars = 36;
-    private const int MostSegmentedImages = 3;
-
+    // Image names are the user's own and can be many and long, so the choice is one button that shows the image and steps to the
+    // next on a press, ellipsised by the engine inside its share of the row, with the whole name on hover.
     private Layout.Node ImageChoice(WorkbenchView view, WorkbenchActions actions)
     {
         var names = view.ImageNames;
-        if (names.Length > MostSegmentedImages || names.Sum(static n => n.Length) > MostSegmentedChars)
-        {
-            var at = Math.Max(0, names.IndexOf(view.ImageName ?? string.Empty));
-            var next = names[(at + 1) % names.Length];
-            var current = view.ImageName ?? string.Empty;
-            return Layout.Builder.Button($"{current} ({at + 1} of {names.Length})", Layout.ButtonKind.Standard,
-                () => actions.ChooseImage(next), GuiTheme.Theme,
-                tooltip: $"{current}: image {at + 1} of {names.Length}. Press for {next}", hit: new HitResult.ButtonHit("Image:Next"))
-                .WStar();
-        }
-
-        var options = new Layout.ButtonGroupOption<string>[view.ImageNames.Length];
-        for (var i = 0; i < options.Length; i++)
-        {
-            options[i] = new Layout.ButtonGroupOption<string>(view.ImageNames[i], view.ImageNames[i])
-            {
-                Hit = new HitResult.ButtonHit($"Image:{view.ImageNames[i]}"),
-                Tooltip = view.ImageNames[i],
-            };
-        }
-
-        return Layout.Builder.Segmented<string>(options, view.ImageName ?? string.Empty, actions.ChooseImage, GuiTheme.Theme,
-            _imageCursor, "WorkbenchImages", BaseFontSize).WAuto();
+        var current = view.ImageName ?? string.Empty;
+        var at = Math.Max(0, names.IndexOf(current));
+        var next = names[(at + 1) % names.Length];
+        return Layout.Builder.Button($"{current} ({at + 1} of {names.Length})", Layout.ButtonKind.Standard,
+            () => actions.ChooseImage(next), GuiTheme.Theme,
+            tooltip: $"{current}: image {at + 1} of {names.Length}. Press for {next}", hit: new HitResult.ButtonHit("Image:Next"))
+            .WStar();
     }
 
     // Each step numbered and named by its operation's title, with its state in words and a mark from the runner's answer.

@@ -26,7 +26,7 @@ The pieces it holds:
 
 ## The screen and the layout
 
-One `Layout` tree, built each frame from the state: the top bar (the project's folder, the choice of image where the project has several, and Open project), the step bar, a
+One `Layout` tree, built each frame from the state: the top bar (the project's folder, the image button where the project has several (it shows the image and steps to the next, ellipsised with the whole name on hover), and Open project), the step bar, a
 340-wide panel on the left and, beside it, the view row with the viewer's own renderer in a keyed canvas. The viewer's
 toolbar is cut to the controls that are about looking (`ViewerOffer`): no Open file, Enhance, crop or solve, because
 those are operations here, and no file list.
