@@ -62,8 +62,9 @@ targets with those stars taken out were tried twice: R4a's cluster scenes, which
 plates, killed twice. The catalogue cannot make such a target (2026-11-25), and training on StarXTerminator's
 output is ruled out (the owner, 2026-11-26). For the faint stars on bright nebula, real pairs did show the model
 most of them taken on its training sessions (counted) and it still did not take them on the Lagoon. **On 2026-11-26
-the owner chose the routes not yet tried** ("The routes not yet tried, the owner's go" in section 6): first the net
-twice as wide on R4h's data (R4l, registered there), then denser crowded scenes without compact groups, then the loss
+the owner sent the list of routes not yet tried back whole, which the session read as a go** ("The routes not yet tried,
+the owner's go" in section 6, which quotes no words): first the net 1.5 times as wide in channels (2.25 times the weights)
+on R4h's data (R4l, registered there), then denser crowded scenes without compact groups, then the loss
 weighed up in crowded areas, then depth pairs for the faint stars on bright nebula. The free check that came first:
 on the held-out Tarantula StarXTerminator keeps about a third of a real compact cluster's unresolved glow and R4h
 less, so the scenes' rule that a compact cluster is all stars is further from the judge than the model already is.
@@ -10927,7 +10928,9 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
 - **What StarXTerminator does with the LMC's compact clusters, 2026-11-26 (a measurement: no training, no arm).** The
   synthetic scenes call a compact cluster (half-light radius under 16 px) all stars, so a model trained on them is asked
   to take a cluster's unresolved light whole. On the held-out Tarantula master, per catalogued LMC cluster inside the
-  frame (OpenNGC's, `lmc-clusters.csv`, the list the scenes' groups were sized from), the light inside one catalogue
+  frame (OpenNGC's LMC clusters, `lmc-clusters.csv`, a list kept on the owner's machine and not in the tree: the script's docstring
+  says its columns; no half-light cut is applied, only a radius of 3 px or more and the frame margin, so the 35 are not
+  restricted to compact ones. The scenes' group sizes are the `--sub-cluster` defaults in `DatasetSubCommand.cs`), the light inside one catalogue
   radius above a ring at 1.5 to 2 radii, on each plate, over the plate builder's (which takes resolved stars only, so
   its excess is the cluster's unresolved light and any star its finder missed): 1 is the glow kept as background, 0
   taken as stars. 35 clusters stand at 10 times their noise or more (`sxt_compact_clusters.py`):
@@ -10939,18 +10942,21 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
   | R4h seed 0 / 1, through the chain | 0.10 / 0.06 | 0.01 to 0.42 / 0.00 to 0.24 |
 
   - **What it says.** The judge keeps about a third of a real compact cluster's glow, with a wide spread from cluster
-    to cluster, and R4h keeps less: on real clusters the model already takes more than the judge, where on route A's
-    synthetic scenes it left the drawn groups whole. So the drawn groups are not like the real ones, and scenes that
+    to cluster, and R4h keeps less: on the medians the model already takes more than the judge (the spreads overlap
+    almost entirely, so the paired per-cluster difference, which `sxt_compact_clusters.py` now prints, is what the decision
+    stands on and is not yet read), where on route A's synthetic scenes it left the drawn groups whole. So the drawn groups are not like the real ones, and scenes that
     ask for every compact cluster to be taken would pull the model further from the judge on this, which is why the
     denser scenes above are to leave the groups out. The crowded row reads star by star, so a cluster's glow reaches
     it only through the stars inside the cluster; this check reads the glow, not that row.
-- **R4l, pre-registered 2026-11-26 before any training of it. One change from R4h: the net twice as wide
-  (`--base 48 --max-ch 384`, 15.44 M weights against R4h's 6.86 M).**
+- **R4l, pre-registered 2026-11-26 before any training of it. One change from R4h: the net 1.5 times as wide
+  (`--base 48 --max-ch 384` against `--base 32 --max-ch 256`: 1.5 times the channels at every level, 2.25 times the
+  weights, 15.44 M against R4h's 6.86 M; four levels and the same reach).**
   - **In plain words.** Every arm since R3v changed the data, the answer or the loss on a net of one size, and the
     last eight on the open rows were killed. Route A showed that with a clean answer in front of it a net of R4h's
     size still leaves a crowded core far from that answer. The last time the size changed (R3v, 0.81 M to 6.86 M
-    weights) it served M42 and the SMC together where three settings of the data could not, and StarXTerminator's
-    net holds about 16 M weights. This arm asks whether capacity closes the crowded rows.
+    weights) it was a depth step (`--levels 4`, reach 66 to 294 px, the top three levels' channels still 32/64/128),
+    not a width one, so R4l is the first change of width alone; StarXTerminator's net holds about 16 M weights, about
+    R4l's size. This arm asks whether capacity closes the crowded rows.
   - **The training.** R4h's frozen trainer copy (`C:/temp/e2/r4hi-run`), its cache (`r2-synth32`) and its command
     line as R4h's log printed it, with `--base 48 --max-ch 384` in place of `--base 32 --max-ch 256`. Seeds 0 and 1
     on the hardware R4h's seeds trained on: seed 0 as a Batch job on a low-priority T4 that removes itself (the arm's
@@ -10958,7 +10964,7 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     and `r4l_synth32w_s1`; the plateau halves and stops as R4h's does.
   - **Before the launch, measured on the GTX 1070 (no weights kept):** a step of 8 tiles costs 327 ms against R4h's
     155 (forward and backward on tiles in memory), peak memory 1.92 GiB against 1.25, so a seed takes about twice
-    R4h's time: some 20 to 25 hours on the 1070 and about 25 on the T4 (R4h's seed 0 took about 12.5), under the
+    R4h's time: some 20 to 25 hours on the 1070 and about 25 on the T4 (R4h's own hours are not recorded in this plan, so these are the step-time ratio's estimate), under the
     36-hour cap R4h ran with; seed 0's cap is 48 hours, for a low-priority node's preemptions. 400 steps of R4h's
     line at this width, without its held-out checks, ran through on the cache on the 1070.
   - **Read first:** the 1:1 sheets R4h's read lists, with both seeds beside R4h's two and StarXTerminator; then the
@@ -10986,8 +10992,9 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     kept share above; what each leaves on route A's four scenes (`cluster_models_band.py`; R4h 5.0 to 9.1 in a core
     against the old truth); the best step's weights; the time a whole master takes.
   - **Prediction:** both seeds gain 1 to 2.5 points over R4h's mean on the two rows of the question (91.2 and 91.7),
-    short of the bars, so "neither". What speaks for more: the width step of R3v, route A's residual being the
-    model's own, and the judge's net at twice this one's size. What speaks against: R2nc grew and gained on faint
+    short of the bars, so "neither". What speaks for more: route A's residual being the
+    model's own, and the judge's net at about R4l's size and over twice R4h's. R3v's 0.81 M to 6.86 M was a depth and
+    reach step, so it is no evidence for width alone. What speaks against: R2nc grew and gained on faint
     stars, not bright ones; a drawn star stands as crowded as the worst real cell 0.14 % of the time, so a wider net
     sees the case it most misses as rarely as R4h did; and a bigger net learns unrealistic stars better (round 2's
     ranked list, item 6).

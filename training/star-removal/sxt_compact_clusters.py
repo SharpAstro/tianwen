@@ -2,10 +2,14 @@
 
     python -I sxt_compact_clusters.py <clusters.csv> <master.fits> <label>=<starless plate> ...
 
+For the paired line label the plates exactly `StarXTerminator` and `R4h0`.
+
 Our synthetic scenes call a compact cluster (half-light radius under 16 px) all stars, so a remover trained on them is
 asked to take a cluster's unresolved light whole. This reads what StarXTerminator (the judge) does with the real ones.
 
-Per catalogued cluster inside the frame (lmc-clusters.csv, OpenNGC's LMC clusters), on the channels' mean: the light
+Per catalogued cluster inside the frame (lmc-clusters.csv, OpenNGC's LMC clusters; it is NOT in the tree: columns
+index, ra_deg, dec_deg, major_arcmin, one row per cluster, major_arcmin being OpenNGC's major axis. No half-light cut is
+applied, only R >= 3 px and the frame margin, so the clusters read are catalogued ones, not only compact ones), on the channels' mean: the light
 inside one catalogue radius above the median of a ring at 1.5 to 2 radii, on the input and on each plate. The plate
 builder's (label `builder`) takes resolved stars only, so its excess is the cluster's unresolved light; each plate's
 excess over the builder's is the share of that light it keeps (1 = kept as background, 0 = taken as stars). A cluster
@@ -66,3 +70,7 @@ print(f"\n{len(kept['builder'])} clusters at S/N 10 or over; kept share, median 
 for n in names[1:]:
     v = np.array(kept[n])
     print(f"  {n:18s} {np.median(v):5.2f} ({np.percentile(v, 25):5.2f} to {np.percentile(v, 75):5.2f})")
+if "R4h0" in kept and "StarXTerminator" in kept:
+    d = np.array(kept["R4h0"]) - np.array(kept["StarXTerminator"])
+    print(f"\npaired, R4h0 minus StarXTerminator kept share per cluster: median {np.median(d):.2f}; "
+          f"R4h keeps less in {(d < 0).sum()} of {len(d)}")
