@@ -471,13 +471,112 @@ public sealed class GuiWindowChrome<TSurface> : CompositeWidget<TSurface>
             return;
         }
 
-        var now = timeProvider.GetUtcNow().ToOffset(plannerState.SiteTimeZone);
         var sessionRunning = localLiveSession.IsRunning;
         sessionState.IsSessionRunning = sessionRunning;
         if (sessionRunning)
         {
             plannerState.Calendar.Popover.Close();
         }
+
+        // The bar is the same tree until the planned night, the status message, Connect All's state or the day
+        // changes: the one thing in it that moves is the clock, and the clock is not in the tree. Its box is (sized from
+        // the widest text it can hold, so it stands still), and the time is drawn into that box by this method, every
+        // frame. Building the bar was 77 KB of every frame, the frames of a pan in a tab under it included (traced
+        // 2026-11-25); kept on the clock's second it was still 85 KB a second, so it is kept on none of the clock.
+        var (key, now) = StatusBarNow(appState, plannerState, timeProvider, localLiveSession, equipmentState, skyMapState);
+        var barRect = StatusBarRect;
+        if (!_keptStatusBar.TryGet(key, barRect, Scale, FontPath, GuiTheme.PaletteGeneration, out var arrangedBar))
+        {
+            var bar = BuildStatusBar(appState, plannerState, timeProvider, skyMapState, now, key.SessionRunning, key.Verdict,
+                key.ConnectAll, barRect, out var clockNode, out _keptClockWithDay);
+            arrangedBar = _keptStatusBar.Keep(key, barRect, Scale, FontPath, GuiTheme.PaletteGeneration, ArrangeLayout(bar, barRect));
+
+            // Where the engine put the clock: the box its text is drawn into, and for the frame that repaints the clock
+            // alone that box over the rows the bar's fill paints (the fill, painted first, is clipped to the same
+            // region, so it is repainted under it).
+            _keptClockBox = null;
+            foreach (var arranged in arrangedBar)
+            {
+                if (ReferenceEquals(arranged.Node, clockNode))
+                {
+                    _keptClockBox = new RectF32(arranged.Bounds.X, arranged.Bounds.Y, arranged.Bounds.Width, arranged.Bounds.Height);
+                    break;
+                }
+            }
+            _clockPaintsAlone = _keptClockBox is { } keptBox
+                && NothingElsePaintsIn(arrangedBar, clockNode, GuiChromePixels.RoundedOut(GuiChromePixels.PaintedRows(keptBox)));
+        }
+
+        PaintLayout(arrangedBar, drawFill: _drawStatusBarFill ??= DrawStatusBarFill);
+
+        if (_keptClockBox is { } clockBox)
+        {
+            DrawClock(FontPath, now, clockBox);
+            ClockRect = GuiChromePixels.PaintedRows(clockBox);
+        }
+    }
+
+    /// <summary>
+    /// Repaints the clock and nothing else, for a frame owed to its tick alone (<see cref="GuiFrameScheduler.FrameIsClockAlone"/>):
+    /// the bar's fill over the clock's pixels, then the time drawn into its box, which is everything a full frame paints
+    /// there. A full frame builds, measures and paints every widget of the window to change those pixels, a few
+    /// milliseconds of processor a second on an idle window (2026-11-25); this is the fill and one run of text.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// It paints nothing and answers false whenever that is not the whole of what the frame owes: the bar would be built
+    /// again (its key moved: the day turned, a status message, the planned night, Connect All, a session), no clock was
+    /// drawn, something else in the bar paints in the clock's pixels, or <paramref name="region"/> reaches past them. The
+    /// region is the renderer's, not this frame's damage: a swapchain image holds the frame of two or three frames ago, so
+    /// what it is repainted in is everything damaged since it was last painted, a hover's rectangle as much as the clock's.
+    /// </para>
+    /// <para>
+    /// No widget begins a frame and no region is registered: the host leaves <c>Ui.FrameId</c> where it is for such a frame,
+    /// so every region the last full frame registered still answers, as it should, since that frame is what is on screen
+    /// everywhere but here. Whatever the window paints over the bar after the chrome (the night calendar, a tooltip) is the
+    /// host's to rule out before asking.
+    /// </para>
+    /// </remarks>
+    /// <param name="region">The pixels the frame repaints, as the renderer confined it.</param>
+    public bool TryRepaintClockAlone(GuiAppState appState, PlannerState plannerState, ITimeProvider timeProvider,
+        LiveSessionState localLiveSession, EquipmentTabState equipmentState, SkyMapState skyMapState, RectF32 region)
+    {
+        if (FontPath is not { Length: > 0 } fontPath
+            || ClockRect is not { } clockRect
+            || _keptClockBox is not { } clockBox
+            || !_clockPaintsAlone
+            // The bar's fill is what the time is drawn over; a fill that let the tab show through would not cover the last one.
+            || StatusBarBg.Alpha != 0xff)
+        {
+            return false;
+        }
+
+        var pixels = GuiChromePixels.RoundedOut(clockRect);
+        if (region.X < pixels.X || region.Y < pixels.Y
+            || region.X + region.Width > pixels.X + pixels.Width || region.Y + region.Height > pixels.Y + pixels.Height)
+        {
+            return false;
+        }
+
+        var (key, now) = StatusBarNow(appState, plannerState, timeProvider, localLiveSession, equipmentState, skyMapState);
+        if (!_keptStatusBar.TryGet(key, StatusBarRect, Scale, fontPath, GuiTheme.PaletteGeneration, out _))
+        {
+            return false;
+        }
+
+        FillRect(pixels.X, pixels.Y, pixels.Width, pixels.Height, StatusBarBg);
+        DrawClock(fontPath, now, clockBox);
+        return true;
+    }
+
+    // The bar's rectangle: right of the sidebar's gutter, with a small margin on the right.
+    private RectF32 StatusBarRect => new RectF32(SidebarWidth + 6f, 0f, _width - (SidebarWidth + 6f) - 4f, StatusBarHeight);
+
+    // What the bar is built from as of now (its StatusBarKey), and the instant that was read at, which the clock shows.
+    private (StatusBarKey Key, DateTimeOffset Now) StatusBarNow(GuiAppState appState, PlannerState plannerState,
+        ITimeProvider timeProvider, LiveSessionState localLiveSession, EquipmentTabState equipmentState, SkyMapState skyMapState)
+    {
+        var now = timeProvider.GetUtcNow().ToOffset(plannerState.SiteTimeZone);
 
         // The planned night's verdict, from the same summary the calendar cell reads.
         NightVerdict? verdict = null;
@@ -496,57 +595,60 @@ public sealed class GuiWindowChrome<TSurface> : CompositeWidget<TSurface>
                 equipmentState.IsDiscovering)
             : default;
 
-        // The bar is the same tree until the planned night, the status message, Connect All's state or the day
-        // changes: the one thing in it that moves is the clock, and the clock is not in the tree. Its box is (sized from
-        // the widest text it can hold, so it stands still), and the time is drawn into that box by this method, every
-        // frame. Building the bar was 77 KB of every frame, the frames of a pan in a tab under it included (traced
-        // 2026-11-25); kept on the clock's second it was still 85 KB a second, so it is kept on none of the clock.
-        var barRect = new RectF32(SidebarWidth + 6f, 0f, w - (SidebarWidth + 6f) - 4f, sbh);
         var key = new StatusBarKey(
             now.Date.Ticks / TimeSpan.TicksPerDay, now.Offset, plannerState.PlanningDate, plannerState.AstroDark,
-            plannerState.AstroTwilight, sessionRunning, appState.StatusMessage, verdict, connectAllStatus,
+            plannerState.AstroTwilight, localLiveSession.IsRunning, appState.StatusMessage, verdict, connectAllStatus,
             plannerState, skyMapState, timeProvider);
-        if (!_keptStatusBar.TryGet(key, barRect, Scale, FontPath, GuiTheme.PaletteGeneration, out var arrangedBar))
-        {
-            var bar = BuildStatusBar(appState, plannerState, timeProvider, skyMapState, now, sessionRunning, verdict,
-                connectAllStatus, barRect, out var clockNode, out _keptClockWithDay);
-            arrangedBar = _keptStatusBar.Keep(key, barRect, Scale, FontPath, GuiTheme.PaletteGeneration, ArrangeLayout(bar, barRect));
+        return (key, now);
+    }
 
-            // Where the engine put the clock: the box its text is drawn into, and for the frame that repaints the clock
-            // alone that box over the rows the bar's fill paints (the fill, painted first, is clipped to the same
-            // region, so it is repainted under it).
-            _keptClockBox = null;
-            foreach (var arranged in arrangedBar)
-            {
-                if (ReferenceEquals(arranged.Node, clockNode))
-                {
-                    _keptClockBox = new RectF32(arranged.Bounds.X, arranged.Bounds.Y, arranged.Bounds.Width, arranged.Bounds.Height);
-                    break;
-                }
-            }
+    // The time, written when its second changes and drawn as the engine draws a run: at the tree's own size, against the
+    // box's far edge.
+    private void DrawClock(string fontPath, DateTimeOffset now, RectF32 clockBox)
+    {
+        var clockFor = (now.Ticks / TimeSpan.TicksPerSecond, now.Offset, _keptClockWithDay);
+        if (_clockText is null || clockFor != _clockTextFor)
+        {
+            // Invariant names: the clock's box is sized from an English sample (ClockWidthSample), and that box is
+            // what a clock frame repaints, so a locale's longer day or month name would be cut or left stale
+            // outside it.
+            _clockText = now.ToString(_keptClockWithDay ? "ddd d MMM HH:mm:ss" : "HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+            _clockTextFor = clockFor;
         }
 
-        PaintLayout(arrangedBar, drawFill: _drawStatusBarFill ??= DrawStatusBarFill);
+        DrawText(_clockText.AsSpan(), fontPath,
+            clockBox.X, clockBox.Y, clockBox.Width, clockBox.Height,
+            BaseFontSize * Scale.Y, StatusText, TextAlign.Far, TextAlign.Center);
+    }
 
-        if (_keptClockBox is { } clockBox)
+    // Whether a full frame paints nothing in the clock's pixels but the bar's fill and the time: no other node of the bar has
+    // a background, a border or content there. What a frame owed to the clock alone repaints rests on it, so it is asked of
+    // the bar as built rather than assumed of its layout. A shadow and a focus ring are drawn outside their node's box, so
+    // either one anywhere in the bar answers no.
+    private static bool NothingElsePaintsIn(System.Collections.Immutable.ImmutableArray<Layout.ArrangedNode<float>> arranged, Layout.Node clock, RectF32 pixels)
+    {
+        foreach (var (node, bounds) in arranged)
         {
-            // Written when its second changes, and drawn as the engine draws a run: at the tree's own size, against
-            // the box's far edge.
-            var clockFor = (now.Ticks / TimeSpan.TicksPerSecond, now.Offset, _keptClockWithDay);
-            if (_clockText is null || clockFor != _clockTextFor)
+            if (ReferenceEquals(node, clock))
             {
-                // Invariant names: the clock's box is sized from an English sample (ClockWidthSample), and that box is
-                // what a clock frame repaints, so a locale's longer day or month name would be cut or left stale
-                // outside it.
-                _clockText = now.ToString(_keptClockWithDay ? "ddd d MMM HH:mm:ss" : "HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
-                _clockTextFor = clockFor;
+                continue;
+            }
+            if (node.ShadowStyle is not null || node.FocusRing is not null)
+            {
+                return false;
             }
 
-            DrawText(_clockText.AsSpan(), FontPath,
-                clockBox.X, clockBox.Y, clockBox.Width, clockBox.Height,
-                BaseFontSize * Scale.Y, StatusText, TextAlign.Far, TextAlign.Center);
-            ClockRect = GuiChromePixels.PaintedRows(clockBox);
+            var paints = node.Background is not null || node.HoverBackground is not null || node.PressedBackground is not null
+                || node.FocusBackground is not null || node.BorderStyle is not null
+                || node is Layout.Node.Leaf { Content: not Layout.Content.Box };
+            if (paints
+                && MathF.Floor(bounds.X) < pixels.X + pixels.Width && MathF.Ceiling(bounds.X + bounds.Width) > pixels.X
+                && MathF.Floor(bounds.Y) < pixels.Y + pixels.Height && MathF.Ceiling(bounds.Y + bounds.Height) > pixels.Y)
+            {
+                return false;
+            }
         }
+        return true;
     }
 
     // The clock as text, and the second, zone and form (with the day or without) it was written for.
@@ -577,6 +679,8 @@ public sealed class GuiWindowChrome<TSurface> : CompositeWidget<TSurface>
 
     private KeptLayout<StatusBarKey> _keptStatusBar;
     private RectF32? _keptClockBox;
+    // Whether the kept bar paints nothing in the clock's pixels but its fill and the time (NothingElsePaintsIn).
+    private bool _clockPaintsAlone;
     private bool _keptClockWithDay;
 
     /// <summary>How many times the status bar's tree was built (<see cref="KeptLayout{TKey}.Builds"/>).</summary>
@@ -826,6 +930,17 @@ public sealed class GuiWindowChrome<TSurface> : CompositeWidget<TSurface>
 /// <summary>What the chrome's boxes cover in whole pixels, stated beside the fills that decide it.</summary>
 public static class GuiChromePixels
 {
+    /// <summary>
+    /// The whole pixels a repaint rectangle reaches once the renderer has rounded it, the origin down and the far edge up
+    /// (SdlVulkan.Renderer's damage clamp): what a frame declared with <paramref name="box"/> repaints, every pixel of it.
+    /// </summary>
+    public static RectF32 RoundedOut(RectF32 box)
+    {
+        var x0 = MathF.Floor(box.X);
+        var y0 = MathF.Floor(box.Y);
+        return new RectF32(x0, y0, MathF.Ceiling(box.X + box.Width) - x0, MathF.Ceiling(box.Y + box.Height) - y0);
+    }
+
     /// <summary>
     /// A box over the pixel rows its fill paints. A fill covers the rows from its truncated top to its truncated bottom
     /// (<c>PixelWidgetBase.FillRect</c>), so the row a fractional bottom edge ends in is not the box's: under the top bar it

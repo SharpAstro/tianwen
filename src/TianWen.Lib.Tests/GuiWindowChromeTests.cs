@@ -134,6 +134,126 @@ public class GuiWindowChromeTests
             .ShouldBeTrue();
     }
 
+    /// <summary>
+    /// The chrome as the window paints it, with every object its status bar is keyed on kept, so a test can paint a full
+    /// frame and then ask the same chrome for a frame owed to the clock alone.
+    /// </summary>
+    private sealed class ClockRig
+    {
+        public required GuiWindowChrome<RgbaImage> Chrome { get; init; }
+        public required RgbaImageRenderer Renderer { get; init; }
+        public required GuiAppState App { get; init; }
+        public required PlannerState Planner { get; init; }
+        public required FakeTimeProviderWrapper Clock { get; init; }
+        public required LiveSessionState Local { get; init; }
+        public required EquipmentTabState Equipment { get; init; }
+        public required SkyMapState Sky { get; init; }
+
+        public static ClockRig Painted(RgbaImageRenderer renderer, uint width, float dpi, DateTimeOffset at)
+        {
+            var font = FontResolver.ResolveSystemFont();
+            var chrome = new GuiWindowChrome<RgbaImage>(renderer) { FontPath = font, DpiScale = dpi };
+            chrome.Sidebar.FontPath = font;
+            chrome.Sidebar.DpiScale = dpi;
+            chrome.NavigationStrip.FontPath = font;
+            chrome.NavigationStrip.DpiScale = dpi;
+            var rig = new ClockRig
+            {
+                Chrome = chrome,
+                Renderer = renderer,
+                App = new GuiAppState { ActiveProfile = new Profile(Guid.NewGuid(), "Test", ProfileData.Empty), StatusMessage = "Found 3 devices" },
+                Planner = new PlannerState(),
+                Clock = new FakeTimeProviderWrapper(at),
+                Local = new LiveSessionState(),
+                Equipment = new EquipmentTabState(),
+                Sky = new SkyMapState(),
+            };
+            rig.Chrome.Render(rig.App, rig.Planner, rig.Clock, rig.Local, rig.Local, rig.Equipment, new SessionTabState(), rig.Sky,
+                width, SurfaceH);
+            return rig;
+        }
+
+        public bool TryClockAlone(RectF32 region)
+            => Chrome.TryRepaintClockAlone(App, Planner, Clock, Local, Equipment, Sky, region);
+
+        public RectF32 ClockPixels => GuiChromePixels.RoundedOut(Chrome.ClockRect.ShouldNotBeNull());
+    }
+
+    public static TheoryData<uint, float> ClockWindows => new()
+    {
+        { 700u, 1f },
+        { 1600u, 1f },
+        { 1200u, 1.15f },
+        { 700u, 1.5f },
+        { 1600u, 1.5f },
+    };
+
+    /// <summary>
+    /// A frame owed to the clock's tick alone paints the clock alone, and leaves the window exactly as a full frame of the
+    /// same second would: every pixel the same. The surface keeps what the last frame painted, as a swapchain image that a
+    /// partial frame loads does, so a stale pixel of the last second's time would show here.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(ClockWindows))]
+    public void TheClockRepaintedAloneIsWhatAFullFrameWouldPaint(uint width, float dpi)
+    {
+        var t0 = new DateTimeOffset(2026, 9, 19, 17, 0, 0, TimeSpan.Zero);
+        using var full = new RgbaImageRenderer(width, SurfaceH);
+        ClockRig.Painted(full, width, dpi, t0.AddSeconds(1));
+
+        using var partial = new RgbaImageRenderer(width, SurfaceH);
+        var rig = ClockRig.Painted(partial, width, dpi, t0);
+        var lastSecond = partial.Surface.Pixels.ToArray();
+        rig.Clock.Advance(TimeSpan.FromSeconds(1));
+
+        rig.TryClockAlone(rig.ClockPixels).ShouldBeTrue();
+
+        lastSecond.AsSpan().SequenceEqual(partial.Surface.Pixels).ShouldBeFalse("the time changed, so the clock was repainted");
+        var at = partial.Surface.Pixels.AsSpan().CommonPrefixLength(full.Surface.Pixels);
+        at.ShouldBe(full.Surface.Pixels.Length,
+            $"the first pixel that differs from the full frame's is ({at / 4 % width}, {at / 4 / width}), clock at {rig.ClockPixels}");
+    }
+
+    [Fact]
+    public void TheClockIsNotRepaintedAloneOnceTheBarWouldBeBuiltAgain()
+    {
+        const uint width = 1600;
+        using var renderer = new RgbaImageRenderer(width, SurfaceH);
+        var rig = ClockRig.Painted(renderer, width, 1f, new DateTimeOffset(2026, 9, 19, 17, 0, 0, TimeSpan.Zero));
+        var painted = renderer.Surface.Pixels.ToArray();
+        rig.Clock.Advance(TimeSpan.FromSeconds(1));
+        rig.App.StatusMessage = "Found 4 devices";
+
+        rig.TryClockAlone(rig.ClockPixels).ShouldBeFalse("the message is in the bar, which only a full frame builds");
+
+        renderer.Surface.Pixels.AsSpan().SequenceEqual(painted).ShouldBeTrue("a refusal paints nothing");
+    }
+
+    [Fact]
+    public void TheClockIsNotRepaintedAloneWhenTheDayTurns()
+    {
+        const uint width = 1600;
+        using var renderer = new RgbaImageRenderer(width, SurfaceH);
+        var rig = ClockRig.Painted(renderer, width, 1f, new DateTimeOffset(2026, 9, 19, 23, 59, 59, TimeSpan.Zero));
+        rig.Clock.Advance(TimeSpan.FromSeconds(1));
+
+        rig.TryClockAlone(rig.ClockPixels).ShouldBeFalse("the date beside it says which night is tonight");
+    }
+
+    [Fact]
+    public void TheClockIsNotRepaintedAloneInARegionReachingPastIt()
+    {
+        const uint width = 1600;
+        using var renderer = new RgbaImageRenderer(width, SurfaceH);
+        var rig = ClockRig.Painted(renderer, width, 1f, new DateTimeOffset(2026, 9, 19, 17, 0, 0, TimeSpan.Zero));
+        rig.Clock.Advance(TimeSpan.FromSeconds(1));
+        var clock = rig.ClockPixels;
+
+        rig.TryClockAlone(new RectF32(clock.X - 1f, clock.Y, clock.Width + 1f, clock.Height))
+            .ShouldBeFalse("a swapchain image that missed a hover's frame owes that rectangle too");
+        rig.TryClockAlone(clock).ShouldBeTrue();
+    }
+
     [Theory]
     [InlineData(0f, 28f, 0f, 28f)]        // whole pixels are kept
     [InlineData(0f, 32.2f, 0f, 32f)]      // a fractional bottom gives its row up
