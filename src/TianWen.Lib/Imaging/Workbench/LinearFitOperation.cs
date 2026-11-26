@@ -35,7 +35,7 @@ public sealed class LinearFitOperation : Operation<LinearFitSettings>
         [
             new OperationSetting("rejectHigh", "Pixels at or above this fraction of either image's peak carry no weight.",
                 "PixInsight's LinearFit default."),
-        ]);
+        ]) { Summary = "Puts the image on the brightness scale of a reference master, so their colours agree." };
 
     /// <inheritdoc/>
     protected override JsonTypeInfo<LinearFitSettings> SettingsInfo => OperationSettingsJsonContext.Default.LinearFitSettings;

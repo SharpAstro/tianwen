@@ -38,19 +38,25 @@ internal sealed class WorkbenchSubCommand(IConsoleHost consoleHost, OperationCat
         var imageOpt = ImageOption("Count as needed only what this image needs. Every image is still planned and reported, so every set of frames is "
             + "read (or taken from the digest index) whatever is named. Default: every image.");
         var verifyOpt = VerifyFramesOption();
+        var toOpt = ToOption();
         var cmd = new Command("status",
             "What a run would do, with nothing run and no result written: each image's edits with where they stand (kept in the store, "
             + "derived, will run) and the command line that does each from a terminal. The one file it may write is the digest index "
             + "of a set of frames, so that the frames it read are not read again.")
         {
             Arguments = { projectArg },
-            Options = { imageOpt, verifyOpt },
+            Options = { imageOpt, verifyOpt, toOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
             Print(
                 await runner.StatusAsync(
                     parseResult.Required(projectArg),
-                    new WorkbenchRunOptions { Image = parseResult.GetValue(imageOpt), VerifyFrames = parseResult.GetValue(verifyOpt) },
+                    new WorkbenchRunOptions
+                    {
+                        Image = parseResult.GetValue(imageOpt),
+                        VerifyFrames = parseResult.GetValue(verifyOpt),
+                        Through = ThroughOf(parseResult.GetValue(toOpt)),
+                    },
                     ct),
                 commandLines: true));
         return cmd;
@@ -67,12 +73,13 @@ internal sealed class WorkbenchSubCommand(IConsoleHost consoleHost, OperationCat
                 + "so this is how one is had: its operation writes it, as its verb would.",
         };
         var verifyOpt = VerifyFramesOption();
+        var toOpt = ToOption();
         var cmd = new Command("run",
             "Make the project's images: work out every step's key, take from the store each step whose key is there and run the rest. "
             + "Run twice, the second run runs nothing; after a changed setting, only that step and the ones after it run.")
         {
             Arguments = { projectArg },
-            Options = { imageOpt, exportOpt, verifyOpt },
+            Options = { imageOpt, exportOpt, verifyOpt, toOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -90,6 +97,7 @@ internal sealed class WorkbenchSubCommand(IConsoleHost consoleHost, OperationCat
                     Image = parseResult.GetValue(imageOpt),
                     ExportPath = export,
                     VerifyFrames = parseResult.GetValue(verifyOpt),
+                    Through = ThroughOf(parseResult.GetValue(toOpt)),
                     Say = line => consoleHost.WriteScrollable($"[workbench] {line}"),
                 },
                 ct);
@@ -119,6 +127,11 @@ internal sealed class WorkbenchSubCommand(IConsoleHost consoleHost, OperationCat
                     _ => "stored",
                 };
                 consoleHost.WriteScrollable($"{description.Id} (version {description.Version}): {description.Title}, {kept}; the routine of `tianwen {description.Verb}`");
+                if (description.Summary.Length > 0)
+                {
+                    consoleHost.WriteScrollable($"    {description.Summary}");
+                }
+
                 foreach (var role in description.ExtraInputs)
                 {
                     consoleHost.WriteScrollable($"    takes {role.Name}: {role.Summary}");
@@ -181,7 +194,7 @@ internal sealed class WorkbenchSubCommand(IConsoleHost consoleHost, OperationCat
             {
                 // The short word for whose models serve the step (rc, tw or mix), where they say: read at a glance,
                 // with the whole of it on the "served by" line below.
-                consoleHost.WriteScrollable($"[workbench]   {step.Index + 1} {step.Operation}{(step.ServedTag.Length > 0 ? $" [{step.ServedTag}]" : string.Empty)}: {Describe(step)}"
+                consoleHost.WriteScrollable($"[workbench]   {step.Index + 1} {step.Operation}{(step.ServedTag.Length > 0 ? $" [{step.ServedTag}]" : string.Empty)}: {step.Words}"
                     + (step.Key.Length > 0 ? $" ({StepKey.Short(step.Key)})" : string.Empty)
                     + (step.ChangedSinceLastRun ? ", changed since the last run" : string.Empty)
                     + (step.Output is { } output ? $" -> {output}" : string.Empty));
@@ -223,16 +236,13 @@ internal sealed class WorkbenchSubCommand(IConsoleHost consoleHost, OperationCat
         return report.Succeeded ? 0 : 2;
     }
 
-    private static string Describe(StepReport step) => step.State switch
+    private static Option<int?> ToOption() => new("--to")
     {
-        StepState.Off => "off",
-        StepState.Derived => "derived",
-        StepState.Kept => "kept",
-        StepState.WillRun => "will run",
-        StepState.NotNeeded => "not in the store, and not needed",
-        StepState.Ran => "ran",
-        StepState.Refused => "refused",
-        StepState.Blocked => "blocked",
-        _ => step.State.ToString(),
+        Description = "Make --image only up to this step, n being the step's number as status prints it (from 1). The steps after it are not "
+            + "asked for. Needs --image; not combined with --export.",
     };
+
+    // The option's step number (from 1) as the runner's place in the edit list (from 0). A number below 1 is passed on as it is, so
+    // that the runner refuses it in words.
+    private static int? ThroughOf(int? to) => to is { } n ? n - 1 : null;
 }

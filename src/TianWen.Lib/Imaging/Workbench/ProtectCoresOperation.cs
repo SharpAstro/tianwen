@@ -36,7 +36,7 @@ public sealed class ProtectCoresOperation(ICelestialObjectDB? objectDb = null) :
         [
             new OperationSetting("catalogue", "The star catalogue asked for the stars inside a protected core, which then stay removed (a "
                 + "plate-solved master only): auto (the star database ASTAP installs, else the embedded Tycho-2), embedded, or none."),
-        ]);
+        ]) { Summary = "Keeps the bright cores of stars out of the star layer, so a star remover leaves no dark holes." };
 
     /// <inheritdoc/>
     protected override JsonTypeInfo<ProtectCoresSettings> SettingsInfo => OperationSettingsJsonContext.Default.ProtectCoresSettings;

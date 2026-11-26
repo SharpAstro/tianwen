@@ -59,7 +59,7 @@ public sealed class CropOperation(ILogger? logger = null) : DerivedOperation<Cro
                 "The edge walk's own cap. A refused edge kept its partial-coverage ramp, which a background model then fits "
                 + "(the QHY294C SMC master, docs/plans/stacking-workbench.md)."),
             new OperationSetting("margin", "With auto: the fraction of each axis taken off every edge after the scan."),
-        ]);
+        ]) { Summary = "Cuts the image to a rectangle, found from the coverage of the frames or stated by hand." };
 
     /// <inheritdoc/>
     protected override JsonTypeInfo<CropSettings> SettingsInfo => OperationSettingsJsonContext.Default.CropSettings;

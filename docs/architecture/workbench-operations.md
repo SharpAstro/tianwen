@@ -623,6 +623,22 @@ folder. A member the type does not have is refused.
    by its finding.
 4. A run records each step's key and result in the project file, and writes it only when something changed.
 
+**Run to a step.** `WorkbenchRunOptions.Through` (the step's place in the named image's edit list, from 0) makes one
+image only up to that step. It needs `Image` and cannot be combined with an export; a step out of range or switched
+off is refused in words (`WorkbenchReport.Refusal`, exit 1). Marking starts from that step's node instead of the
+image's furthest, for a status as for a run, so steps 1 to the target are `WillRun` or `Kept` and the steps after it are
+never asked for: `Kept` where their result is in the store, else `NotNeeded`, never `WillRun`. A step refused before
+the target stops it as usual: the target is `Blocked` with the reason, and what is before the refusal is made.
+`tianwen workbench status|run --to <n>` is the same, n being the step's number as status prints it (from 1).
+
+**Progress.** `WorkbenchRunOptions.Progress` (an `IProgress<WorkbenchProgress>`, reported synchronously on the
+thread that does the work; a status reports nothing) is told, for each step a run makes or takes from the store:
+`Started` when its work begins, `Fraction` in [0, 1] while it runs where its operation reports one (the
+`IProgress<double>?` overload of `IOperation.RunAsync` and `IRunNamedOperation.RunIntoAsync`), and `Ended` with the
+step's state (`Ran`, `Kept`, `Refused`, `Blocked`) and message. A step taken from the store is only told ended, as
+`Kept`; a step several edit lists reach is told once. The words for a state are `StepStates.Words` (also
+`StepReport.Words`), which the command line and the app read.
+
 `tianwen workbench status <project>` prints the plan with every step's command line and writes no result (it keeps
 the digests of a set of frames it read). `tianwen workbench run <project> [--image <name>] [--export <file>]` runs it.
 Both take `--verify-frames`. `tianwen workbench operations` lists the
@@ -661,7 +677,15 @@ version ("rc-astro 2.6.11").
 3. The verb calls it. Where the verb needs more than the file (a companion picture, a second output), the operation
    offers the work without the files, as `GradientOperation.ExtractAsync` does, and both write with the same writer.
 4. A line in `WorkbenchServiceCollectionExtensions.AddWorkbench`.
-5. A step in `WorkbenchVerbParityTests`, so its command line and its file are held to the verb's. The enhance's is in
+5. Its `OperationDescription.Summary`: what it does, in one plain sentence a person reads in the app's step panel (no
+   em-dash, no double hyphen). `tianwen workbench operations` prints it, and `WorkbenchRegistrationTests` requires it of
+   every operation the catalog holds.
+6. A fraction, where the engine has one: override the `RunAsync` (or, for `RunNamedOperation`, `RunIntoAsync`) overload
+   that takes an `IProgress<double>?` and report a value in [0, 1]. The overload without it stays the verb's routine
+   and calls the one with it with no progress, so a verb and a run reach the same code. An operation that reports none
+   keeps the default overload, which is the routine alone. The stack feeds one (`StackOperation.FractionReports`, from the
+   pipeline's phases, never going back); the enhance does not yet.
+7. A step in `WorkbenchVerbParityTests`, so its command line and its file are held to the verb's. The enhance's is in
    `WorkbenchEnhanceParityTests`: the step and the verb there share one pipeline of stand-in enhancers. A verb that is
    not a `tianwen image` one has the same test beside it (`WorkbenchSolveTests` for `tianwen solve`,
    `WorkbenchStackTests` for `tianwen stack`).

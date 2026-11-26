@@ -29,7 +29,7 @@ public sealed class AddStarsOperation : Operation<NoSettings>
         Verb: "image add-stars",
         OperationOutputKind.Stored,
         ExtraInputs: [new OperationInputRole("stars", "The stars image remove-stars wrote beside the starless plate.")],
-        Settings: []);
+        Settings: []) { Summary = "Puts a star layer back onto a starless image." };
 
     /// <inheritdoc/>
     protected override JsonTypeInfo<NoSettings> SettingsInfo => OperationSettingsJsonContext.Default.NoSettings;
@@ -93,7 +93,7 @@ public sealed class AddLineOperation : Operation<AddLineSettings>
                 + "with their stars. Needed: there is no default."),
             new OperationSetting("weight", "How much of the pure line goes in, in the image's own units: 1 adds it once more at the line master's "
                 + "signal to noise."),
-        ]);
+        ]) { Summary = "Adds a narrowband line image to a colour channel as emission." };
 
     /// <inheritdoc/>
     protected override JsonTypeInfo<AddLineSettings> SettingsInfo => OperationSettingsJsonContext.Default.AddLineSettings;
@@ -166,7 +166,7 @@ public sealed class FillDigsOperation : Operation<FillDigsSettings>
         [
             new OperationSetting("keepOvershoot", "Leave the filled plate where it stands over the input. By default it is held at or under "
                 + "the input, as remove-stars holds it."),
-        ]);
+        ]) { Summary = "Fills the dark rings a star remover leaves around bright stars from the pixels around them." };
 
     /// <inheritdoc/>
     protected override JsonTypeInfo<FillDigsSettings> SettingsInfo => OperationSettingsJsonContext.Default.FillDigsSettings;

@@ -56,7 +56,7 @@ public sealed class GradientOperation(
                 + "frame-filling nebula (docs/plans/background-extraction.md)."),
             new OperationSetting("divide", "Classical only. Divide by the background where the default subtracts it, for a multiplicative residue."),
             new OperationSetting("exclusions", "Classical only. Regions the fit must not sample: each a polygon in full-image pixels, written x, y, x, y and so on."),
-        ]);
+        ]) { Summary = "Removes the smooth background gradient from the image." };
 
     /// <inheritdoc/>
     protected override JsonTypeInfo<GradientSettings> SettingsInfo => OperationSettingsJsonContext.Default.GradientSettings;

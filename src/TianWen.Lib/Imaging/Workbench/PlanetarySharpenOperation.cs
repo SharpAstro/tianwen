@@ -60,7 +60,7 @@ public sealed class PlanetarySharpenOperation : Operation<PlanetarySharpenSettin
             new OperationSetting("design", "The design of the telescope apertureMm gives, whose usual central obstruction the sharpening takes."),
             new OperationSetting("strength", "How far past the truth the derived sharpening takes bands 2 and 3; 1 is the derived sharpening."),
             new OperationSetting("luminanceOnly", "Sharpen a colour master's luminance once and keep its own colour."),
-        ]);
+        ]) { Summary = "Sharpens a planetary stack with the settings chosen for it automatically." };
 
     /// <inheritdoc/>
     protected override JsonTypeInfo<PlanetarySharpenSettings> SettingsInfo => OperationSettingsJsonContext.Default.PlanetarySharpenSettings;

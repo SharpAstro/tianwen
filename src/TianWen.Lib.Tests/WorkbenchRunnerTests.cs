@@ -144,7 +144,10 @@ internal sealed class AddOperation(string id, bool takesAnother = false) : Opera
     public override OperationDescription Description { get; } = new(
         id, Version: 1, Title: "Add", Verb: "none", OperationOutputKind.Stored,
         ExtraInputs: takesAnother ? [new OperationInputRole("other", "The image added to this one.")] : [],
-        Settings: [new OperationSetting("amount", "What is added to every pixel.")]);
+        Settings: [new OperationSetting("amount", "What is added to every pixel.")])
+    {
+        Summary = "Adds a number to every pixel of the image, and a second image's pixels when it takes one.",
+    };
 
     protected override JsonTypeInfo<AddSettings> SettingsInfo => WorkbenchTestJsonContext.Default.AddSettings;
 
@@ -198,6 +201,7 @@ internal sealed class TogetherOperation : JointOperation<AddSettings>
     public override OperationDescription Description { get; } = new(
         "together", Version: 1, Title: "Together", Verb: "none", OperationOutputKind.Stored, ExtraInputs: [], Settings: [])
     {
+        Summary = "Puts several images through one run and hands each back with its twin.",
         Joint = true,
         ExtraResults = [new OperationResultRole(Twin, "The image as it was handed in.")],
     };
@@ -289,7 +293,10 @@ internal sealed class BreakOperation : Operation<AddSettings>
     public int Runs { get; private set; }
 
     public override OperationDescription Description { get; } = new(
-        "break", Version: 1, Title: "Break", Verb: "none", OperationOutputKind.Stored, ExtraInputs: [], Settings: []);
+        "break", Version: 1, Title: "Break", Verb: "none", OperationOutputKind.Stored, ExtraInputs: [], Settings: [])
+    {
+        Summary = "Writes half a result and fails.",
+    };
 
     protected override JsonTypeInfo<AddSettings> SettingsInfo => WorkbenchTestJsonContext.Default.AddSettings;
 

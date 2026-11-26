@@ -40,7 +40,7 @@ public sealed class LuminanceOperation : Operation<NoSettings>
             new OperationInputRole("measure green", "A green copy to read the star scales on.", Optional: true),
             new OperationInputRole("measure blue", "A blue copy to read the star scales on.", Optional: true),
         ],
-        Settings: []);
+        Settings: []) { Summary = "Builds a luminance image from the colour masters, matched to a common star size." };
 
     /// <inheritdoc/>
     protected override JsonTypeInfo<NoSettings> SettingsInfo => OperationSettingsJsonContext.Default.NoSettings;
@@ -116,7 +116,7 @@ public sealed class LrgbOperation : Operation<LrgbSettings>
         Verb: "image lrgb",
         OperationOutputKind.Stored,
         ExtraInputs: [new OperationInputRole("luminance", "The (starless, denoised) luminance whose detail the image is given.")],
-        Settings: [new OperationSetting("colourSigma", "The blur in pixels the image keeps its own colour above; below it, the luminance's detail.")]);
+        Settings: [new OperationSetting("colourSigma", "The blur in pixels the image keeps its own colour above; below it, the luminance's detail.")]) { Summary = "Gives a colour image the fine detail of a luminance image while it keeps its own colour." };
 
     /// <inheritdoc/>
     protected override JsonTypeInfo<LrgbSettings> SettingsInfo => OperationSettingsJsonContext.Default.LrgbSettings;

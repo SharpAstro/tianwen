@@ -137,7 +137,7 @@ public sealed class StackOperation(ILogger<StackingPipeline>? logger = null) : R
     /// <inheritdoc/>
     public override OperationDescription Description { get; } = new(
         Id, Version: 1, Title: "Stack", Verb: "stack", OperationOutputKind.Stored, ExtraInputs: [], Settings: SettingsListed)
-    {
+    { Summary = "Aligns and stacks a night's light frames with their calibration frames into one master for each group.",
         NamedByRun = true,
         TakesFrameSet = true,
     };
@@ -513,8 +513,13 @@ public sealed class StackOperation(ILogger<StackingPipeline>? logger = null) : R
         => value.ToString()?.ToLowerInvariant() ?? string.Empty;
 
     /// <inheritdoc/>
-    public override async ValueTask<NamedResults> RunIntoAsync(StackSettings settings, IReadOnlyList<OperationInput> inputs, string folder, Action<string>? say,
+    public override ValueTask<NamedResults> RunIntoAsync(StackSettings settings, IReadOnlyList<OperationInput> inputs, string folder, Action<string>? say,
         CancellationToken cancellationToken)
+        => RunIntoAsync(settings, inputs, folder, say, progress: null, cancellationToken);
+
+    /// <summary>The verb's routine, with the pipeline's progress turned into one fraction in [0, 1] (<see cref="FractionReports"/>).</summary>
+    public override async ValueTask<NamedResults> RunIntoAsync(StackSettings settings, IReadOnlyList<OperationInput> inputs, string folder, Action<string>? say,
+        IProgress<double>? progress, CancellationToken cancellationToken)
     {
         if (inputs[0].Path is not { } frames || !Directory.Exists(frames))
         {
@@ -527,7 +532,7 @@ public sealed class StackOperation(ILogger<StackingPipeline>? logger = null) : R
             pipelineLogger,
             // No plate solve: a solve is a step of its own.
             catalogDb: null,
-            progress: say is null ? null : new ScanReports(say),
+            progress: say is null && progress is null ? null : new FractionReports(say is null ? null : new ScanReports(say), progress),
             // No data folder: a step never reads the clear nights this computer keeps.
             external: null);
 
@@ -580,6 +585,51 @@ public sealed class StackOperation(ILogger<StackingPipeline>? logger = null) : R
 
     // The scan's summary alone, said where it is reported: the one report that comes once and from the run's own
     // flow. A frame's and a strip's ticks come from many threads, and a step's lines are no place for them.
+    /// <summary>
+    /// The pipeline's phases as one fraction in [0, 1] that never goes down: each phase has a share, and an item-paced
+    /// phase fills its share as its items finish. A night with several groups runs the phases again for each, so a
+    /// later group's early phase is held at what was reported already. Also passes the scan line on. Ticks come from
+    /// many threads; the fraction is kept with an interlocked maximum.
+    /// </summary>
+    internal sealed class FractionReports(IProgress<StackingProgress>? inner, IProgress<double>? fraction) : IProgress<StackingProgress>
+    {
+        private long _best;
+
+        public void Report(StackingProgress value)
+        {
+            inner?.Report(value);
+            if (fraction is null)
+            {
+                return;
+            }
+
+            var (from, span) = value.Phase switch
+            {
+                StackingPhase.Scanning => (0.0, 0.0),
+                StackingPhase.BuildingMasters => (0.0, 0.1),
+                StackingPhase.Registering => (0.1, 0.4),
+                StackingPhase.Integrating => (0.5, 0.4),
+                _ => (0.95, 0.0),
+            };
+            var within = value.TotalItems > 0 ? Math.Clamp(value.CompletedItems / (double)value.TotalItems, 0, 1) : 0.0;
+            var next = Math.Clamp(from + span * within, 0, 1);
+            // The fraction as an integer of millionths, so an interlocked maximum keeps it from going back.
+            var scaled = (long)(next * 1_000_000);
+            long seen;
+            do
+            {
+                seen = Interlocked.Read(ref _best);
+                if (scaled <= seen)
+                {
+                    return;
+                }
+            }
+            while (Interlocked.CompareExchange(ref _best, scaled, seen) != seen);
+
+            fraction.Report(scaled / 1_000_000.0);
+        }
+    }
+
     internal sealed class ScanReports(Action<string> say) : IProgress<StackingProgress>
     {
         public void Report(StackingProgress value)
