@@ -71,19 +71,26 @@ public static class SyntheticClusterExport
     public static string TruthRule(bool faintGrainInTruth) => faintGrainInTruth ? "faint-grain" : "no-faint-grain";
 
     /// <summary>
-    /// The truth rule <paramref name="outDir"/>'s skies were rendered under, or null for an output with no sky's fragment yet
-    /// (whatever its <see cref="TruthFileName"/> says, since a run that stopped before its first sky binds nothing): its
-    /// <see cref="TruthFileName"/>, else the faint grain's rule (every export before the rule was recorded kept the grain).
+    /// The truth rule <paramref name="outDir"/> is bound to, or null for an output no run has claimed: its
+    /// <see cref="TruthFileName"/> whenever that exists (a run records its rule before its first sky, so a second run started
+    /// beside it under the other rule is refused), else the faint grain's rule when it holds a sky's fragment (every export
+    /// before the rule was recorded kept the grain).
     /// </summary>
     internal static string? WrittenTruthRule(string outDir)
     {
-        var fragments = Path.Combine(outDir, FragmentDir);
-        if (!Directory.Exists(fragments) || !Directory.EnumerateFiles(fragments, "s*.jsonl").Any())
-        {
-            return null;
-        }
         var truthFile = Path.Combine(outDir, TruthFileName);
-        return File.Exists(truthFile) ? File.ReadAllText(truthFile).Trim() : TruthRule(faintGrainInTruth: true);
+        if (File.Exists(truthFile))
+        {
+            return File.ReadAllText(truthFile).Trim();
+        }
+        return HoldsASky(outDir) ? TruthRule(faintGrainInTruth: true) : null;
+    }
+
+    /// <summary>Whether <paramref name="outDir"/> holds a rendered sky's fragment.</summary>
+    internal static bool HoldsASky(string outDir)
+    {
+        var fragments = Path.Combine(outDir, FragmentDir);
+        return Directory.Exists(fragments) && Directory.EnumerateFiles(fragments, "s*.jsonl").Any();
     }
 
     /// <summary>Every <see cref="ValEvery"/>-th seed is a held-out sky (seeds 10, 20, ...): one in ten, by seed alone, so a
@@ -157,7 +164,10 @@ public static class SyntheticClusterExport
         var truthRule = TruthRule(run.Base.FaintGrainInTruth);
         if (WrittenTruthRule(run.OutDir) is { } writtenRule && writtenRule != truthRule)
         {
-            throw new InvalidOperationException($"{run.OutDir} holds skies rendered under the {writtenRule} truth; a run under the {truthRule} truth needs an output of its own");
+            // An output a stopped run claimed and wrote no sky into can be handed over by its user, never silently.
+            throw new InvalidOperationException(HoldsASky(run.OutDir)
+                ? $"{run.OutDir} holds skies rendered under the {writtenRule} truth; a run under the {truthRule} truth needs an output of its own"
+                : $"{run.OutDir} is claimed for the {writtenRule} truth ({TruthFileName}) and holds no sky yet; delete that file to run under the {truthRule} truth here");
         }
         await WriteAtomicAsync(Path.Combine(run.OutDir, TruthFileName), truthRule + "\n", cancellationToken);
         var (master, source, line) = await run.OpenSourceAsync(cancellationToken);

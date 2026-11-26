@@ -190,9 +190,9 @@ public sealed class SyntheticClusterSceneTests
         }
     }
 
-    /// <summary>One export output holds one truth rule: an output with no sky takes any (whatever a stopped run recorded), a
-    /// recorded rule is read back, and an output whose skies predate the record was written under the faint grain's rule, so a
-    /// resumed run cannot mix them.</summary>
+    /// <summary>One export output holds one truth rule: an output no run has claimed takes any, a recorded rule binds from the
+    /// moment it is written (before the first sky, so a run started beside it cannot bring the other rule), and an output
+    /// whose skies predate the record was written under the faint grain's rule.</summary>
     [Fact]
     public void AnExportOutputSaysWhichTruthItsSkiesWereRenderedUnder()
     {
@@ -200,10 +200,11 @@ public sealed class SyntheticClusterSceneTests
         var outDir = folders.Create("cluster-export").FullName;
         var truthFile = Path.Combine(outDir, SyntheticClusterExport.TruthFileName);
 
-        SyntheticClusterExport.WrittenTruthRule(outDir).ShouldBeNull("no sky yet");
-        File.WriteAllText(truthFile, SyntheticClusterExport.TruthRule(faintGrainInTruth: false) + "\n");
+        SyntheticClusterExport.WrittenTruthRule(outDir).ShouldBeNull("an output no run has claimed");
         Directory.CreateDirectory(Path.Combine(outDir, SyntheticClusterExport.FragmentDir));
-        SyntheticClusterExport.WrittenTruthRule(outDir).ShouldBeNull("a rule recorded by a run that wrote no sky binds nothing");
+        SyntheticClusterExport.WrittenTruthRule(outDir).ShouldBeNull("an empty fragment folder holds no sky");
+        File.WriteAllText(truthFile, SyntheticClusterExport.TruthRule(faintGrainInTruth: false) + "\n");
+        SyntheticClusterExport.WrittenTruthRule(outDir).ShouldBe("no-faint-grain", "a recorded rule binds before the first sky");
         File.WriteAllText(Path.Combine(outDir, SyntheticClusterExport.FragmentDir, "s0001.jsonl"), "{}\n");
         SyntheticClusterExport.WrittenTruthRule(outDir).ShouldBe("no-faint-grain", "the recorded rule");
         File.Delete(truthFile);
@@ -235,6 +236,14 @@ public sealed class SyntheticClusterSceneTests
         await Should.ThrowAsync<InvalidDataException>(
             () => SyntheticClusterExport.RunAsync(oldRule, 2, 1, [ClusterOptics.Plain], 0.5, 1, stretchFromMaster: true, progress: null, ct));
         File.ReadAllText(truthFile).Trim().ShouldBe("faint-grain", "the output's own rule passes and is recorded");
+
+        // An output a run claimed and wrote no sky into (a second run started beside the first, or a stopped one) still
+        // refuses the other rule, and says how its user hands it over.
+        var claimed = folders.Create("cluster-export").FullName;
+        File.WriteAllText(Path.Combine(claimed, SyntheticClusterExport.TruthFileName), "faint-grain\n");
+        var beside = await Should.ThrowAsync<InvalidOperationException>(
+            () => SyntheticClusterExport.RunAsync(run with { OutDir = claimed }, 2, 1, [ClusterOptics.Plain], 0.5, 1, stretchFromMaster: true, progress: null, ct));
+        beside.Message.ShouldContain("claimed for the faint-grain truth (truth.txt) and holds no sky yet; delete that file");
     }
 
     [Theory]
