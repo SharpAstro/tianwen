@@ -216,6 +216,24 @@ def bright_weights(x, y, plane, sigma_floor, weight):
     return 1.0 + (weight - 1.0) * bright
 
 
+def crowd_weights(x, y, plane, sigma_floor, radius, start, full, weight):
+    """The per-pixel weight map [B, 1, H, W] for --crowd-weight (docs/plans/star-remover-training.md, "The routes not yet
+    tried"): how crowded the drawn stars stand about each pixel, as the count of the star layer's local maxima (3 x 3, the
+    draw x less its truth y in the draw's own noise, `star_layer_sigmas`) at or above `sigma_floor` inside the square of
+    side 2 * radius + 1 about it, ramped from 1 at `start` stars to `weight` at `full` stars and over. The crowded rows the
+    scorecard reads (stars with neighbours, and the Tarantula's most crowded Gaia cell) are where the models fall short,
+    and a drawn star stands that crowded rarely, so their pixels count for little in a plain mean. Used as masked_mean's
+    mask, it is a weighted mean, so a batch with no crowded pixel keeps the plain objective's scale."""
+    import torch
+    z = star_layer_sigmas(x, y, plane)
+    peaks = ((z >= sigma_floor) & (z == torch.nn.functional.max_pool2d(z, kernel_size=3, stride=1, padding=1))).float()
+    side = 2 * radius + 1
+    count = torch.nn.functional.avg_pool2d(peaks, kernel_size=side, stride=1, padding=radius,
+                                           count_include_pad=True) * (side * side)
+    ramp = ((count - start) / (full - start)).clamp(0.0, 1.0)
+    return 1.0 + (weight - 1.0) * ramp
+
+
 def star_layer_sigmas(x, y, plane):
     """The star layer [B, 1, H, W] in the draw's own noise sigmas: the draw x less its truth y (the channels' mean) over the
     sigma its plane [B, H, W] (PLANE_SCALE units) states. What --bright-weight and --speckle-weight both read."""
@@ -360,6 +378,9 @@ def resume_fingerprint(args, meta):
         fp.update(init_from=os.path.basename(args.init_from))
     if getattr(args, "bright_weight", 0.0):
         fp.update(bright_weight=args.bright_weight, bright_sigma=args.bright_sigma)
+    if getattr(args, "crowd_weight", 0.0):
+        fp.update(crowd_weight=args.crowd_weight, crowd_sigma=args.crowd_sigma, crowd_radius=args.crowd_radius,
+                  crowd_from=args.crowd_from, crowd_full=args.crowd_full)
     if getattr(args, "speckle_weight", 0.0):
         fp.update(speckle_weight=args.speckle_weight, speckle_sigma=args.speckle_sigma)
     if getattr(args, "flux_loss", None):
@@ -1732,6 +1753,17 @@ def train(args):
             raise SystemExit("--bright-weight takes a weight over 1 and --bright-sigma a floor over 0")
         print(f"objective: pixels where the star layer stands {args.bright_sigma:g} sigma or more (grown by one pixel) "
               f"weighed {args.bright_weight:g} times (--bright-weight, R2l)")
+    if args.crowd_weight:
+        if sigma_planes is None:
+            raise SystemExit("--crowd-weight counts the star layer's peaks in the draw's own noise: it needs --cond-map's planes")
+        if (not args.crowd_weight > 1.0 or not args.crowd_sigma > 0.0 or args.crowd_radius < 1
+                or not 0.0 <= args.crowd_from < args.crowd_full):
+            raise SystemExit("--crowd-weight takes a weight over 1, --crowd-sigma a floor over 0, --crowd-radius 1 or more "
+                             "and 0 <= --crowd-from < --crowd-full")
+        print(f"objective (training only; the plateau reads the plain held-out objective): pixels weighed from 1 where "
+              f"{args.crowd_from:g} star-layer peaks of {args.crowd_sigma:g} sigma or more stand in the "
+              f"{2 * args.crowd_radius + 1} px square about them up to {args.crowd_weight:g} times at {args.crowd_full:g} "
+              f"or more (--crowd-weight)")
     if args.speckle_weight:
         # The sites are where the star layer peaks (the draw less its truth, in the draw's own noise sigma), the same
         # planes --bright-weight reads, so the option needs them too: no plane, no way to say what a significant star is.
@@ -2356,6 +2388,13 @@ def train(args):
             bw = bright_weights(x, y, torch.from_numpy(np.ascontiguousarray(plane_now)).to(dev),
                                 args.bright_sigma, args.bright_weight)[:, :, BORDER:-BORDER, BORDER:-BORDER]
             mc = bw if mc is None else mc * bw
+        # --crowd-weight: the pixels where the drawn stars stand crowded weighed up, as a weighted mean (crowd_weights).
+        # The training objective only: the held-out objective stays plain, so the plateau stops as the parent's does.
+        if args.crowd_weight:
+            cw = crowd_weights(x, y, torch.from_numpy(np.ascontiguousarray(plane_now)).to(dev), args.crowd_sigma,
+                               args.crowd_radius, args.crowd_from, args.crowd_full,
+                               args.crowd_weight)[:, :, BORDER:-BORDER, BORDER:-BORDER]
+            mc = cw if mc is None else mc * cw
         # R2j's --channel-noise: each channel's error in the pixel and band terms over its share of the noise
         # (channel_weights); the star term keeps the tile.
         pw, yw = pc, yc
@@ -3008,6 +3047,18 @@ if __name__ == "__main__":
                         "plateau's held-out objective (a weighted mean); 0 keeps the plain objective. Needs --cond-map")
     p.add_argument("--bright-sigma", type=float, default=100.0,
                    help="R2l: the star layer's floor, in the draw's own noise sigma, for --bright-weight")
+    p.add_argument("--crowd-weight", type=float, default=0.0,
+                   help="weigh the pixels where the drawn stars stand crowded up to this many times in the pixel and band "
+                        "terms of the TRAINING objective (a weighted mean, crowd_weights); the plateau's held-out objective "
+                        "stays plain. 0 keeps the plain objective. Needs --cond-map")
+    p.add_argument("--crowd-sigma", type=float, default=3.0,
+                   help="--crowd-weight: the star layer's floor for a peak to count, in the draw's own noise sigma")
+    p.add_argument("--crowd-radius", type=int, default=16,
+                   help="--crowd-weight: the peaks are counted in the square of side 2 x this + 1 about each pixel")
+    p.add_argument("--crowd-from", type=float, default=12.0,
+                   help="--crowd-weight: the count at and under which a pixel keeps weight 1")
+    p.add_argument("--crowd-full", type=float, default=40.0,
+                   help="--crowd-weight: the count at and over which a pixel takes the whole --crowd-weight")
     p.add_argument("--speckle-weight", type=float, default=0.0,
                    help="#1362: add the speckle teacher to the objective (training and the plateau's held-out objective): "
                         "the one-sided penalty (n2n_speckle.py, a port of StarlessSpeckles) on the output's luminance cores "
