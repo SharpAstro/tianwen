@@ -64,7 +64,7 @@ output is ruled out (the owner, 2026-11-26). For the faint stars on bright nebul
 most of them taken on its training sessions (counted) and it still did not take them on the Lagoon. **On 2026-11-26
 the owner sent the list of routes not yet tried back whole, which the session read as a go** ("The routes not yet tried,
 the owner's go" in section 6, which quotes no words): first the net 1.5 times as wide in channels (2.25 times the weights)
-on R4h's data (R4l, registered there), then denser crowded scenes without compact groups, then the loss
+on R4h's data (R4l, registered there), then denser crowded scenes without compact groups (R4m, registered there), then the loss
 weighed up in crowded areas, then depth pairs for the faint stars on bright nebula. The free check that came first:
 on the held-out Tarantula StarXTerminator keeps about a third of a real compact cluster's unresolved glow and R4h
 less at the median (cluster by cluster a lean, not a clear split), so the scenes' rule that a compact cluster is all
@@ -11007,6 +11007,103 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     stars, not bright ones; a drawn star stands as crowded as the worst real cell 0.14 % of the time, so a wider net
     sees the case it most misses as rarely as R4h did; and a bigger net learns unrealistic stars better (round 2's
     ranked list, item 6).
+  - **Nothing is adopted;** adoption is the owner's.
+- **How crowded the training data stand against the fields the crowded rows are scored on, 2026-11-26 (a measurement:
+  no training, no arm).** The same count on both sides: the star layer's local maxima (3 x 3) at 3 sigma or more in the
+  33 px square about each pixel. On a training draw the star layer is the draw less its answer, in the draw's own noise
+  (`training/denoise/crowd_weight_share.py`, 400 training cells at random, one draw each); on a scoring master it is the
+  master less StarXTerminator's plate, in the plate's noise (`training/star-removal/field_crowding.py`); on a rendered
+  scene the composite less its noisy starless truth (`training/star-removal/scene_crowding.py`).
+
+  | | median | 90th percentile | 99th percentile | share at 20 or more |
+  |---|---|---|---|---|
+  | R4h's training draws (`r2-synth32`) | 6 | 13 | 20 | about 1 % |
+  | F6's cluster scenes (`r3-clusters-master-cache`, R4a's) | 10 | 16 | 33 | |
+  | Andromeda (level with StarXTerminator) | 8 | 12 | 15 | 0.0 % |
+  | Sagittarius (2 to 3 points behind on its crowded row) | 9 | 18 | 31 | 8.1 % |
+  | the held-out Tarantula (4 to 6 points behind) | 25 | 36 | 42 | 73.5 % |
+
+  - **What it says.** The crowded gap grows with a crowding the training data does not hold: three quarters of the
+    Tarantula frame stands where 1 % of R4h's training pixels do. R4l changes the net and not the data, so this speaks
+    against the upper end of its prediction; its registration stands as written.
+  - **What it changes in the order of the routes.** A crowding weight on R4h's data can only weigh up the moderately
+    busy sky those draws hold. `--crowd-weight` (below) with a ramp from 12 to 40 peaks puts 10.2 % of the pixels inside
+    the rim on the ramp and 0.004 % at the whole weight, and with a weight of 4 the weighed-up pixels carry 13.9 % of
+    the weighted mean's mass; a ramp from the draws' median to their 99th percentile (6 to 20) carries 60.9 % against
+    44.3 % plain, all of it sky far less crowded than the Tarantula's. So the denser scenes come first, and the
+    weighting is registered on them.
+  - **The denser scenes' density, probed** (single scenes of F6's recipe, no compact groups, measured optics, no
+    rotation, a cluster of 2,000 stars at core 50 px): a field density of 0.006 a square pixel (F6's) reads a median
+    of 10, matching its cache above; 0.015 reads 22 and 0.025 reads 31. At 0.018 four scenes (seeds 7 and 11, with and
+    without the nebula) read a median of 25, the 90th percentile 29, the 99th 35 to 36, 96.5 to 96.7 % at 20 or more.
+    The Tarantula's tail is heavier (36 and 42); an export's skies draw cluster cores from 20 to 90 px, which adds to it.
+  - **The tools, in the tree, used by no arm yet:**
+    - `n2n_smoke.py --crowd-weight` (with `--crowd-sigma`, `--crowd-radius`, `--crowd-from`, `--crowd-full`): that
+      count about each pixel, ramped from weight 1 to the whole weight, as a weighted mean in the training objective's
+      pixel and band terms (`crowd_weights`, beside `--bright-weight`). The plateau keeps the plain held-out objective,
+      so it stops as the parent's does. Off, a run and its fingerprint are as they were (`test_n2n_crowd_weight.py`).
+    - `tianwen dataset synthetic-cluster --export-max-groups N`: each exported sky draws 0 to N compact groups (8 as
+      before); the cap is the sky's last draw, so every other value of a sky stays as the default draws it (tested over
+      200 seeds). The cap is not in the output's guard, and a re-run skips every sky whose fragment exists, so a cap
+      gets an output folder of its own (as `--nebula-share` does); a second cap beside an earlier one gives a mixed set
+      that only the scene table's `sub_clusters` column shows. The denser scenes draw none, by the free check above.
+  - **Nothing is adopted.** The denser scenes' export and their arm get a registration of their own, the export made
+    by a build of main that holds these tools.
+- **R4m, pre-registered 2026-11-26 before any training of it. One change from R4h: the denser crowded scenes join the
+  draw as an extra cache.**
+  - **In plain words.** Three quarters of the held-out Tarantula frame stands at a crowding 1 % of R4h's training
+    pixels reach (the note above). These scenes are drawn at the Tarantula's own crowding. R4a joined F6's cluster
+    scenes to R3z's line and bought nothing on the crowded flat; those were drawn at a third of this density, with
+    compact groups the judge does not take as all stars, and with the faint stars' grain in the answer. These carry
+    none of the three, and join R4h's line.
+  - **The data, as made.** The export `D:/temp/tianwen-scratch/r4m-clusters-dense` (`C:/temp/e2/r4m/dense-export.sh`,
+    build `bh-bin16`, main at "Star remover: tools for the crowded routes (a crowding weight in the trainer, a cap on
+    the export's compact groups) and how crowded the training data stand against the scored fields (#2544)"): F6's
+    recipe (`clusters-export-master.sh`: the ASI585 Tarantula master, window 2553,678, 1,024 px, the LMC's measured
+    numbers, measured and lateral optics, the master's stretch, a nebula with probability two in three, 90 skies with
+    every tenth held out whole) with the field density at 0.018 a square pixel instead of 0.006 and no compact groups
+    (`--export-max-groups 0`); the answer without the faint grain (`truth.txt`: `no-faint-grain`). 90 skies, 61 with
+    a nebula, every one with no group, a median of 20,453 resolved stars a scene (F6's hold 7,642 to 9,044, median
+    8,376). The cache `D:/temp/tianwen-scratch/r4m-clusters-dense-cache` (3.0 GB), packed by R4h's trainer copy
+    (`C:/temp/e2/r4m/dense-cache.sh`: `--prepare --compact`, `--prepare-keep`): 2,880 cells, 2,592 training and 288
+    held out, one draw, all-ones masks. Its crowding (`crowd_weight_share.py`, 400 training cells): median 24, 90th
+    percentile 29, 99th 35, against the Tarantula's 25, 36 and 42 and R4h's draws' 6, 13 and 20.
+  - **Looked at before the launch, at 1:1** (`C:/temp/e2/r4m/look/dense-cells.png`, four training cells, input
+    beside answer at the input's stretch, and `dense-targets.png`, the answers at their own): the inputs are dense
+    star fields; the answers hold no star and no speck: the sky's noise, the nebula's broad texture on the nebula
+    skies, and on one cell a saturated star's soft halo, which the answer keeps by R3z's rule as on R4h's draws.
+  - **The training.** R4h's frozen trainer copy (`C:/temp/e2/r4hi-run`), its cache (`r2-synth32`) and command line,
+    with `--extra-cache r4m-clusters-dense-cache --schedule-on main` added: the extra cells join the draw by their
+    share of the training tiles, each against its own answer, and the plateau reads synth32's held-out objective
+    alone, as R4h's does. Twenty steps of that line on the GTX 1070 (no weights kept) printed the extra cache at
+    2,592 training cells of one draw, 12.5 % of the training draw, 240 of its 288 held-out cells read for its own
+    objective, and the schedule on the main cache alone. Seeds 0 and 1 as Batch jobs on low-priority T4s that remove
+    themselves (36 hours at most), from the cache uploaded to the container as `r4m-clusters-dense/cache`; the GTX
+    1070 trains R4l, so seed 1 differs from R4h's seed 1 in hardware as well as data. Models `r4m_synth32d_s0` and
+    `r4m_synth32d_s1`.
+  - **Read first:** the 1:1 sheets R4h's read lists, both seeds beside R4h's two and StarXTerminator, the Tarantula's
+    crowded field first; then the training by the stall rule of R4h's and R4i's registration.
+  - **Scored** as R4h's two seeds were (`bh-bin14`, the last step's weights, as trained and through the chain, the
+    planted rows with `--keep-overshoot`), the best step's weights reported beside them.
+  - **The question, through the chain, on both seeds:** R4l's: the Tarantula's crowded flat at least 94.0 and Gaia
+    BP 17-19 with the level set aside at least 94.3.
+  - **Guards, on each seed:** R4l's, on the same terms and at the same values.
+  - **Kill:** a guard fails on a seed that trained as the others; or both seeds read at or under 90.5 on the
+    Tarantula's crowded flat through the chain. **Cleared:** the question with every guard held on both seeds.
+    Anything else is neither, and the rows go to the owner. A stalled seed, or one the cap ended, is neither.
+  - **Reported, no bar:** R4h's two seeds beside each of R4m's on every row; the most crowded Gaia cell (R4h 82.7 and
+    87.5 %, StarXTerminator 99.2); the two-sided crowded row (R4h 3.25, StarXTerminator 1.49); the compact clusters'
+    kept share (`sxt_compact_clusters.py`; StarXTerminator 0.32, R4h 0.06 to 0.15), which scenes with no groups may
+    move either way; the bright plants and the Lagoon's 84 real stars; what each leaves on route A's four scenes
+    (`cluster_models_band.py`); the extra cache's held-out objective beside its training objective at the best step.
+  - **Prediction:** both seeds gain 1 to 2.5 points over R4h's mean on the two rows of the question (91.2 and 91.7;
+    93.7 and 94.2, both short of the bars 94.0 and 94.3), so "neither"; Sagittarius's crowded flat within a point of
+    R4h's. The Tarantula's standing-peaks guard (at least 11 of 77) is expected to hold comfortably: the scenes' answers
+    hold no star and no group, so nothing in them teaches the model to take compact light; it is still the guard to read
+    first, as in R4j. What speaks for more: the
+    scenes stand at the crowding the rows are read at, where R4h's draws almost never do. What speaks against: R4a's
+    cluster scenes, at this same share of the draw, moved nothing; the scenes are one master's stars at one window;
+    and an eighth of the draw may be too little to move a net trained on the rest.
   - **Nothing is adopted;** adoption is the owner's.
 
 #### The dig floor inside bright nebula: floor4, and what it leaves (2026-11-20)
