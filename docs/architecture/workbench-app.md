@@ -40,11 +40,14 @@ The look follows `.github/docs/ui-changes.md`. Specifically:
   lower floor than Light and Dark.
 - The image choice is the engine's dropdown (`Layout.Builder.DropdownBox` and `Dropdown` over a `DropdownMenuState`): the
   box shows the image on show, ellipsised with the whole name on hover, and its menu lists every image of the project to
-  pick directly. The menu hangs under the box where the frame arranged it and is painted after the viewer, so it is over
-  the canvas.
+  pick directly. The menu hangs under the box where the frame arranged it, as wide as the box, and is painted after the
+  viewer, so it is over the canvas. `Dropdown` takes the list's width as a design size while it places the anchor in
+  surface units, so the box's width goes back through the scale (`Scale.ToDesignX`).
 - The panel scrolls (`WithScroll`) rather than cutting what does not fit; the job's lines scroll and follow the end.
-- Text in the panel wraps word by word. A word wider than the panel (a path in a command line) is broken into the longest
-  pieces the engine measures as fitting, after a folder separator where one lies in the second half of a piece. The pieces
+- Text in the panel wraps word by word. A word wider than its flow (a path in a command line) is broken into the longest
+  pieces the engine measures as fitting the width the engine arranged that flow at, after a folder separator where one
+  lies in the second half of a piece. The screen arranges once, reads each flow's arranged width, and arranges again in
+  the same frame only when one changed (the first frame, a resize, a new DPI), so no width is restated by hand. The pieces
   sit edge to edge (the space between words is a word's own trailing space, not a gap between leaves), so a broken path
   never reads as two words.
 - `WorkbenchCaptureTests` renders the guided screen at 1280x800 and 2000x1100 in Dark and Night, and 2000x1100 at DPI 1.5,

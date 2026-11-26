@@ -96,7 +96,16 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
         var palette = GuiTheme.Palette;
         FillRect(0, 0, width, height, palette.ContentBg);
 
-        var arranged = RenderLayout(Build(state, actions), new RectF32(0, 0, width, height));
+        // A word wider than its flow is broken at the width the engine arranged the flow at (Flow): arranged once, and again in
+        // the same frame only when a flow's width changed (the first frame, a resize, a new DPI), so a break is never a frame late.
+        var bounds = new RectF32(0, 0, width, height);
+        var arranged = ArrangeLayout(Build(state, actions), bounds);
+        if (TookRooms(arranged))
+        {
+            arranged = ArrangeLayout(Build(state, actions), bounds);
+        }
+
+        PaintLayout(arranged);
         CanvasRect = ArrangedFills.RectOf(arranged, CanvasKey);
 
         if (CanvasRect.Width > 0f && CanvasRect.Height > 0f)
@@ -232,10 +241,11 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
             return;
         }
 
-        // The anchor is the box's arranged rect, in surface units as the engine takes an anchor. The menu's height is a design
-        // size: the room below the box, in the units the tree is scaled from, so a long list scrolls instead of running off.
-        var anchor = new RectF32(box.Bounds.X, box.Bounds.Y, 0f, box.Bounds.Height);
-        var below = (height - (box.Bounds.Y + box.Bounds.Height)) / DpiScale;
+        // The anchor's place is the box's arranged rect in surface units, as the engine places an anchor. Its width is the list's
+        // width, which Dropdown takes as a DESIGN size (Sizing.Fixed), so the box's width goes back through the scale and the
+        // menu is as wide as its box. The menu's height is a design size too: the room below the box, so a long list scrolls.
+        var anchor = new RectF32(box.Bounds.X, box.Bounds.Y, Scale.ToDesignX(box.Bounds.Width), box.Bounds.Height);
+        var below = Scale.ToDesignY(height - (box.Bounds.Y + box.Bounds.Height));
         RenderLayout(Layout.Builder.Dropdown(anchor, _imageMenu, GuiTheme.Theme, maxHeight: MathF.Max(BaseFontSize, below)),
             new RectF32(0, 0, width, height));
     }
@@ -458,7 +468,7 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
         var lines = new Layout.Node[job.Lines.Length];
         for (var i = 0; i < lines.Length; i++)
         {
-            lines[i] = Words(job.Lines[i], palette.DimText);
+            lines[i] = Words(job.Lines[i], palette.DimText, FlowRoom.JobLines);
         }
 
         if (job.Lines.Length != _jobLinesDrawn)
@@ -500,25 +510,58 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
         => Layout.Builder.Text(text, BaseFontSize * 0.9f, GuiTheme.Palette.Accent).WStar();
 
     // A sentence that wraps rather than clips (the engine's flow of words, as the viewer's panels do).
-    private Layout.Node Words(string text, RGBAColor32 color)
-        => Flow(text.Split(' ', StringSplitOptions.RemoveEmptyEntries), color, tooltip: null);
+    private Layout.Node Words(string text, RGBAColor32 color, FlowRoom where = FlowRoom.Panel)
+        => Flow(text.Split(' ', StringSplitOptions.RemoveEmptyEntries), color, tooltip: null, where);
 
     // The command as one flow of arguments, wrapped, never cut. An argument too long for the panel (a path) is broken into pieces
     // that each fit, so every character is on screen; Copy puts the unbroken line on the clipboard, and each piece's hover text
     // is its whole argument.
     private Layout.Node CommandLineText(WorkbenchStepPanel panel, RGBAColor32 color)
-        => Flow([.. panel.CommandLine.Select(static raw => StepCommandLine.Display([raw]))], color, tooltip: static word => word);
+        => Flow([.. panel.CommandLine.Select(static raw => StepCommandLine.Display([raw]))], color, tooltip: static word => word, FlowRoom.Panel);
 
-    // The widest a run of text in the panel may be, in design units: the panel less the column's padding on both sides, the job
-    // list's own padding and room for a scroll bar. A word wider than this is broken by measurement (Pieces).
-    private const float TextRoom = PanelWidth - (6 * Gap);
+    // Where a flow of words stands: straight in the panel's column, or in the job's list of lines (narrower by its own padding
+    // and scroll bar). Each has one width the engine arranges, read back by TookRooms.
+    private enum FlowRoom { Panel, JobLines }
+
+    // The width, in surface units, the last arrange gave each kind of flow; infinite until a frame has arranged one.
+    private readonly float[] _rooms = [float.PositiveInfinity, float.PositiveInfinity];
+
+    // The flows this build made, by reference, so the arranged tree tells which node is which flow.
+    private readonly Dictionary<Layout.Node, FlowRoom> _flows = new(ReferenceEqualityComparer.Instance);
+
+    // Reads the width the engine arranged each kind of flow at. True when one differs from the width the build broke words
+    // against, so the caller builds again with the arranged widths.
+    private bool TookRooms(ImmutableArray<Layout.ArrangedNode<float>> arranged)
+    {
+        Span<float> seen = [float.PositiveInfinity, float.PositiveInfinity];
+        foreach (var node in arranged)
+        {
+            if (_flows.TryGetValue(node.Node, out var where))
+            {
+                seen[(int)where] = MathF.Min(seen[(int)where], node.Bounds.Width);
+            }
+        }
+
+        _flows.Clear();
+        var changed = false;
+        for (var i = 0; i < _rooms.Length; i++)
+        {
+            if (!float.IsPositiveInfinity(seen[i]) && MathF.Abs(seen[i] - _rooms[i]) > 0.5f)
+            {
+                _rooms[i] = seen[i];
+                changed = true;
+            }
+        }
+
+        return changed;
+    }
 
     // Words in one wrapping flow with no gap of the engine's own between leaves: the space between two words is the trailing
     // space of the first, so the pieces of one broken word sit edge to edge and read as the word, never as a space inside a path.
-    private Layout.Node Flow(IReadOnlyList<string> words, RGBAColor32 color, Func<string, string>? tooltip)
+    private Layout.Node Flow(IReadOnlyList<string> words, RGBAColor32 color, Func<string, string>? tooltip, FlowRoom where)
     {
         var ctx = MeasureContext();
-        var room = ctx.ToSurfaceX(TextRoom);
+        var room = _rooms[(int)where];
         var nodes = new List<Layout.Node>();
         for (var w = 0; w < words.Count; w++)
         {
@@ -531,7 +574,9 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
             }
         }
 
-        return Layout.Builder.WrapH([.. nodes]).WithGap(0f).WStar();
+        var flow = Layout.Builder.WrapH([.. nodes]).WithGap(0f).WStar();
+        _flows[flow] = where;
+        return flow;
     }
 
     // The text in the longest runs the engine measures as fitting the room, each ending after a path separator where one lies in
