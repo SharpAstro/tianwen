@@ -6,6 +6,7 @@ using System.Numerics.Tensors;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace TianWen.Lib.Imaging;
 
@@ -1293,6 +1294,45 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
     /// <c>[0, 1]</c>, not on the input's scale.
     /// </summary>
     internal Image ScaleFloatValuesIntoModelRange() => ModelRangeDivisor > 1f ? ScaledByUnitScaleDivisor() : ScaleFloatValuesToUnit();
+
+    /// <summary>
+    /// <paramref name="model"/> (one that takes <c>[0, 1]</c>) run on this image on its own scale: divided by
+    /// <see cref="ModelRangeDivisor"/> on the way in and the result multiplied back on the way out, saying it is on this
+    /// image's unit scale; just the model's result where no divide is needed. The caller owns the result and this image.
+    /// </summary>
+    internal async Task<Image> ThroughModelRangeAsync(Func<Image, Task<Image>> model)
+        => (await ThroughModelRangeAsync(async into => (await model(into), (Image?)null))).Result;
+
+    /// <summary>
+    /// <see cref="ThroughModelRangeAsync(Func{Image, Task{Image}})"/> for a model that also hands back a second image on its
+    /// input's scale (a gradient model's background): both come back multiplied, on this image's scale.
+    /// </summary>
+    internal async Task<(Image Result, Image? Extra)> ThroughModelRangeAsync(Func<Image, Task<(Image Result, Image? Extra)>> model)
+    {
+        var divisor = ModelRangeDivisor;
+        if (divisor <= 1f)
+        {
+            return await model(this);
+        }
+
+        var into = MultipliedBy(1f / divisor, imageMeta.Rescale(1f / divisor));
+        var (result, extra) = await model(into);
+        var back = Back(result);
+        var extraBack = extra is null ? null : Back(extra);
+        into.Release();
+        return (back, extraBack);
+
+        // A model that passed its input through handed back `into`, which is released above, once.
+        Image Back(Image image)
+        {
+            var multiplied = image.MultipliedBy(divisor, image.ImageMeta.Rescale(divisor) with { UnitReferred = true });
+            if (!ReferenceEquals(image, into))
+            {
+                image.Release();
+            }
+            return multiplied;
+        }
+    }
 
     /// <summary>
     /// A new image, every sample multiplied by <paramref name="factor"/> (positive), labelled with <paramref name="meta"/>:

@@ -1,10 +1,16 @@
 using System.CommandLine;
+using System.IO;
+using System.Linq;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Workbench;
 
 namespace TianWen.Cli;
 
 /// <summary>
-/// <c>tianwen workbench status|run|operations</c>: a project's edit lists run with no window
+/// <c>tianwen workbench status|run|operations|chain</c>: a project's edit lists run with no window
 /// (docs/plans/stacking-workbench.md, W1). A project is a folder holding <c>project.json</c> (the original files and
 /// the edits made to each) beside the step store.
 /// </summary>
@@ -18,8 +24,111 @@ internal sealed class WorkbenchSubCommand(IConsoleHost consoleHost, OperationCat
         "Run a project's edit lists without a window: a folder holding project.json (the original files and the edits made to each) "
         + "beside the step store. A step whose result is in the store is not run again.")
     {
-        Subcommands = { BuildStatusCommand(), BuildRunCommand(), BuildOperationsCommand() },
+        Subcommands = { BuildStatusCommand(), BuildRunCommand(), BuildOperationsCommand(), BuildChainCommand() },
     };
+
+    private Command BuildChainCommand()
+    {
+        var projectArg = ProjectArgument();
+        var imageArg = new Argument<string>("image") { Description = "The image to lay out: its one edit is an enhance." };
+        var nameOpt = new Option<string?>("--name") { Description = "What the chain's result is called. Default: <image>-chain." };
+        var cmd = new Command("chain",
+            "The enhance laid out as a chain of the single steps (white-balance, deblur, gradient, remove-stars, denoise; SCNR on the stars; "
+            + "add-stars), added to the project beside the image, each step then kept in the store on its own. The steps are read off the "
+            + "enhance's own program for that image, so the chain's result is the enhance's. Nothing is run; a program or a setting no "
+            + "single step can follow is refused.")
+        {
+            Arguments = { projectArg, imageArg },
+            Options = { nameOpt },
+        };
+        cmd.SetAction(async (parseResult, ct) =>
+        {
+            var folder = parseResult.Required(projectArg);
+            var (project, unreadable) = await WorkbenchProjectFile.ReadAsync(folder, ct);
+            if (project is null)
+            {
+                consoleHost.WriteError($"[workbench] {unreadable}");
+                return 1;
+            }
+
+            var name = parseResult.Required(imageArg);
+            if (Refusal(project, name, folder) is { } refusal)
+            {
+                consoleHost.WriteError($"[workbench] {refusal}");
+                return 1;
+            }
+
+            var image = project.Images.First(each => each.Name == name);
+            var edit = image.Edits[0];
+            var settings = edit.Settings is null ? new EnhanceSettings() : JsonSerializer.Deserialize(edit.Settings, OperationSettingsJsonContext.Default.EnhanceSettings) ?? new EnhanceSettings();
+            if (!operations.TryGet(EnhanceOperation.Id, out var registered) || registered is not EnhanceOperation enhance
+                || !EnhanceOperation.TryOptions(settings, out var options, out _))
+            {
+                consoleHost.WriteError("[workbench] the enhance is not registered here, or its settings are not ones it takes");
+                return 1;
+            }
+
+            // The enhance's input: the image's own file, or what the image it starts from leaves in the store.
+            var sourcePath = await StartingFileAsync(folder, image, ct);
+            if (sourcePath is null || !Image.TryReadFitsFile(sourcePath, out var source))
+            {
+                consoleHost.WriteError($"[workbench] {name} starts from {image.From ?? image.Path}, which has no file to read yet: run the project first (workbench run).");
+                return 1;
+            }
+
+            var program = await enhance.ProgramAsync(enhance.Start(source, options), settings, stretchedInPipeline: false, recombine: true,
+                line => consoleHost.WriteScrollable($"[workbench] {line}"), ct);
+            var chainName = parseResult.GetValue(nameOpt) ?? name + "-chain";
+            var (chain, notFollowed) = EnhanceChain.ImagesFor(program, settings, source, chainName, image);
+            if (notFollowed is not null)
+            {
+                consoleHost.WriteError($"[workbench] {name} cannot be laid out as single steps: {notFollowed}.");
+                return 1;
+            }
+
+            if (chain.FirstOrDefault(each => project.Images.Any(other => other.Name == each.Name)) is { } taken)
+            {
+                consoleHost.WriteError($"[workbench] the project already has an image named {taken.Name}: name the chain with --name.");
+                return 1;
+            }
+
+            await WorkbenchProjectFile.WriteAsync(folder, project with { Images = [.. project.Images, .. chain] }, ct);
+            foreach (var each in chain)
+            {
+                consoleHost.WriteScrollable($"[workbench] added {each.Name}" + (each.From is { } from ? $" from {from}{(each.Result is { } result ? $"'s {result}" : string.Empty)}" : string.Empty)
+                    + $": {string.Join(", ", each.Edits.Select(static step => step.Operation))}");
+            }
+
+            return 0;
+        });
+        return cmd;
+    }
+
+    // Why the named image cannot be laid out as a chain, or null: it must exist and its one edit must be an enhance, on a
+    // file or on another image's main result.
+    private static string? Refusal(WorkbenchProject project, string name, string folder)
+        => project.Images.FirstOrDefault(each => each.Name == name) switch
+        {
+            null => $"{folder} has no image named {name}",
+            { Edits: not [{ Operation: EnhanceOperation.Id, Enabled: true }] } => $"{name} is laid out only when its one edit is an enhance",
+            { Result: not null } => $"{name} starts from another image's extra result, which the chain does not take",
+            _ => null,
+        };
+
+    // The file an image's edits start from: its own, or the last stored result of the image it starts from.
+    private async Task<string?> StartingFileAsync(string folder, ProjectImage image, CancellationToken cancellationToken)
+    {
+        if (image.From is null)
+        {
+            return Path.Combine(folder, image.Path);
+        }
+
+        var status = await runner.StatusAsync(folder, new WorkbenchRunOptions { Image = image.From }, cancellationToken);
+        var from = status.Images.FirstOrDefault(each => each.Name == image.From);
+        return from?.Steps.LastOrDefault() is { State: StepState.Kept, Output: { } output } ? Path.Combine(folder, output)
+            : from is { Steps.IsEmpty: true, Path.Length: > 0 } ? Path.Combine(folder, from.Path)
+            : null;
+    }
 
     private static Argument<string> ProjectArgument() => new("project") { Description = "The project's folder: it holds project.json." };
 

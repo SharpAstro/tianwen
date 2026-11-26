@@ -186,6 +186,8 @@ internal sealed partial class ImageSubCommand(
                 BuildRemoveStarsCommand(),
                 BuildProtectCoresCommand(),
                 BuildFillDigsCommand(),
+                BuildScnrCommand(),
+                BuildWhiteBalanceCommand(),
                 BuildContinuumCommand(),
                 BuildAddLineCommand(),
                 BuildDenoiseCommand(),
