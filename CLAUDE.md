@@ -34,7 +34,7 @@ Full rules: `docs/architecture/project-tracking.md`.
 | `CHANGELOG.md` | One section per `MAJOR.MINOR`, added in the same commit as a version bump |
 
 Skills are in `.claude/skills/<name>/SKILL.md` and listed by the session. The `chrome-review` agent runs in CI on every
-non-draft PR that touches a `.cs` or `.razor` file of the five UI projects (`.github/workflows/chrome-review.yml`; a
+non-draft PR that touches a `.cs` or `.razor` file of the six UI projects (`.github/workflows/chrome-review.yml`; a
 push that leaves the UI and chrome-test diff unchanged is not reviewed again) and fails the check on a
 high-confidence finding; run `/chrome-review` before marking a PR ready to see it first.
 
@@ -53,12 +53,12 @@ src/
 ├── TianWen.Cli/ (`tianwen`)   TianWen.Server/ (`tianwen-server`)   TianWen.AscomHost/ (`tianwen-ascomhost`)
 ├── TianWen.Hosting.Contracts/ (wire DTOs)   TianWen.Hosting/ (REST + WebSocket + Alpaca)   TianWen.RemoteClient/
 ├── TianWen.UI.Abstractions/ (widgets, layout, state)   TianWen.UI.Shared/ (Vulkan pipelines)
-├── TianWen.UI.Gui/ (`tianwen-gui`)   TianWen.UI.FitsViewer/ (`tianwen-fits`)
+├── TianWen.UI.Gui/ (`tianwen-gui`)   TianWen.UI.FitsViewer/ (`tianwen-fits`)   TianWen.UI.Workbench/ (`tianwen-edit`)
 ├── TianWen.UI.Web/ (WebAssembly)   .Web.E2E/ (Playwright)   TianWen.UI.Benchmarks/
 └── TianWen.AI/ (ORT facade)   TianWen.AI.Imaging/   TianWen.AI.MCP/ (`tianwen-mcp`)
 ```
 
-- Seven projects set `PublishAot` (the six named above and `TianWen.Shell.Thumbnails`, the Explorer thumbnail handler);
+- Eight projects set `PublishAot` (the seven named above and `TianWen.Shell.Thumbnails`, the Explorer thumbnail handler);
   **only `tianwen`, `tianwen-server`, `tianwen-gui`, `tianwen-fits` are release assets**
   (`.github/workflows/dotnet.yml`; a new one needs its upload steps there).
 - **A program another one starts ships beside it** (`src/ExeBeside.targets`, `<ExeBesideThis>`); never find a sibling's

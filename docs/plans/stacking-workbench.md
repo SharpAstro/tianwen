@@ -460,7 +460,7 @@ that name. Every non-empty Missing cell names the open issue that carries it.
 
 - **A. A mode of `tianwen-fits`** (Astro Photo Viewer): already in the Store and on macOS, already stacks a SER. But the viewer is a
   viewer; a project, a step bar and batches change what the Store app is, and its size.
-- **B. A new app in this repo, the product Astro Photo Stacker (the executable's name, `tianwen-stack` here, is open)**: an AOT binary on the same SdlVulkan and DIR.Lib stack, sharing the
+- **B. A new app in this repo, the product Astro Photo Stacker (the executable's name, `tianwen-edit` here, is open)**: an AOT binary on the same SdlVulkan and DIR.Lib stack, sharing the
   viewer's widgets and `StandaloneViewerHost`. One more binary to package (a release asset, a `.dmg`, perhaps an MSIX), and the
   viewer gains "Open in the workbench".
 - **C. A tab of `tianwen-gui`**: the GUI is the rig's app, bound to its node; processing yesterday's data should not need a node,
@@ -485,7 +485,7 @@ widened to the full processing application DSPX points at, and the plan was re-c
 day, beside Astro Photo Viewer (`tianwen-fits`). A Store product of its own is B. A search the same day found no application
 of that exact name, in the Microsoft Store or elsewhere; the nearest are "Astro Stacker: Star Images" on Apple's App Store and
 two GitHub projects named AstroStacker and astro-stacker, and trademark registers were not searched. Still open in #1640: the
-executable's name (`tianwen-stack` is the working one) and the drawing.
+executable's name (`tianwen-edit` is the working one) and the drawing.
 
 The owner's words the same day, on what the other two apps keep: "yes stand-alone. the existing gui currently only have live
 stacking planned, and the viewer will keep the planet stacking for now", and then "but we should also be able to handle .ser

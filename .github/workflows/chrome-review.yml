@@ -41,6 +41,8 @@ on:
       - 'src/TianWen.UI.Gui/**/*.razor'
       - 'src/TianWen.UI.FitsViewer/**/*.cs'
       - 'src/TianWen.UI.FitsViewer/**/*.razor'
+      - 'src/TianWen.UI.Workbench/**/*.cs'
+      - 'src/TianWen.UI.Workbench/**/*.razor'
       - 'src/TianWen.UI.Web/**/*.cs'
       - 'src/TianWen.UI.Web/**/*.razor'
 
@@ -102,6 +104,7 @@ jobs:
             ':(glob)src/TianWen.UI.Shared/**/*.cs' ':(glob)src/TianWen.UI.Shared/**/*.razor' \
             ':(glob)src/TianWen.UI.Gui/**/*.cs' ':(glob)src/TianWen.UI.Gui/**/*.razor' \
             ':(glob)src/TianWen.UI.FitsViewer/**/*.cs' ':(glob)src/TianWen.UI.FitsViewer/**/*.razor' \
+            ':(glob)src/TianWen.UI.Workbench/**/*.cs' ':(glob)src/TianWen.UI.Workbench/**/*.razor' \
             ':(glob)src/TianWen.UI.Web/**/*.cs' ':(glob)src/TianWen.UI.Web/**/*.razor' \
             "${chrome_tests[@]}" | sha256sum | cut -c1-16)"
           echo "fp=$fp" >> "$GITHUB_OUTPUT"

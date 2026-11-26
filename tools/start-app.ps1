@@ -28,7 +28,7 @@
     (no siblings found) has no inspector at all.
 
 .PARAMETER App
-    gui (tianwen-gui), fits (tianwen-fits) or tui (the CLI's TUI, in a console window of its own).
+    gui (tianwen-gui), fits (tianwen-fits), edit (tianwen-edit) or tui (the CLI's TUI, in a console window of its own).
 
 .PARAMETER AppArgs
     Passed to the app: a file or folder for fits, anything after "tui" for the TUI. Put -- before them when one
@@ -74,7 +74,7 @@
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory, Position = 0)] [ValidateSet('gui', 'fits', 'tui')] [string] $App,
+    [Parameter(Mandatory, Position = 0)] [ValidateSet('gui', 'fits', 'edit', 'tui')] [string] $App,
     [Parameter(Position = 1, ValueFromRemainingArguments)] [string[]] $AppArgs,
     [ValidateSet('Debug', 'Release')] [string] $Configuration = 'Debug',
     [switch] $Validation,
@@ -112,6 +112,7 @@ if ($IsWindows) {
 $apps = @{
     gui  = @{ Project = 'TianWen.UI.Gui'; Exe = 'tianwen-gui'; Log = 'gui' }
     fits = @{ Project = 'TianWen.UI.FitsViewer'; Exe = 'tianwen-fits'; Log = 'fitsviewer' }
+    edit = @{ Project = 'TianWen.UI.Workbench'; Exe = 'tianwen-edit'; Log = 'edit' }
     tui  = @{ Project = 'TianWen.Cli'; Exe = 'tianwen'; Log = 'tui' }
 }
 $spec = $apps[$App]
