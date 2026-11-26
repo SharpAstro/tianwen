@@ -164,7 +164,7 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
         // While a run goes it writes the store, so no other project or image is read: the controls stay where they are, dimmed,
         // and say why on hover (WorkbenchActions refuses them too).
         var open = Layout.Builder.Button("Open project", Layout.ButtonKind.Standard, actions.ChooseProject, GuiTheme.Theme,
-            tooltip: "Open a workbench project folder");
+            tooltip: running ? WorkbenchActions.ChoiceWaitsForTheRun : "Open a workbench project folder");
         parts.Add(running ? open.Disabled(WorkbenchActions.ChoiceWaitsForTheRun) : open);
         return Layout.Builder.HStack([.. parts]).WithGap(Gap).CrossCenter().Pad(Gap, 0f).Bg(palette.HeaderBg);
     }
@@ -209,8 +209,11 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
             _imageMenu.Close();
         }
 
-        var box = Layout.Builder.DropdownBox(current, _imageMenu, GuiTheme.Theme, new HitResult.ButtonHit(ImageChoiceHit),
-            tooltip: $"{current}: image {at + 1} of {names.Length}. Press to choose another").WStar();
+        // A node's own hover text wins over its disabled reason, so while a run goes the reason is the hover text, whole name first.
+        var tooltip = running
+            ? $"{current}. {WorkbenchActions.ChoiceWaitsForTheRun}"
+            : $"{current}: image {at + 1} of {names.Length}. Press to choose another";
+        var box = Layout.Builder.DropdownBox(current, _imageMenu, GuiTheme.Theme, new HitResult.ButtonHit(ImageChoiceHit), tooltip: tooltip).WStar();
         return running ? box.Disabled(WorkbenchActions.ChoiceWaitsForTheRun) : box;
     }
 
