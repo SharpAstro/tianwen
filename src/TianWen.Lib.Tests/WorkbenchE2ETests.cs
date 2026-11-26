@@ -158,8 +158,13 @@ public sealed class WorkbenchE2ETests : IDisposable
         panel.ShouldContain(Normalise(_add.Description.Settings[0].Summary), Case.Insensitive, "and what it does");
         e2e.TextsIn(PanelRect(e2e)).ShouldContain("2", "its value as the operation reads it");
         panel.ShouldContain("Command line");
-        panel.ShouldContain(Normalise(StepCommandLine.Display(report.Steps[1].CommandLine)), Case.Insensitive,
+        // A long argument is broken into pieces that each fit, so every character is painted: without the spaces between
+        // pieces the panel holds the whole line, and no word lies outside the panel.
+        Compact(e2e.PanelText()).ShouldContain(Compact(StepCommandLine.Display(report.Steps[1].CommandLine)), Case.Insensitive,
             "the command line, wrapped into the panel and not cut");
+        var panelRect = PanelRect(e2e);
+        e2e.Texts().Where(t => t.Bounds.Y >= panelRect.Y && t.Bounds.X < panelRect.Width)
+            .ShouldAllBe(t => t.Bounds.X + t.Bounds.Width <= panelRect.Width + 0.5f, "no word of the panel runs past its edge");
 
         // Shown, not edited: no field and nothing to press beside the settings but the Copy button.
         var inputs = new System.Collections.Generic.List<TextInputState>();
@@ -261,6 +266,8 @@ public sealed class WorkbenchE2ETests : IDisposable
         var top = cells.Max(static c => c.Y + c.Height);
         return new RectF32(0, top, e2e.Host.Screen.CanvasRect.X, e2e.Renderer.Height - top);
     }
+
+    private static string Compact(string text) => string.Concat(text.Where(static c => !char.IsWhiteSpace(c)));
 
     // Words painted one leaf at a time are joined by single spaces; a message's own line breaks and doubled spaces are not what is checked.
     private static string Normalise(string text) => string.Join(' ', text.Split([' ', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries));

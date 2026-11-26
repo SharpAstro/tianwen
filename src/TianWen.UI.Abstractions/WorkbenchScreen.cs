@@ -305,17 +305,43 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
         return Layout.Builder.WrapH(nodes).WithGap(BaseFontSize / 3).WStar();
     }
 
-    // The command as one flow of arguments, wrapped, never cut. An argument too long for the panel (a path) keeps its end and
-    // carries the whole of itself on hover.
+    // The command as one flow of arguments, wrapped, never cut. An argument too long for the panel (a path) is broken after a
+    // separator into pieces that each fit, so every character is on screen; Copy puts the unbroken line on the clipboard.
     private static Layout.Node CommandLineText(WorkbenchStepPanel panel, RGBAColor32 color)
     {
-        var nodes = new Layout.Node[panel.CommandLine.Length];
-        for (var i = 0; i < panel.CommandLine.Length; i++)
+        var nodes = new List<Layout.Node>();
+        foreach (var raw in panel.CommandLine)
         {
-            var argument = StepCommandLine.Display([panel.CommandLine[i]]);
-            nodes[i] = Layout.Builder.Text(argument, BaseFontSize, color, trim: TextTrim.Start).WithTooltip(argument);
+            var argument = StepCommandLine.Display([raw]);
+            foreach (var piece in Pieces(argument))
+            {
+                nodes.Add(Layout.Builder.Text(piece, BaseFontSize, color).WithTooltip(argument));
+            }
         }
 
-        return Layout.Builder.WrapH(nodes).WithGap(BaseFontSize / 3).WStar();
+        return Layout.Builder.WrapH([.. nodes]).WithGap(BaseFontSize / 3).WStar();
+    }
+
+    private const int LongestPiece = 24;
+
+    // The argument in runs of at most LongestPiece characters, each ending after a path separator where there is one.
+    private static IEnumerable<string> Pieces(string argument)
+    {
+        var start = 0;
+        while (start < argument.Length)
+        {
+            var end = Math.Min(argument.Length, start + LongestPiece);
+            if (end < argument.Length)
+            {
+                var cut = argument.LastIndexOfAny(['\', '/', '-', '_', '.'], end - 1, end - start);
+                if (cut > start)
+                {
+                    end = cut + 1;
+                }
+            }
+
+            yield return argument[start..end];
+            start = end;
+        }
     }
 }
