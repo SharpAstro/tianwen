@@ -135,8 +135,7 @@ namespace TianWen.UI.Abstractions
                 new RectF32(px - 1, py - 1, pw + 2, ph + 2));
             RenderLayout(Layout.Builder.Spacer().Bg(palette.Background), new RectF32(px, py, pw, ph));
 
-            var textX = px + (10f * dpiScale);
-            var textW = pw - (40f * dpiScale);
+            var (textX, textW) = ObjectInfoPanel.TextColumn(px, pw, dpiScale);
             var textBlockH = ObjectInfoPanel.DesignTextBlockHeight(in options) * dpiScale;
             RenderLayout(ObjectInfoPanel.BuildTextRows(in selection, in options, in palette),
                 new RectF32(textX, py, textW, textBlockH), scale: Scale);
