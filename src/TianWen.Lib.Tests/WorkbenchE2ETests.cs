@@ -473,7 +473,8 @@ public sealed class WorkbenchE2ETests : IDisposable
         e2e.Texts().ShouldNotContain(t => t.Text == "Result");
     }
 
-    private static bool SameFile(string? a, string? b) => a is not null && b is not null && string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+    private static bool SameFile(string? a, string? b)
+        => a is not null && b is not null && string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
 
     private static RectF32 PanelRect(WorkbenchE2E e2e)
     {

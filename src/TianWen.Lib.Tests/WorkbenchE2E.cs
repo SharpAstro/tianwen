@@ -117,7 +117,9 @@ internal sealed class WorkbenchE2E : IAsyncDisposable
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
-                throw new TimeoutException($"gave up waiting for {what}; status: '{ViewerState.StatusMessage}'");
+                throw new TimeoutException($"gave up waiting for {what}; status: '{ViewerState.StatusMessage}'; the viewer holds "
+                    + $"'{Controller.Document?.FilePath}', is asked for '{ViewerState.RequestedFilePath}', loading: {Controller.IsLoadPending}, "
+                    + $"texture update pending: {ViewerState.NeedsTextureUpdate}; the screen wants {Actions.Wanted()}");
             }
         }
     }
