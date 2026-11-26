@@ -42,7 +42,7 @@ public partial class Image
         return await Task.Run(() =>
         {
             var (_, width, height) = Shape;
-            var needsNorm = !HasUnitScalePeak;
+            var needsNorm = !IsUnitReferred;
             var normFactor = 1.0f / MaxValue;
 
             // Rented: the luma plane is read once, for a median and a MAD, and was a new full-size array on

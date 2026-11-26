@@ -103,8 +103,11 @@ public sealed class DeblurOperation(IImageDeblurrer? deblurrer = null) : JointOp
     public const string Id = "deblur";
 
     /// <inheritdoc/>
+    /// <remarks>Version 2 (2026-11-26, #2504): the result says it is on a unit scale (<c>UNITREF</c>,
+    /// <see cref="ImageMeta.UnitReferred"/>), so a star the deblur lifted past 2.0 no longer makes every reader take the
+    /// file for ADU. A version 1 result, which every step after it divided by its lifted star, runs again.</remarks>
     public override OperationDescription Description { get; } = new(
-        Id, Version: 1, Title: "Deblur", Verb: "image deblur", OperationOutputKind.Stored, ExtraInputs: [],
+        Id, Version: 2, Title: "Deblur", Verb: "image deblur", OperationOutputKind.Stored, ExtraInputs: [],
         Settings:
         [
             new OperationSetting("headroom", "The brightest input pixel goes to the deblurrer at 1/headroom of its ceiling, so no sharpened star clips.",

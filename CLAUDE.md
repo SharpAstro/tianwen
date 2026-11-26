@@ -423,7 +423,8 @@ Full rules: `docs/architecture/image-pipeline.md`, `docs/plans/frame-lifecycle.m
 - A demosaic the viewer offers has its own branch in `image.frag`; resolve `DebayerAlgorithm.Auto` first; every gradient
   compares two samples of the same colour; a tap past the edge mirrors.
 - A driver's frame is in ADU that agree with `BitDepth` and `MaxADU`. **`Image.MaxValue` is the peak observed, not
-  saturation**; `Image.UnitScaleDivisor` is the one source for [0,1].
+  saturation**; `Image.UnitScaleDivisor` is the one source for [0,1]. **Unit-referred or ADU is `Image.IsUnitReferred`**
+  (the `UNITREF` card, else the peak), never the peak alone: a deblurred star stands above 2.0 (#2504).
 - **Every reader walks to the first HDU holding an image** (`ReadFirstImageHdu()`); a file is opened through
   `Image.OpenFits`; `.fz` is matched on `.fz` alone. `WCS.FromFits` keeps its single `ReadHDU`.
 - **A FITS header becomes an `ImageMeta` in one place, `ParseImageMetaFromHeader`.** A declared pixel scale beats

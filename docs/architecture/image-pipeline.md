@@ -432,6 +432,54 @@ stays unit-consistent with the stored data; the post-scale `MaxValue` stamp is `
 never a hardcoded `1.0f`, so an under-exposed live frame correctly lands below 1.0. A source without
 `SensorFullScaleAdu` falls back to the prior observed-peak behaviour unchanged.
 
+## Unit-referred or ADU: the file says, and the peak is only the fallback (#2504, 2026-11-26)
+
+Whether an image's samples are on a unit scale (1.0 its full scale) or in ADU is asked in one place,
+`Image.IsUnitReferred`: the image's metadata says so (`ImageMeta.UnitReferred`, the FITS card `UNITREF = T`, ours), or
+else its peak does (`Image.HasUnitScalePeak`, a peak at or under 2.0). Every consumer that divides by the peak for ADU
+data, bins a histogram, lifts a star's flux to ADU for its signal to noise, or picks a stretch's `NormFactor` asks
+`IsUnitReferred`; the stretch solver is handed the image's answer (`imageUnitReferred`) beside its peak.
+
+**Why the peak alone was not enough.** A deblur keeps a sharpened star's light: the single deblur step hands
+BlurXTerminator each plane at a quarter of its ceiling (`NarrowbandCombination.DefaultDeblurHeadroom`) and puts the
+result back on the input's scale. On 10P/Tempel 2 BlurX lifted the brightest star about 3.5 times, so a master peaking at
+0.855 came back peaking at 2.995. Judged by its peak that file was ADU: its histogram binned it at face value, its
+background read 0, `FindStarsAsync` returned no stars (the step printed `FWHM 1.83 px -> NaN`), and in a chain every step
+after it divided the frame by 2.995 (the gradient step's sky read 0.00227 for 0.00681).
+
+**Who declares it.** The deblur, the one routine that can lift a highlight past 2.0, says it of its result:
+`NarrowbandCombination.DeblurAsync` sets `UnitReferred` on a result whose input was unit-referred, in memory, so the
+combine, which composes the deblurred planes before anything is written, gets it as well as a written file. (The viewer
+and `image sharpen` deblur through `SharpenPipeline`'s own step, which declares nothing.) Every step after it reads the card into `ImageMeta` and
+carries its input's metadata onto its result, so the chain says it to its end. The single denoise and star removal run
+through the same one-scale routine and declare nothing new, so a file nothing lifted says nothing and keeps its bytes;
+its peak decides. (Declaring at every read was
+tried first and dropped: the older verbs read their file themselves, so a step's file and its verb's differed by the
+card.) A rescale clears it (`ImageMeta.Rescale` with a factor other than one): after one, 1.0 is no longer the full
+scale, and the peak decides again. Stacked masters are not declared; they are written on `[0, 1]`
+(`ScaleFloatValuesToUnitCeiling`) and their peak says it.
+
+**A model still takes `[0, 1]`.** GraXpert's background model and TianWen's ONNX denoiser, deconvolvers and star
+remover refuse a peak above 1.5. A declared image above 1.0 reaches one divided by its peak (`Image.ModelRangeDivisor`):
+the gradient step divides it into the model and multiplies the result back, so it writes on its input's scale; the
+enhance pipeline takes it in divided, once, at `SharpenPipeline.ProcessAsync` (`ScaleFloatValuesIntoModelRange`), so
+every route gets it (the enhance step, `image sharpen`, the viewer, the node's enhance endpoint), as such a file was
+before #2504, and the result is on `[0, 1]`. `deblur` and `combine` went to version 2 with this.
+
+**`HasUnitScalePeak` is not a lie, and is still asked where the question is the peak.** It says whether the peak is at
+or under 2.0, and a declared image peaking at 2.995 answers false. The TIFF export asks it on purpose: a float TIFF holds
+`[0, 1]`, so a declared image whose stars stand above it is divided into the container there, as before.
+
+**Not `SATURATE`.** That card says where saturation is, and a lifted star above 1.0 is not saturated; a reader that
+leaves out stars above `SATURATE` (`Image.ChannelOffsets`) would leave out exactly the stars a deblur kept. The 10P
+masters carry no `SATURATE` either.
+
+**For HDR.** Keeping a star above 1.0 is what an HDR rendition needs: `Image.RenderHdrLinearRgb` takes the signal before
+the stretch, unbounded, so a core keeps its multiple of white (`docs/plans/hdr-display.md`). A clipped core is a plateau
+nothing restores. `UNITREF` means what scene-referred HDR formats mean by 1.0: reference white, highlights above it.
+
+Tests: `UnitReferredCardTests`.
+
 ## One header parse, and where a frame's pixel scale comes from (2026-08-25)
 
 **`ParseImageMetaFromHeader` is the ONLY place a FITS header becomes an `ImageMeta`, and both read

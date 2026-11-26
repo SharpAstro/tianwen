@@ -52,7 +52,7 @@ public partial class Image
         // Canonical divisor (sensor full-scale when known, else observed peak) -- keeps the Bayer
         // normalisation consistent with ScaleFloatValuesToUnit(InPlace), which the mono path above
         // already delegates to.
-        var scale = normalizeToUnit && !HasUnitScalePeak ? 1.0f / UnitScaleDivisor : 1.0f;
+        var scale = normalizeToUnit && !IsUnitReferred ? 1.0f / UnitScaleDivisor : 1.0f;
 
         return debayerAlgorithm switch
         {
@@ -157,7 +157,7 @@ public partial class Image
         if (imageMeta.SensorType is SensorType.Monochrome or SensorType.Color)
         {
             // Copy (+ normalize) into destination channels
-            var scale = normalizeToUnit && !HasUnitScalePeak ? 1.0f / UnitScaleDivisor : 1.0f;
+            var scale = normalizeToUnit && !IsUnitReferred ? 1.0f / UnitScaleDivisor : 1.0f;
             for (var c = 0; c < Math.Min(ChannelCount, destination.Length); c++)
             {
                 var src = GetChannelSpan(c);
@@ -179,7 +179,7 @@ public partial class Image
                 RescaleMeta(scale));
         }
 
-        var s = normalizeToUnit && !HasUnitScalePeak ? 1.0f / UnitScaleDivisor : 1.0f;
+        var s = normalizeToUnit && !IsUnitReferred ? 1.0f / UnitScaleDivisor : 1.0f;
 
         return debayerAlgorithm switch
         {

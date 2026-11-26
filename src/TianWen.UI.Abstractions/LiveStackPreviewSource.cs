@@ -701,7 +701,7 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IUnsharpenedPreview
             if (buildUnsharpened)
             {
                 var plain = WaveletSharpen.Sharpen(raw, IdentitySharpen);
-                if (!display.HasUnitScalePeak)
+                if (!display.IsUnitReferred)
                 {
                     plain = plain.ScaleToFullScaleInPlace(display.UnitScaleDivisor);
                 }
@@ -709,7 +709,7 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IUnsharpenedPreview
             }
 
             // What AdoptImageAsync is about to divide the display master by, which the playhead's raw frame is put on too (#1883).
-            var displayDivisor = display.HasUnitScalePeak ? 1f : display.UnitScaleDivisor;
+            var displayDivisor = display.IsUnitReferred ? 1f : display.UnitScaleDivisor;
 
             // Adopt the (linear, [0,1]) display master into a stats-bearing document off the render thread;
             // None = no CPU debayer (already RGB / mono).

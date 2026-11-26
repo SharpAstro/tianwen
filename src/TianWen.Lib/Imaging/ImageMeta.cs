@@ -329,6 +329,30 @@ public record struct ImageMeta(
     public double? FluxScale { get; init; }
 
     /// <summary>
+    /// This image's samples are on a unit scale, 1.0 its full scale, whatever its peak: a highlight may stand above 1.0
+    /// and the image is still not ADU. FITS card <c>UNITREF</c>, ours. <see cref="Image.IsUnitReferred"/> reads it before it
+    /// falls back to judging the scale by the peak (<see cref="Image.HasUnitScalePeak"/>).
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Why the file has to say it (#2504).</b> A deblur keeps a sharpened star's light: BlurXTerminator lifted
+    /// 10P/Tempel 2's brightest star about 3.5 times, so a master peaking at 0.855 came back peaking at 2.995. Judged by
+    /// its peak that file was ADU, so its histogram, its background and its star list came out empty, and every step after
+    /// it in a chain divided the frame by 2.995. The peak cannot tell a lifted star from ADU; only the producer knows.</para>
+    /// <para><b>Who says it.</b> The deblur, the one routine that can lift a highlight past 2.0 on its input's unit scale,
+    /// says it of its result (<c>NarrowbandCombination.DeblurAsync</c>). Every step after it reads the card into this and
+    /// carries its input's metadata onto its result, so the result says it too. An image the deblur never touched says
+    /// nothing, and its peak decides. A rescale clears it (<see cref="Rescale"/>): after one, 1.0 is no longer the full
+    /// scale, and the peak decides again.</para>
+    /// <para><b>A model still takes <c>[0, 1]</c>.</b> GraXpert's and TianWen's ONNX models refuse a peak above 1.5, so a
+    /// declared image above 1.0 reaches one divided by its peak (<see cref="Image.ModelRangeDivisor"/>): the gradient step
+    /// multiplies the result back, the enhance pipeline (<c>SharpenPipeline.ProcessAsync</c>, every route) runs on the
+    /// divided image as it did before (#2504).</para>
+    /// <para><b>Not <c>SATURATE</c>.</b> That card says where saturation is, and a lifted star above 1.0 is not saturated:
+    /// a reader that leaves out stars above <c>SATURATE</c> would leave out exactly the stars a deblur kept.</para>
+    /// </remarks>
+    public bool UnitReferred { get; init; }
+
+    /// <summary>
     /// How many times quieter an enhance left this image than its input (the mean noise in over the noise out, compounding
     /// over earlier enhances), null for an image no enhance has touched; FITS card <c>NOISERED</c>. A stretch sizes its
     /// black point by the noise, and the noise of a denoised frame is a fraction of the data's real depth, so every auto
@@ -439,12 +463,15 @@ public record struct ImageMeta(
     /// saturated, a frame peaking at 0.5 sits at half well. Single implementation shared by
     /// <see cref="Image"/>'s rescale paths and <see cref="Planetary.LiveCameraFrameStream"/> --
     /// a re-inlined copy at any consumer drifts the moment this logic changes.
+    /// <para>A rescale also clears <see cref="UnitReferred"/>: the samples are no longer on the scale whose full scale
+    /// was 1.0 (a unit image multiplied out to ADU, or divided by its own peak), so the peak decides again.</para>
     /// </summary>
     internal readonly ImageMeta Rescale(float pixelScaleFactor)
     {
-        return SensorFullScaleAdu is { } adu
+        var rescaled = SensorFullScaleAdu is { } adu
             ? this with { SensorFullScaleAdu = adu * pixelScaleFactor }
             : this;
+        return pixelScaleFactor != 1f && rescaled.UnitReferred ? rescaled with { UnitReferred = false } : rescaled;
     }
 
     /// <summary>

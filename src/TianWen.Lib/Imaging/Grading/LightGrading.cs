@@ -254,7 +254,7 @@ public static partial class LightGrading
             : image.GetStarMaskedMedianAndMADScaledToUnit(image.ReferenceStarChannel, mask);
         // The statistic is (median - MinValue) / divisor, the divisor 1 on a scaled image and the observed peak on one in counts:
         // undo both to the image's own units, then by the scale the document spent.
-        var divisor = image.HasUnitScalePeak ? 1f : image.MaxValue;
+        var divisor = image.IsUnitReferred ? 1f : image.MaxValue;
         return (median * divisor + image.MinValue) * (fullScaleAdu ?? 1f);
     }
 
@@ -312,7 +312,7 @@ public static partial class LightGrading
         var (_, median, _) = raw.IsCfaMosaic
             ? raw.GetPedestralMedianAndMADScaledToUnit(0, cfa: CfaChannel.Green)
             : raw.GetPedestralMedianAndMADScaledToUnit(raw.ReferenceStarChannel);
-        var divisor = raw.HasUnitScalePeak ? 1f : raw.MaxValue;
+        var divisor = raw.IsUnitReferred ? 1f : raw.MaxValue;
         return median * divisor + raw.MinValue;
     }
 

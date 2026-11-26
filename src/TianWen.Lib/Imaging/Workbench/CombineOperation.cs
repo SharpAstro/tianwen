@@ -38,9 +38,12 @@ public sealed class CombineOperation(
     public const string Id = "combine";
 
     /// <inheritdoc/>
+    /// <remarks>Version 2 (2026-11-26, #2504): with <c>deblur</c>, the deblurred planes say they are on a unit scale
+    /// (<c>UNITREF</c>), so the composed colour stays on its masters' scale where it used to be divided by the brightest
+    /// star the deblur lifted; the same settings give other pixels, and a version 1 result runs again.</remarks>
     public override OperationDescription Description { get; } = new(
         Id,
-        Version: 1,
+        Version: 2,
         Title: "Combine",
         Verb: "image combine",
         OperationOutputKind.Stored,

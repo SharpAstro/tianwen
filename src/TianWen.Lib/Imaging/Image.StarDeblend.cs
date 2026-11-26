@@ -621,7 +621,7 @@ public partial class Image
             return 0;
         }
 
-        var aduScale = HasUnitScalePeak ? ushort.MaxValue : 1.0f;
+        var aduScale = IsUnitReferred ? ushort.MaxValue : 1.0f;
         var aduSdBg = context.NoiseSd * aduScale;
         var backgroundVariance = radius * radius * MathF.PI * aduSdBg * aduSdBg;
         var fwhm = 2f * MathF.Sqrt(2f * MathF.Log(2f)) * sigma;

@@ -328,7 +328,7 @@ public sealed class LiveCameraFrameStream : IPlanetaryFrameStream
         // metadata: an already-[0,1] source (SER, or a frame normalised upstream that still carries a
         // stale ADU-domain SensorFullScaleAdu) must pass through unscaled rather than be divided again.
         // SplitIntoRingPlanes takes the same scale the same way.
-        var scale = src.HasUnitScalePeak ? 1f : 1f / src.UnitScaleDivisor;
+        var scale = src.IsUnitReferred ? 1f : 1f / src.UnitScaleDivisor;
         for (var c = 0; c < channels; c++)
         {
             // Every sample of the recycled plane is written, so nothing of the frame it last held survives.
@@ -371,7 +371,7 @@ public sealed class LiveCameraFrameStream : IPlanetaryFrameStream
     /// </summary>
     private Image SplitIntoRingPlanes(Image mosaic)
     {
-        var scale = mosaic.HasUnitScalePeak ? 1f : 1f / mosaic.UnitScaleDivisor;
+        var scale = mosaic.IsUnitReferred ? 1f : 1f / mosaic.UnitScaleDivisor;
         var ox = mosaic.ImageMeta.BayerOffsetX & 1;
         var oy = mosaic.ImageMeta.BayerOffsetY & 1;
         var dst = new float[4][,];

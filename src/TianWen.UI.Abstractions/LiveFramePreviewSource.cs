@@ -302,9 +302,9 @@ namespace TianWen.UI.Abstractions
             // preview, its pixel readout and its statistics agree with the frame opened from disk. It divided
             // by the observed peak, which put every number on the frame's brightest pixel, and stretched a frame
             // already on [0, 1] with a peak of 0.8 to 1 while its statistics stayed at face value.
-            var divisor = image.HasUnitScalePeak ? 1f : image.UnitScaleDivisor;
+            var divisor = image.IsUnitReferred ? 1f : image.UnitScaleDivisor;
             var inv = divisor > 0f ? 1f / divisor : 1f;
-            _fullScaleAdu = image.HasUnitScalePeak || divisor <= 0f ? null : divisor;
+            _fullScaleAdu = image.IsUnitReferred || divisor <= 0f ? null : divisor;
             for (var c = 0; c < channelCount; c++)
             {
                 var src = image.GetChannelSpan(c);

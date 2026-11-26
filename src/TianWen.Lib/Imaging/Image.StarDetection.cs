@@ -1069,7 +1069,7 @@ public partial class Image
         // the same thing on a [0,1] master as on a raw ADU frame. Asks Image for the verdict -- this
         // was a THIRD spelling of it, and being the one inside AnalyseStar it is the one that decides
         // whether a star survives, so a frame could pass the histogram gate and still detect nothing.
-        var aduScale = HasUnitScalePeak ? ushort.MaxValue : 1.0f;
+        var aduScale = IsUnitReferred ? ushort.MaxValue : 1.0f;
         var aduFlux = flux * aduScale;
         var aduSdBg = sd_bg * aduScale;
         var snr = aduFlux / MathF.Sqrt(aduFlux + r_aperture * r_aperture * MathF.PI * aduSdBg * aduSdBg);
