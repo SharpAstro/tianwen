@@ -11008,6 +11008,47 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     sees the case it most misses as rarely as R4h did; and a bigger net learns unrealistic stars better (round 2's
     ranked list, item 6).
   - **Nothing is adopted;** adoption is the owner's.
+- **How crowded the training data stand against the fields the crowded rows are scored on, 2026-11-26 (a measurement:
+  no training, no arm).** The same count on both sides: the star layer's local maxima (3 x 3) at 3 sigma or more in the
+  33 px square about each pixel. On a training draw the star layer is the draw less its answer, in the draw's own noise
+  (`training/denoise/crowd_weight_share.py`, 400 training cells at random, one draw each); on a scoring master it is the
+  master less StarXTerminator's plate, in the plate's noise (`training/star-removal/field_crowding.py`); on a rendered
+  scene the composite less its noisy starless truth (`training/star-removal/scene_crowding.py`).
+
+  | | median | 90th percentile | 99th percentile | share at 20 or more |
+  |---|---|---|---|---|
+  | R4h's training draws (`r2-synth32`) | 6 | 13 | 20 | about 1 % |
+  | F6's cluster scenes (`r3-clusters-master-cache`, R4a's) | 10 | 16 | 33 | |
+  | Andromeda (level with StarXTerminator) | 8 | 12 | 15 | 0.0 % |
+  | Sagittarius (2 to 3 points behind on its crowded row) | 9 | 18 | 31 | 8.1 % |
+  | the held-out Tarantula (4 to 6 points behind) | 25 | 36 | 42 | 73.5 % |
+
+  - **What it says.** The crowded gap grows with a crowding the training data does not hold: three quarters of the
+    Tarantula frame stands where 1 % of R4h's training pixels do. R4l changes the net and not the data, so this speaks
+    against the upper end of its prediction; its registration stands as written.
+  - **What it changes in the order of the routes.** A crowding weight on R4h's data can only weigh up the moderately
+    busy sky those draws hold. `--crowd-weight` (below) with a ramp from 12 to 40 peaks puts 10.2 % of the pixels inside
+    the rim on the ramp and 0.004 % at the whole weight, and with a weight of 4 the weighed-up pixels carry 13.9 % of
+    the weighted mean's mass; a ramp from the draws' median to their 99th percentile (6 to 20) carries 60.9 % against
+    44.3 % plain, all of it sky far less crowded than the Tarantula's. So the denser scenes come first, and the
+    weighting is registered on them.
+  - **The denser scenes' density, probed** (single scenes of F6's recipe, no compact groups, measured optics, no
+    rotation, a cluster of 2,000 stars at core 50 px): a field density of 0.006 a square pixel (F6's) reads a median
+    of 10, matching its cache above; 0.015 reads 22 and 0.025 reads 31. At 0.018 four scenes (seeds 7 and 11, with and
+    without the nebula) read a median of 25, the 90th percentile 29, the 99th 35 to 36, 96.5 to 96.7 % at 20 or more.
+    The Tarantula's tail is heavier (36 and 42); an export's skies draw cluster cores from 20 to 90 px, which adds to it.
+  - **The tools, in the tree, used by no arm yet:**
+    - `n2n_smoke.py --crowd-weight` (with `--crowd-sigma`, `--crowd-radius`, `--crowd-from`, `--crowd-full`): that
+      count about each pixel, ramped from weight 1 to the whole weight, as a weighted mean in the training objective's
+      pixel and band terms (`crowd_weights`, beside `--bright-weight`). The plateau keeps the plain held-out objective,
+      so it stops as the parent's does. Off, a run and its fingerprint are as they were (`test_n2n_crowd_weight.py`).
+    - `tianwen dataset synthetic-cluster --export-max-groups N`: each exported sky draws 0 to N compact groups (8 as
+      before); the cap is the sky's last draw, so every other value of a sky stays as the default draws it (tested over
+      200 seeds). The cap is not in the output's guard, and a re-run skips every sky whose fragment exists, so a cap
+      gets an output folder of its own (as `--nebula-share` does); a second cap beside an earlier one gives a mixed set
+      that only the scene table's `sub_clusters` column shows. The denser scenes draw none, by the free check above.
+  - **Nothing is adopted.** The denser scenes' export and their arm get a registration of their own, the export made
+    by a build of main that holds these tools.
 
 #### The dig floor inside bright nebula: floor4, and what it leaves (2026-11-20)
 

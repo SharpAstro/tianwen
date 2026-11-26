@@ -228,13 +228,15 @@ public sealed class SyntheticClusterSceneTests
         var ct = TestContext.Current.CancellationToken;
 
         var refused = await Should.ThrowAsync<InvalidOperationException>(
-            () => SyntheticClusterExport.RunAsync(run, 2, 1, [ClusterOptics.Plain], 0.5, 1, stretchFromMaster: true, progress: null, ct));
+            () => SyntheticClusterExport.RunAsync(run, 2, 1, [ClusterOptics.Plain], 0.5, 1, stretchFromMaster: true,
+                SyntheticClusterExport.DefaultMaxGroups, progress: null, ct));
         refused.Message.ShouldContain("rendered under the faint-grain truth; a run under the no-faint-grain truth");
         File.Exists(truthFile).ShouldBeFalse("a refused run records nothing");
 
         var oldRule = run with { Base = spec with { FaintGrainInTruth = true } };
         await Should.ThrowAsync<InvalidDataException>(
-            () => SyntheticClusterExport.RunAsync(oldRule, 2, 1, [ClusterOptics.Plain], 0.5, 1, stretchFromMaster: true, progress: null, ct));
+            () => SyntheticClusterExport.RunAsync(oldRule, 2, 1, [ClusterOptics.Plain], 0.5, 1, stretchFromMaster: true,
+                SyntheticClusterExport.DefaultMaxGroups, progress: null, ct));
         File.ReadAllText(truthFile).Trim().ShouldBe("faint-grain", "the output's own rule passes and is recorded");
 
         // An output a run claimed and wrote no sky into (a second run started beside the first, or a stopped one) still
@@ -242,8 +244,27 @@ public sealed class SyntheticClusterSceneTests
         var claimed = folders.Create("cluster-export").FullName;
         File.WriteAllText(Path.Combine(claimed, SyntheticClusterExport.TruthFileName), "faint-grain\n");
         var beside = await Should.ThrowAsync<InvalidOperationException>(
-            () => SyntheticClusterExport.RunAsync(run with { OutDir = claimed }, 2, 1, [ClusterOptics.Plain], 0.5, 1, stretchFromMaster: true, progress: null, ct));
+            () => SyntheticClusterExport.RunAsync(run with { OutDir = claimed }, 2, 1, [ClusterOptics.Plain], 0.5, 1, stretchFromMaster: true,
+                SyntheticClusterExport.DefaultMaxGroups, progress: null, ct));
         beside.Message.ShouldContain("claimed for the faint-grain truth (truth.txt) and holds no sky yet; delete that file");
+    }
+
+    /// <summary>An export's cap on the compact groups changes how many a sky draws and nothing else of it: the group count is
+    /// the sky's last draw, so a capped sky has the default sky's rotation, nebula and cluster.</summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(3)]
+    public void ACapOnTheGroupsLeavesTheRestOfTheSkyAsItWas(int maxGroups)
+    {
+        for (var seed = 1; seed <= 200; seed++)
+        {
+            var plain = SyntheticClusterExport.Sky.Draw(seed, 2.0 / 3.0);
+            var capped = SyntheticClusterExport.Sky.Draw(seed, 2.0 / 3.0, maxGroups);
+
+            capped.SubClusters.ShouldBeInRange(0, maxGroups);
+            (capped with { SubClusters = plain.SubClusters }).ShouldBe(plain);
+        }
+        SyntheticClusterExport.Sky.Draw(1, 0.5).ShouldBe(SyntheticClusterExport.Sky.Draw(1, 0.5, SyntheticClusterExport.DefaultMaxGroups));
     }
 
     [Theory]

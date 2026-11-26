@@ -61,6 +61,9 @@ public static class SyntheticClusterExport
     /// <summary>Whose stretch the output's tiles are in, <c>master</c> or <c>plate</c>, written by its first run.</summary>
     public const string StretchFileName = "stretch.txt";
 
+    /// <summary>The most compact groups a sky draws unless a run caps it (<see cref="Sky.Draw"/>).</summary>
+    public const int DefaultMaxGroups = 8;
+
     /// <summary>
     /// Which truth rule the output's skies were rendered under (<see cref="TruthRule"/>), written by its first run. An output
     /// that holds skies and no such file was written before the rule was recorded, when every export kept the faint grain.
@@ -104,23 +107,29 @@ public static class SyntheticClusterExport
     /// One sky's own draw: a rotation, whether it has a nebula, and its cluster, from ranges that bracket the two skies gated
     /// first (2,500 stars at core radii of 25 and 80 px, tidal radii of 300 and 450, none and six compact groups): 1,500 to
     /// 3,000 resolved cluster stars, a core radius log-uniform from 20 to 90 px, a tidal radius from 250 to 500 px and at
-    /// least three cores, and up to eight groups.
+    /// least three cores, and up to eight groups (<see cref="DefaultMaxGroups"/>).
     /// </summary>
     public sealed record Sky(int Seed, double RotationDeg, bool Nebula, int ClusterStars, double CoreRadiusPx, double TidalRadiusPx, int SubClusters)
     {
         /// <summary>Whether this sky is held out.</summary>
         public bool IsHeldOut => HeldOut(Seed);
 
-        /// <summary>The sky drawn for <paramref name="seed"/>, a nebula with probability <paramref name="nebulaShare"/>.</summary>
-        public static Sky Draw(int seed, double nebulaShare)
+        /// <summary>
+        /// The sky drawn for <paramref name="seed"/>, a nebula with probability <paramref name="nebulaShare"/> and 0 to
+        /// <paramref name="maxGroups"/> compact groups. The group count is the last draw, so a cap leaves every other value
+        /// of the sky as the default draws it; 0 draws none (the denser scenes of 2026-11-26: the judge keeps about a third
+        /// of a real compact cluster's glow, so a scene that calls one all stars is further from it than the model is).
+        /// </summary>
+        public static Sky Draw(int seed, double nebulaShare, int maxGroups = DefaultMaxGroups)
         {
+            ArgumentOutOfRangeException.ThrowIfNegative(maxGroups);
             var rng = new Random(unchecked((seed * 7919) + 0x3c6ef372));
             var rotation = rng.NextDouble() * 360.0;
             var nebula = rng.NextDouble() < nebulaShare;
             var stars = 1500 + rng.Next(1501);
             var core = 20.0 * Math.Pow(90.0 / 20.0, rng.NextDouble());
             var tidal = Math.Max(3.0 * core, 250.0 + (250.0 * rng.NextDouble()));
-            var groups = rng.Next(0, 9);
+            var groups = rng.Next(0, maxGroups + 1);
             return new Sky(seed, rotation, nebula, stars, core, tidal, groups);
         }
 
@@ -149,10 +158,11 @@ public static class SyntheticClusterExport
     /// <paramref name="run"/>'s master in each of <paramref name="optics"/>, <paramref name="concurrency"/> at a time over one
     /// shared source, and writes their tiles under <paramref name="run"/>'s output, stretched with the master's parameters or,
     /// with <paramref name="stretchFromMaster"/> false, the plate's; then rebuilds the manifest, the lists and the scene table
-    /// from every fragment there.
+    /// from every fragment there. Each sky draws 0 to <paramref name="maxGroups"/> compact groups; the scene table records how
+    /// many each one drew.
     /// </summary>
     public static async Task<Result> RunAsync(SyntheticClusterRun run, int firstSeed, int skies, ImmutableArray<ClusterOptics> optics,
-        double nebulaShare, int concurrency, bool stretchFromMaster, IProgress<string>? progress, CancellationToken cancellationToken)
+        double nebulaShare, int concurrency, bool stretchFromMaster, int maxGroups, IProgress<string>? progress, CancellationToken cancellationToken)
     {
         var stretchName = stretchFromMaster ? "master" : "plate";
         Directory.CreateDirectory(run.OutDir);
@@ -219,7 +229,7 @@ public static class SyntheticClusterExport
                     Interlocked.Increment(ref skipped);
                     return;
                 }
-                var sky = Sky.Draw(seed, nebulaShare);
+                var sky = Sky.Draw(seed, nebulaShare, maxGroups);
                 var rows = new StringBuilder();
                 var scenes = new StringBuilder();
                 foreach (var o in optics)
