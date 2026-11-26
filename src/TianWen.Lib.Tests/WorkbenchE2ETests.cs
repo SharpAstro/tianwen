@@ -26,7 +26,9 @@ public sealed class WorkbenchE2ETests : IDisposable
 
     public void Dispose() => _folders.Dispose();
 
-    private OperationCatalog Catalog() => new([_add, _served]);
+    private readonly GateOperation _gate = new();
+
+    private OperationCatalog Catalog() => new([_add, _served, _gate]);
 
     private WorkbenchRunner Runner() => new(Catalog());
 
@@ -259,6 +261,219 @@ public sealed class WorkbenchE2ETests : IDisposable
         e2e.Regions().Any(static r => r.Result is HitResult.ButtonHit hit && hit.Action.StartsWith("Image:", StringComparison.Ordinal))
             .ShouldBeFalse("an image choice only where the project has more than one");
     }
+
+    // Selects a step by pressing its cell and pumps until the runner's status through it is on the bar.
+    private static async Task SelectAsync(WorkbenchE2E e2e, int index, System.Threading.CancellationToken ct)
+    {
+        e2e.Click(e2e.StepCells()[index]);
+        await e2e.PumpUntilAsync(() => e2e.State.Plan is { } plan && plan.Index == index, $"the status through step {index + 1}", ct);
+    }
+
+    private static async Task SettleAsync(WorkbenchE2E e2e, System.Threading.CancellationToken ct)
+        => await e2e.PumpUntilAsync(() => !e2e.Actions.Jobs.IsRunning && e2e.State.Plan is not null && !e2e.State.IsReading, "the run to end and the bar to show the runner's answer", ct);
+
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task SelectingAStepSaysBeforeAnythingRunsWhichEarlierStepsWillRunAndWhichAreKeptAndTheButtonSaysWhatItWillDo(float dpi)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (folder, _) = await ProjectAsync("plan", refusedStep: false);
+        (await Runner().RunAsync(folder, new WorkbenchRunOptions { Image = "m", Through = 0 }, ct)).Refusal.ShouldBeNull();
+        var runs = _add.Runs;
+        await using var e2e = WorkbenchE2E.Start(dpi, Runner(), Catalog());
+        await e2e.OpenProjectAsync(folder, ct);
+        e2e.State.SelectedStep.ShouldBe(0);
+        await e2e.PumpUntilAsync(() => e2e.State.Plan is not null, "the first plan", ct);
+
+        await SelectAsync(e2e, 2, ct);
+
+        var cells = e2e.StepCells();
+        e2e.TextsIn(cells[0]).ShouldContain("kept", "step 1 is in the store");
+        e2e.TextsIn(cells[1]).ShouldContain("will run", "step 2 is not, and step 3 needs it");
+        e2e.TextsIn(cells[2]).ShouldContain("will run");
+        Normalise(e2e.PanelText()).ShouldContain("Run to here (runs 2 first)", Case.Sensitive, "the button says what runs before");
+        _add.Runs.ShouldBe(runs, "selecting ran nothing");
+
+        await SelectAsync(e2e, 0, ct);
+        Normalise(e2e.PanelText()).ShouldContain("Nothing to run: this step is kept", Case.Sensitive);
+        e2e.Texts().ShouldNotContain(t => t.Text == "Run to here", "no button to press where nothing needs to run");
+
+        await SelectAsync(e2e, 1, ct);
+        e2e.Texts().ShouldContain(t => t.Text == "Run to here", "a step that will run, with nothing before it to run first, says so plainly");
+    }
+
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task RunToHereMakesTheStepsResultAndTheBarThenShowsTheRunnersAnswer(float dpi)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (folder, _) = await ProjectAsync("runhere", refusedStep: false);
+        await using var e2e = WorkbenchE2E.Start(dpi, Runner(), Catalog());
+        await e2e.OpenProjectAsync(folder, ct);
+        await SelectAsync(e2e, 1, ct);
+
+        e2e.ClickText("Run to here (runs 1 first)");
+        await SettleAsync(e2e, ct);
+
+        _add.Runs.ShouldBe(2, "steps 1 and 2 ran, and nothing after");
+        var cells = e2e.StepCells();
+        var answer = Image(await Runner().StatusAsync(folder, "m", ct)).Steps;
+        for (var i = 0; i < cells.Length; i++)
+        {
+            e2e.TextsIn(cells[i]).ShouldContain(answer[i].Words, $"step {i + 1} shows the runner's state after the run");
+        }
+
+        answer[0].State.ShouldBe(StepState.Kept);
+        answer[1].State.ShouldBe(StepState.Kept);
+        answer[2].State.ShouldBe(StepState.WillRun);
+        Normalise(e2e.PanelText()).ShouldContain("The run finished.", Case.Sensitive, "the job panel says how it ended");
+    }
+
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task RunOnGoesToTheEndOfTheListAndStopsAtTheFirstRefusedStepAndSaysWhy(float dpi)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (folder, _) = await ProjectAsync("runon");
+        await using var e2e = WorkbenchE2E.Start(dpi, Runner(), Catalog());
+        await e2e.OpenProjectAsync(folder, ct);
+        e2e.State.RunOn.ShouldBeTrue("on by default");
+        await e2e.PumpUntilAsync(() => e2e.State.Plan is not null, "the first plan", ct);
+
+        e2e.ClickText("Run on from step 1");
+        await SettleAsync(e2e, ct);
+
+        _add.Runs.ShouldBe(2, "the adds before the refused step ran, and the one behind it did not");
+        var reason = Image(await Runner().StatusAsync(folder, "m", ct)).Steps[3].Message!;
+        e2e.State.SelectedStep.ShouldBe(3, "the step that stopped the run is selected");
+        var panel = Normalise(e2e.PanelText());
+        panel.ShouldContain("Stopped at step 4", Case.Sensitive);
+        panel.ShouldContain(Normalise(reason), Case.Insensitive, "and why");
+    }
+
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task WithTheSwitchOffARunMakesOnlyTheNextStepThatIsNotKeptAndStopsThere(float dpi)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (folder, _) = await ProjectAsync("runoff", refusedStep: false);
+        await using var e2e = WorkbenchE2E.Start(dpi, Runner(), Catalog());
+        await e2e.OpenProjectAsync(folder, ct);
+        await e2e.PumpUntilAsync(() => e2e.State.Plan is not null, "the first plan", ct);
+
+        e2e.Click(e2e.Region("RunOn"));
+        e2e.State.RunOn.ShouldBeFalse();
+        e2e.ClickText("Run step 1");
+        await SettleAsync(e2e, ct);
+
+        _add.Runs.ShouldBe(1, "one step");
+        e2e.State.SelectedStep.ShouldBe(0, "stopped with that step selected");
+        e2e.Texts().ShouldContain(t => t.Text == "Run step 2", "the next step is the one the button now offers");
+
+        e2e.ClickText("Run step 2");
+        await SettleAsync(e2e, ct);
+        _add.Runs.ShouldBe(2);
+        e2e.State.SelectedStep.ShouldBe(1);
+    }
+
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task OneRunAtATimeTheJobPanelShowsTheStepItsFractionAndItsLinesAndCancelEndsItWithTheBarShowingTheRunnersState(float dpi)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("gate-").FullName;
+        var master = WorkbenchFixtures.WriteMaster(folder, "master", WorkbenchFixtures.Master(seed: 1));
+        await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(WorkbenchFixtures.Picture("m", master,
+            WorkbenchFixtures.Edit("add", Amount(1)), WorkbenchFixtures.Edit("gate"))), ct);
+        await using var e2e = WorkbenchE2E.Start(dpi, Runner(), Catalog());
+        await e2e.OpenProjectAsync(folder, ct);
+        await SelectAsync(e2e, 1, ct);
+
+        e2e.ClickText("Run to here (runs 1 first)");
+        await e2e.PumpFramesUntilAsync(() => _gate.Started.Task.IsCompleted && e2e.Actions.Jobs.State.Fraction is not null, "the step at its gate", ct);
+
+        var panel = Normalise(e2e.PanelText());
+        panel.ShouldContain("Step 2, Gate: 50 percent", Case.Sensitive, "the running step, and its fraction in words");
+        panel.ShouldContain("at the gate", Case.Sensitive, "the run's line");
+        e2e.Texts().ShouldContain(t => t.Text == "Cancel");
+        e2e.Texts().ShouldNotContain(t => t.Text.StartsWith("Run to here", StringComparison.Ordinal) || t.Text.StartsWith("Run on", StringComparison.Ordinal),
+            "no second start is offered while one runs");
+        e2e.Actions.Jobs.TryStart(folder, "m", through: null).ShouldBeFalse();
+
+        e2e.ClickText("Cancel");
+        await SettleAsync(e2e, ct);
+
+        e2e.Actions.Jobs.State.Outcome.ShouldBe(WorkbenchJobOutcome.Cancelled);
+        Normalise(e2e.PanelText()).ShouldContain("The run was cancelled.", Case.Sensitive);
+        var answer = Image(await Runner().StatusAsync(folder, "m", ct)).Steps;
+        answer[0].State.ShouldBe(StepState.Kept, "step 1 finished before the gate");
+        var cells = e2e.StepCells();
+        e2e.TextsIn(cells[1]).ShouldContain(answer[1].Words, "the bar shows what the runner says after the cancel");
+    }
+
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task ResultShowsTheSelectedStepsStoredResultAndComparisonItsInputAgainstItsResultThroughTheSplit(float dpi)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (folder, master) = await ProjectAsync("views", refusedStep: false);
+        (await Runner().RunAsync(folder, new WorkbenchRunOptions { Image = "m", Through = 1 }, ct)).Refusal.ShouldBeNull();
+        var steps = Image(await Runner().StatusAsync(folder, "m", ct)).Steps;
+        await using var e2e = WorkbenchE2E.Start(dpi, Runner(), Catalog());
+        await e2e.OpenProjectAsync(folder, ct);
+        await e2e.PumpUntilAsync(() => e2e.Controller.Document is not null, "the original", ct);
+        await SelectAsync(e2e, 1, ct);
+
+        e2e.ClickText("Result");
+        await e2e.PumpUntilAsync(() => SameFile(e2e.Controller.Document?.FilePath, steps[1].Output), "step 2's result to open", ct);
+        e2e.Viewer.Split.IsOn.ShouldBeFalse();
+
+        e2e.ClickText("Comparison");
+        await e2e.PumpUntilAsync(() => e2e.Viewer.Split.IsOn && SameFile(e2e.Controller.Document?.FilePath, steps[1].Output), "the comparison", ct);
+        e2e.Viewer.Split.Mode.ShouldBe(SplitCompare.BeforePixels, "the input's pixels were retained, so the split compares pixels");
+        e2e.Viewer.Retentions.ShouldBe(1);
+        e2e.Viewer.HasBeforeImageTextures.ShouldBeTrue();
+        e2e.Viewer.Split.PixelsGeneration.ShouldBe(e2e.ViewerState.SourceGeneration, "the before pixels belong to what is on show");
+
+        // Step 1's input is the original file; step 2's is step 1's stored result.
+        e2e.ClickText("Original");
+        await e2e.PumpUntilAsync(() => SameFile(e2e.Controller.Document?.FilePath, master) && !e2e.Viewer.Split.IsOn, "the original again", ct);
+        e2e.Viewer.HasBeforeImageTextures.ShouldBeFalse("leaving the comparison frees the retained pixels");
+    }
+
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task AStepWithNoFileOfItsOwnSaysSoInWordsAndTheChoiceIsNotOffered(float dpi)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (folder, _) = await ProjectAsync("nofile", refusedStep: false);
+        await using var e2e = WorkbenchE2E.Start(dpi, Runner(), Catalog());
+        await e2e.OpenProjectAsync(folder, ct);
+        await SelectAsync(e2e, 1, ct);
+
+        e2e.Texts().ShouldContain(t => t.Text == "Original");
+        e2e.Texts().ShouldNotContain(t => t.Text == "Result", "step 2 is not made yet");
+        e2e.Texts().ShouldNotContain(t => t.Text == "Comparison");
+        var panel = Normalise(e2e.PanelText());
+        panel.ShouldContain("Step 2 has not been made yet.", Case.Sensitive, "said in words");
+        panel.ShouldContain("Step 2 has no result to compare", Case.Sensitive);
+
+        // The unknown operation is refused: nothing was made, and the words say so.
+        var (refusedFolder, _) = await ProjectAsync("nofile2");
+        await e2e.OpenProjectAsync(refusedFolder, ct);
+        await SelectAsync(e2e, 3, ct);
+        Normalise(e2e.PanelText()).ShouldContain("Step 4 made nothing: it is refused.", Case.Sensitive);
+        e2e.Texts().ShouldNotContain(t => t.Text == "Result");
+    }
+
+    private static bool SameFile(string? a, string? b) => a is not null && b is not null && string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 
     private static RectF32 PanelRect(WorkbenchE2E e2e)
     {

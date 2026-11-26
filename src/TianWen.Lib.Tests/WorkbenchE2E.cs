@@ -40,7 +40,7 @@ internal sealed class WorkbenchE2E : IAsyncDisposable
         FileDialog = Substitute.For<IFileDialogs>();
         Controller = new ViewerController(ViewerState, new DocumentCache(), FileDialog, Substitute.For<IPlateSolverFactory>(),
             Clock, Tracker, NullLogger<ViewerController>.Instance, external: null);
-        Viewer = new ViewerE2E.Surface(_renderer, Bus) { DpiScale = dpiScale };
+        Viewer = new RetainingSurface(_renderer, Bus) { DpiScale = dpiScale };
         State = new WorkbenchState();
         Actions = new WorkbenchActions(State, ViewerState, runner, catalog, Tracker, FileDialog, Clipboard.Add,
             NullLogger.Instance, _appCts.Token);
@@ -67,7 +67,7 @@ internal sealed class WorkbenchE2E : IAsyncDisposable
 
     internal ViewerController Controller { get; }
 
-    internal ViewerE2E.Surface Viewer { get; }
+    internal RetainingSurface Viewer { get; }
 
     internal BackgroundTaskTracker Tracker { get; }
 
@@ -122,6 +122,53 @@ internal sealed class WorkbenchE2E : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Runs frames until <paramref name="done"/> holds, whatever work is still going: for a state that is only there while a run
+    /// is, such as a step waiting at its gate. As <see cref="PumpUntilAsync"/> it waits between frames only as long as the test's
+    /// token allows.
+    /// </summary>
+    internal async Task PumpFramesUntilAsync(Func<bool> done, string what, CancellationToken ct)
+    {
+        while (true)
+        {
+            Frame();
+            if (done())
+            {
+                Frame();
+                return;
+            }
+
+            try
+            {
+                await Task.Delay(10, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw new TimeoutException($"gave up waiting for {what}");
+            }
+        }
+    }
+
+    /// <summary>A viewer that keeps what a before-pixels request asks it to, as the GPU viewer does, and counts the retentions.</summary>
+    internal sealed class RetainingSurface(RgbaImageRenderer renderer, SignalBus bus) : ViewerE2E.Surface(renderer, bus)
+    {
+        private bool _retained;
+
+        /// <summary>How often the viewer was asked to keep the pixels on show as the before half.</summary>
+        internal int Retentions { get; private set; }
+
+        public override bool HasBeforeImageTextures => _retained;
+
+        public override bool TryRetainImageTexturesAsBefore()
+        {
+            _retained = true;
+            Retentions++;
+            return true;
+        }
+
+        public override void ReleaseBeforeImageTextures() => _retained = false;
+    }
+
     /// <summary>Opens a project folder and pumps frames until the runner's answer is on screen.</summary>
     internal async Task OpenProjectAsync(string folder, CancellationToken ct, string? image = null)
     {
@@ -136,6 +183,18 @@ internal sealed class WorkbenchE2E : IAsyncDisposable
         Host.HandlePointer(new InputEvent.MouseDown(x, y, MouseButton.Left));
         Host.HandlePointer(new InputEvent.MouseUp(x, y, MouseButton.Left));
         Frame();
+    }
+
+    /// <summary>Clicks where the last frame painted this text, which a button or a choice declares as its label.</summary>
+    internal void ClickText(string text)
+    {
+        var found = Texts().Where(t => t.Text == text).ToArray();
+        if (found.Length != 1)
+        {
+            throw new InvalidOperationException($"{found.Length} painted texts are '{text}', not one");
+        }
+
+        Click(found[0].Bounds);
     }
 
     /// <summary>Every clickable region of the last frame.</summary>
