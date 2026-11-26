@@ -11096,8 +11096,11 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     kept share (`sxt_compact_clusters.py`; StarXTerminator 0.32, R4h 0.06 to 0.15), which scenes with no groups may
     move either way; the bright plants and the Lagoon's 84 real stars; what each leaves on route A's four scenes
     (`cluster_models_band.py`); the extra cache's held-out objective beside its training objective at the best step.
-  - **Prediction:** both seeds gain 1 to 3 points over R4h's mean on the two rows of the question (91.2 and 91.7),
-    short of the bars, so "neither"; Sagittarius's crowded flat within a point of R4h's. What speaks for more: the
+  - **Prediction:** both seeds gain 1 to 2.5 points over R4h's mean on the two rows of the question (91.2 and 91.7;
+    93.7 and 94.2, both short of the bars 94.0 and 94.3), so "neither"; Sagittarius's crowded flat within a point of
+    R4h's. The Tarantula's standing-peaks guard (at least 11 of 77) is expected to hold comfortably: the scenes' answers
+    hold no star and no group, so nothing in them teaches the model to take compact light; it is still the guard to read
+    first, as in R4j. What speaks for more: the
     scenes stand at the crowding the rows are read at, where R4h's draws almost never do. What speaks against: R4a's
     cluster scenes, at this same share of the draw, moved nothing; the scenes are one master's stars at one window;
     and an eighth of the draw may be too little to move a net trained on the rest.
