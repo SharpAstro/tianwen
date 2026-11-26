@@ -117,8 +117,7 @@ public sealed class WorkbenchCaptureTests : IDisposable
                 e2e.Click(cells[1]);
                 await e2e.PumpFramesUntilAsync(() => e2e.Actions.ViewOffer() is { ResultOffered: true, ComparisonOffered: true },
                     "step 2's result and comparison offered", ct);
-                e2e.Click(e2e.Regions().Single(r => r.Result is HitResult.ButtonHit hit
-                    && hit.Action == (scenario == "result" ? "View:Result" : "View:Comparison")));
+                e2e.Click(e2e.Region(scenario == "result" ? "View:Result" : "View:Comparison"));
                 e2e.Actions.EffectiveView().ShouldBe(scenario == "result" ? WorkbenchViewKind.Result : WorkbenchViewKind.Comparison);
             }
             else
