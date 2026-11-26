@@ -10928,26 +10928,30 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
 - **What StarXTerminator does with the LMC's compact clusters, 2026-11-26 (a measurement: no training, no arm).** The
   synthetic scenes call a compact cluster (half-light radius under 16 px) all stars, so a model trained on them is asked
   to take a cluster's unresolved light whole. On the held-out Tarantula master, per catalogued LMC cluster inside the
-  frame (OpenNGC's LMC clusters, `lmc-clusters.csv`, a list kept on the owner's machine and not in the tree: the script's docstring
-  says its columns; no half-light cut is applied, only a radius of 3 px or more and the frame margin, so the 35 are not
-  restricted to compact ones. The scenes' group sizes are the `--sub-cluster` defaults in `DatasetSubCommand.cs`), the light inside one catalogue
-  radius above a ring at 1.5 to 2 radii, on each plate, over the plate builder's (which takes resolved stars only, so
-  its excess is the cluster's unresolved light and any star its finder missed): 1 is the glow kept as background, 0
-  taken as stars. 35 clusters stand at 10 times their noise or more (`sxt_compact_clusters.py`):
+  frame (`lmc-clusters.csv` beside the script: OpenNGC's open and globular clusters in and about 30 Doradus, extracted
+  on 2026-10-20 when the scenes' groups were sized, whose size ranges are now the `--sub-cluster` defaults in
+  `DatasetSubCommand.cs`), the light inside one catalogue radius above a ring at 1.5 to 2 radii, on each plate, over
+  the plate builder's (which takes resolved stars only, so its excess is the cluster's unresolved light and any star
+  its finder missed): 1 is the glow kept as background, 0 taken as stars. 35 clusters stand at 10 times their noise or
+  more, 32 of them compact by the scenes' rule (the half-light radius of the builder's excess under 16 px on the
+  scenes' 2.07 arcsec grid, 11.5 px on this master's 2.87) (`sxt_compact_clusters.py`):
 
-  | plate | kept share, median | middle half |
-  |---|---|---|
-  | StarXTerminator | 0.32 | 0.03 to 0.70 |
-  | R4h seed 0 / 1, as trained | 0.15 / 0.14 | -0.01 to 0.51 / 0.03 to 0.32 |
-  | R4h seed 0 / 1, through the chain | 0.10 / 0.06 | 0.01 to 0.42 / 0.00 to 0.24 |
+  | plate | kept share, median (middle half), all 35 | compact 32 | against StarXTerminator per cluster: median difference, keeps less in, all / compact |
+  |---|---|---|---|
+  | StarXTerminator | 0.32 (0.03 to 0.70) | 0.34 (0.07 to 0.72) | |
+  | R4h seed 0, as trained | 0.15 (-0.01 to 0.51) | 0.16 (0.01 to 0.50) | -0.06, 19 of 35 / -0.06, 18 of 32 |
+  | R4h seed 1, as trained | 0.14 (0.03 to 0.32) | 0.15 (0.03 to 0.31) | -0.13, 22 of 35 / -0.15, 21 of 32 |
+  | R4h seed 0, through the chain | 0.10 (0.01 to 0.42) | 0.10 (0.02 to 0.41) | -0.08, 22 of 35 / -0.09, 20 of 32 |
+  | R4h seed 1, through the chain | 0.06 (0.00 to 0.24) | 0.07 (0.01 to 0.23) | -0.13, 23 of 35 / -0.17, 21 of 32 |
 
   - **What it says.** The judge keeps about a third of a real compact cluster's glow, with a wide spread from cluster
-    to cluster, and R4h keeps less: on the medians the model already takes more than the judge (the spreads overlap
-    almost entirely, so the paired per-cluster difference, which `sxt_compact_clusters.py` now prints, is what the decision
-    stands on and is not yet read), where on route A's synthetic scenes it left the drawn groups whole. So the drawn groups are not like the real ones, and scenes that
-    ask for every compact cluster to be taken would pull the model further from the judge on this, which is why the
-    denser scenes above are to leave the groups out. The crowded row reads star by star, so a cluster's glow reaches
-    it only through the stars inside the cluster; this check reads the glow, not that row.
+    to cluster, so it does not take a compact cluster as all stars. R4h leans the other way, cluster by cluster: a
+    median of 0.06 to 0.17 less than the judge, keeping less in 18 to 23 of the clusters, a lean and not a clear
+    split. Either way the scenes' rule (keep none) is further from the judge than the model already is, and on route
+    A's synthetic scenes the model left the drawn groups whole where on these it does not, so the drawn groups are not
+    like the real ones. That is why the denser scenes above are to leave the groups out. The crowded row reads star by
+    star, so a cluster's glow reaches it only through the stars inside the cluster; this check reads the glow, not
+    that row.
 - **R4l, pre-registered 2026-11-26 before any training of it. One change from R4h: the net 1.5 times as wide
   (`--base 48 --max-ch 384` against `--base 32 --max-ch 256`: 1.5 times the channels at every level, 2.25 times the
   weights, 15.44 M against R4h's 6.86 M; four levels and the same reach).**
@@ -10964,7 +10968,8 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     and `r4l_synth32w_s1`; the plateau halves and stops as R4h's does.
   - **Before the launch, measured on the GTX 1070 (no weights kept):** a step of 8 tiles costs 327 ms against R4h's
     155 (forward and backward on tiles in memory), peak memory 1.92 GiB against 1.25, so a seed takes about twice
-    R4h's time: some 20 to 25 hours on the 1070 and about 25 on the T4 (R4h's own hours are not recorded in this plan, so these are the step-time ratio's estimate), under the
+    R4h's time: some 20 to 25 hours on the 1070 and about 25 on the T4 (R4h's seed 0 on the T4 reached its last step,
+    223,500, at 749 minutes by its trainer's log, `r4haz.log`; the step-time ratio gives the rest), under the
     36-hour cap R4h ran with; seed 0's cap is 48 hours, for a low-priority node's preemptions. 400 steps of R4h's
     line at this width, without its held-out checks, ran through on the cache on the 1070.
   - **Read first:** the 1:1 sheets R4h's read lists, with both seeds beside R4h's two and StarXTerminator; then the
