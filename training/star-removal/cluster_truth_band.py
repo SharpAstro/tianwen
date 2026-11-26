@@ -3,10 +3,12 @@ cell, in units of the noise of a 9 px mean) on the cluster scenes' starless trut
 
     python -I cluster_truth_band.py <dir old> <dir new>
 
-For every scene in both dirs (matched by name), per 300 px cell of the 1024 px scene (a 3 x 3 grid 62 px in from the
-edge), on the channels' mean: the band of the noisy starless truth (the training target) old and new, the band of the
-old less the new noise-free truth (the faint grain alone), and the band of the new noise-free truth (the smooth light
-and the nebula's texture). The noise is the noisy truth's own neighbour-difference sigma in the cell. Reads only.
+For every scene in both dirs (matched by name), on the channels' mean: first the composites, the noise-free one (the
+starless truth plus the stars truth) old against new as its largest difference, and the noisy one ({name}.fits) as its
+rms difference in the new noisy truth's noise over the scene; then per 300 px cell of the 1024 px scene (a 3 x 3 grid
+62 px in from the edge) the band of the noisy starless truth (the training target) old and new, the band of the old less
+the new noise-free truth (the faint grain alone), and the band of the new noise-free truth (the smooth light and the
+nebula's texture). The noise is the noisy truth's own neighbour-difference sigma in the cell. Reads only.
 """
 import sys
 from pathlib import Path
@@ -39,9 +41,12 @@ for noisy_old in sorted(old_dir.glob("*_starless_noisy.fits")):
         continue
     no, nn = lum(noisy_old), lum(noisy_new)
     so, sn = lum(old_dir / f"{name}_starless.fits"), lum(new_dir / f"{name}_starless.fits")
+    to, tn = lum(old_dir / f"{name}_stars.fits"), lum(new_dir / f"{name}_stars.fits")
     comp_o, comp_n = lum(old_dir / f"{name}.fits"), lum(new_dir / f"{name}.fits")
-    print(f"=== {name}: composites equal {np.array_equal(comp_o, comp_n)}; "
-          "cell  noisy truth old / new  grain alone (old less new)  new truth noise-free")
+    sig_scene = 1.4826 * np.median(np.abs(np.diff(nn, axis=1))) / np.sqrt(2)
+    print(f"=== {name}: noise-free composite old less new, largest {np.max(np.abs((so + to) - (sn + tn))):.1e} (its peak "
+          f"{np.max(sn + tn):.2f}); noisy composite old less new, rms {np.sqrt(np.mean((comp_o - comp_n) ** 2)) / sig_scene:.4f} noise")
+    print("cell  noisy truth old / new  grain alone (old less new)  new truth noise-free")
     rows = []
     for i in range(3):
         for j in range(3):

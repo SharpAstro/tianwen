@@ -1,6 +1,9 @@
 using System;
+using System.IO;
 using System.Linq;
 using Shouldly;
+using TianWen.AI.Imaging;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.StarRemoval;
 using Xunit;
 
@@ -159,12 +162,49 @@ public sealed class SyntheticClusterSceneTests
         SyntheticClusterScene.StarlessPlane(1.0, surface, grain: default, nebula: null).ShouldBe([1.1f, 1.2f, 1.3f], 1e-6f);
     }
 
-    /// <summary>The owner reversed the rule of 2026-10-20 on 2026-11-26: a scene's starless truth keeps no faint grain unless
-    /// asked to.</summary>
+    /// <summary>The owner reversed the rule of 2026-10-20 on 2026-11-26: a scene's starless truth, as the render takes it from
+    /// its spec, is by default the sky, the smooth expected light and the nebula alone, and keeps the faint populations' grain
+    /// (their departure from their expectation, from <see cref="SyntheticClusterScene.GrainFromScale"/> up) only when asked
+    /// to.</summary>
     [Fact]
-    public void ASceneKeepsNoFaintGrainInItsTruthByDefault()
-        => new SyntheticClusterSpec(1024, 0, 0, 0.0, 1500, 40.0, 400.0, 0.006, 6, 0.25, 1.12, 0.0, 0, 0, ClusterOptics.Plain, [], 1)
-            .FaintGrainInTruth.ShouldBeFalse();
+    public void AScenesStarlessTruthKeepsTheFaintGrainOnlyWhenAskedTo()
+    {
+        const int size = 64;
+        const double sky = 0.05;
+        var spec = new SyntheticClusterSpec(size, 0, 0, 0.0, 1500, 40.0, 400.0, 0.006, 6, 0.25, 1.12, 0.0, 0, 0, ClusterOptics.Plain, [], 1);
+        var rng = new Random(29);
+        var surface = Enumerable.Range(0, size * size).Select(i => 0.1f + (0.001f * (i / size))).ToArray();
+        var deviation = Enumerable.Range(0, size * size).Select(_ => (float)(rng.NextDouble() - 0.5) * 0.02f).ToArray();
+        var nebula = Enumerable.Range(0, size * size).Select(i => 0.002f * (i % size)).ToArray();
+
+        var byDefault = SyntheticClusterScene.StarlessFor(spec, sky, surface, deviation, nebula);
+        var asked = SyntheticClusterScene.StarlessFor(spec with { FaintGrainInTruth = true }, sky, surface, deviation, nebula);
+
+        byDefault.ShouldBe(SyntheticClusterScene.StarlessPlane(sky, surface, grain: default, nebula), "the sky, the expected light and the nebula");
+        var grain = ATrousWaveletTransform.Decompose(deviation, size, size, SyntheticClusterScene.GrainFromScale).Residual.ToArray();
+        grain.Max(Math.Abs).ShouldBeGreaterThan(0f);
+        for (var i = 0; i < grain.Length; i++)
+        {
+            (asked[i] - byDefault[i]).ShouldBe(grain[i], 1e-6f, "asked, the grain from 16 px up is added and nothing else");
+        }
+    }
+
+    /// <summary>One export output holds one truth rule: an output with no sky takes any, a recorded rule is read back, and an
+    /// output whose skies predate the record was written under the faint grain's rule, so a resumed run cannot mix them.</summary>
+    [Fact]
+    public void AnExportOutputSaysWhichTruthItsSkiesWereRenderedUnder()
+    {
+        using var folders = new TempFolders();
+        var outDir = folders.Create("cluster-export").FullName;
+
+        SyntheticClusterExport.WrittenTruthRule(outDir).ShouldBeNull("no sky yet");
+        Directory.CreateDirectory(Path.Combine(outDir, SyntheticClusterExport.FragmentDir));
+        SyntheticClusterExport.WrittenTruthRule(outDir).ShouldBeNull("an empty fragment folder holds no sky");
+        File.WriteAllText(Path.Combine(outDir, SyntheticClusterExport.FragmentDir, "s0001.jsonl"), "{}\n");
+        SyntheticClusterExport.WrittenTruthRule(outDir).ShouldBe("faint-grain", "skies from before the rule was recorded kept the grain");
+        File.WriteAllText(Path.Combine(outDir, SyntheticClusterExport.TruthFileName), SyntheticClusterExport.TruthRule(faintGrainInTruth: false) + "\n");
+        SyntheticClusterExport.WrittenTruthRule(outDir).ShouldBe("no-faint-grain", "the recorded rule wins");
+    }
 
     [Theory]
     [InlineData(2.0, 0.343)]

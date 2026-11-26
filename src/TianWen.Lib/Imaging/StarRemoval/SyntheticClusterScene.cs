@@ -95,10 +95,11 @@ public readonly record struct ClusterTruthStar(double X, double Y, ImmutableArra
 /// A rendered scene. The composite is the sky, the nebula, every star (resolved and unresolved, each drawn as a star) and the
 /// master's noise, in its shape and at its level for the light there. The starless truth (noise-free) is the sky, the nebula
 /// and the broad unresolved populations' light (<see cref="SyntheticClusterScene.SmoothMinHalfLightPx"/>): their density
-/// times their light, through the PSF, never their points, with their own grain from
-/// <see cref="SyntheticClusterScene.GrainFromScale"/> up. The stars truth is the composite, noise-free, less the starless:
-/// every star, a compact cluster's unresolved ones whole, less that light, so it is signed (below zero where the faint stars
-/// fall short of their expectation).
+/// times their light, through the PSF, never their points (and their own grain from
+/// <see cref="SyntheticClusterScene.GrainFromScale"/> up only with <see cref="SyntheticClusterSpec.FaintGrainInTruth"/>; by
+/// default that grain is in the stars truth). The stars truth is the composite, noise-free, less the starless: every star, a
+/// compact cluster's unresolved ones whole, less that light, so it is signed (below zero where the faint stars fall short of
+/// their expectation).
 /// </summary>
 /// <param name="Stars">The stars truth.</param>
 /// <param name="Starless">The starless truth.</param>
@@ -634,12 +635,7 @@ public static class SyntheticClusterScene
                     surfaceFlux[c] += expected;
                 }
             }
-            // The smooth populations' own grain at the scales no star is read at: their draw's departure from its
-            // expectation, smoothed through the starlet's first GrainFromScale scales (what is left varies over 2^GrainFromScale
-            // px and up). Kept in the starless truth only with FaintGrainInTruth (the 2026-10-20 rule); otherwise it is in the
-            // stars truth with the finer grain, since the stars truth is the composite less this plane.
-            var grain = spec.FaintGrainInTruth ? ATrousWaveletTransform.Decompose(deviation, size, size, GrainFromScale).Residual : default;
-            starless[c] = StarlessPlane(source.Sky[c], surface, grain, nebula?[c]);
+            starless[c] = StarlessFor(spec, source.Sky[c], surface, deviation, nebula?[c]);
         }
         var groupsRendered = ImmutableArray.CreateRange(Enumerable.Range(0, groups.Length).Select(k =>
         {
@@ -1064,6 +1060,18 @@ public static class SyntheticClusterScene
         }
         return plane;
     }
+
+    /// <summary>
+    /// One channel of a scene's starless truth, as <see cref="Render"/> takes it from <paramref name="spec"/>: the smooth
+    /// populations' own grain at the scales no star is read at (their draw's departure from its expectation,
+    /// <paramref name="deviation"/>, smoothed through the starlet's first <see cref="GrainFromScale"/> scales, so what is left
+    /// varies over 2^GrainFromScale px and up) is kept only with <see cref="SyntheticClusterSpec.FaintGrainInTruth"/> (the
+    /// 2026-10-20 rule); otherwise it is in the stars truth with the finer grain, since that is the composite less this plane.
+    /// </summary>
+    internal static float[] StarlessFor(SyntheticClusterSpec spec, double sky, float[] surface, float[] deviation, float[]? nebula)
+        => StarlessPlane(sky, surface,
+            spec.FaintGrainInTruth ? ATrousWaveletTransform.Decompose(deviation, spec.Size, spec.Size, GrainFromScale).Residual : default,
+            nebula);
 
     /// <summary>The nebula generator's first kept starlet scale (2^6 = 64 px): the plate's structure from there up
     /// (<see cref="SyntheticBackground.LargeScale"/>). The Tarantula plate's local RMS is flat at 0.3 noise from 8 to 32 px,
