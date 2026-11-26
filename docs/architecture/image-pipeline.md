@@ -447,15 +447,22 @@ result back on the input's scale. On 10P/Tempel 2 BlurX lifted the brightest sta
 background read 0, `FindStarsAsync` returned no stars (the step printed `FWHM 1.83 px -> NaN`), and in a chain every step
 after it divided the frame by 2.995 (the gradient step's sky read 0.00227 for 0.00681).
 
-**Who declares it.** The routine that can lift a highlight past 2.0 says it of its result: `NarrowbandCombination`'s
-one-scale routine, which the deblur (and the single denoise and star removal) runs through, sets `UnitReferred` on a
-result whose input was unit-referred, in memory, so the viewer and `image sharpen` get it as well as a written file.
-Every step after it reads the card into `ImageMeta` and carries its input's metadata onto its result, so the chain says
-it to its end. A file nothing lifted says nothing and keeps its bytes; its peak decides. (Declaring at every read was
+**Who declares it.** The deblur, the one routine that can lift a highlight past 2.0, says it of its result:
+`NarrowbandCombination.DeblurAsync` sets `UnitReferred` on a result whose input was unit-referred, in memory, so the
+viewer and `image sharpen` get it as well as a written file. Every step after it reads the card into `ImageMeta` and
+carries its input's metadata onto its result, so the chain says it to its end. The single denoise and star removal run
+through the same one-scale routine and declare nothing new, so a file nothing lifted says nothing and keeps its bytes;
+its peak decides. (Declaring at every read was
 tried first and dropped: the older verbs read their file themselves, so a step's file and its verb's differed by the
 card.) A rescale clears it (`ImageMeta.Rescale` with a factor other than one): after one, 1.0 is no longer the full
 scale, and the peak decides again. Stacked masters are not declared; they are written on `[0, 1]`
 (`ScaleFloatValuesToUnitCeiling`) and their peak says it.
+
+**A model still takes `[0, 1]`.** GraXpert's background model and TianWen's ONNX denoiser, deconvolvers and star
+remover refuse a peak above 1.5. A declared image above 1.0 reaches one divided by its peak (`Image.ModelRangeDivisor`):
+the gradient step divides it into the model and multiplies the result back, so it writes on its input's scale; the
+enhance (`EnhanceOperation.Start`) and the viewer's enhance take it in divided (`ScaleFloatValuesIntoModelRange`), as
+such a file was before #2504, and their result is on `[0, 1]`. `deblur` and `combine` went to version 2 with this.
 
 **`HasUnitScalePeak` is not a lie, and is still asked where the question is the peak.** It says whether the peak is at
 or under 2.0, and a declared image peaking at 2.995 answers false. The TIFF export asks it on purpose: a float TIFF holds
