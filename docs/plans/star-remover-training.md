@@ -11044,7 +11044,9 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
       so it stops as the parent's does. Off, a run and its fingerprint are as they were (`test_n2n_crowd_weight.py`).
     - `tianwen dataset synthetic-cluster --export-max-groups N`: each exported sky draws 0 to N compact groups (8 as
       before); the cap is the sky's last draw, so every other value of a sky stays as the default draws it (tested over
-      200 seeds). The denser scenes draw none, by the free check above.
+      200 seeds). The cap is not in the output's guard, and a re-run skips every sky whose fragment exists, so a cap
+      gets an output folder of its own (as `--nebula-share` does); a second cap beside an earlier one gives a mixed set
+      that only the scene table's `sub_clusters` column shows. The denser scenes draw none, by the free check above.
   - **Nothing is adopted.** The denser scenes' export and their arm get a registration of their own, the export made
     by a build of main that holds these tools.
 

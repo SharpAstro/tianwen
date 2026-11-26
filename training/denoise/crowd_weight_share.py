@@ -1,6 +1,6 @@
 """How much of a synthetic cache's loss --crowd-weight would reach, before an arm registers its settings.
 
-    python -I crowd_weight_share.py <cache> [--cells 400] [--sigma 3] [--radius 16] [--from 12] [--full 40] [--weight 4]
+    python crowd_weight_share.py <cache> [--cells 400] [--sigma 3] [--radius 16] [--from 12] [--full 40] [--weight 4]
 
 Reads `cells` training cells at random (seed 0), one drawn input each (slot 1 to `draws`) against its clean target (slot
 0) with the draw's own noise plane, as the trainer pairs them, and prints over the pixels inside the trainer's rim: the
