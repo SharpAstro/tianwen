@@ -10732,8 +10732,9 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
       ones at the faintest nebula, about a tenth at 40 to 80 sky sigma and a fiftieth above that, and about a third
       of the real ones (taken counted as over half the star's light, `plant_read.py`'s rule). R4k's mask keeps a
       star the builder subtracted at all (`RealPairMask`: the fit outcome `Subtracted`, whatever the take), a looser
-      rule than that, so a mask made there as R4k's were would hold about a third of the real ones or more; how
-      many more is not counted. The registration named this under "what speaks against"; on the Lagoon it is now
+      rule than that, but it also drops every pixel within 2 PSF widths of a source the builder left in and within
+      30 px of a saturated star, so a mask made there as R4k's were need not hold even that third; how many it would
+      hold is not counted. The registration named this under "what speaks against"; on the Lagoon it is now
       measured. R4k seed 1's gain at 20 to 40 sky sigma of
       nebula (41.0 % left against R4h seed 0's 54.2), where the builder takes the most, fits the data teaching a
       little there. That the builder does the same on the training sessions' bright nebula, so that R4k's masks
