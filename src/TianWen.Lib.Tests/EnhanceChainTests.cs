@@ -72,7 +72,8 @@ public sealed class EnhanceChainTests(ITestOutputHelper output) : IDisposable
         oneStep.ShouldNotBeNull();
         chained.ShouldNotBeNull();
         chained.Shape.ShouldBe(oneStep.Shape);
-        var (a, b) = (oneStep.GetChannelSpan(0), chained.GetChannelSpan(0));
+        var a = oneStep.GetChannelSpan(0);
+        var b = chained.GetChannelSpan(0);
         var worst = 0f;
         for (var i = 0; i < a.Length; i++)
         {
