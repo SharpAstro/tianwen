@@ -670,7 +670,8 @@ where the enhance runs it) and `<name>` (add-stars). Each step is then kept in t
 denoise runs the denoise and the add-stars, not the whole enhance. A program or a setting no single step can follow (the
 stellar sharpen, the starless deconvolution, the screen split, a blend under one, a stated backend, the deblurrer's own
 sharpening) is refused in words. `EnhanceChainTests` runs both through one project on stand-in enhancers and holds the
-chain's result to the enhance's, pixel for pixel. What is left for W9 proper is the general workflow file with gates.
+chain's result to the enhance's, pixel for pixel. The same comparison on the 10P master with RC-Astro's models runs on DE1
+(#2534). What is left for W9 proper is the general workflow file with gates.
 
 ### W10 The missing operation verbs
 
