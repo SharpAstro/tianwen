@@ -11,7 +11,7 @@ name: Chrome review
 # does a later push that changes the UI diff or a chrome test; a newer push cancels a review still running on an older
 # one.
 #
-# What counts as UI is what the hook counted: the .cs and .razor files of the five projects below, not the benchmarks,
+# What counts as UI is what the hook counted: the .cs and .razor files of the six projects below, not the benchmarks,
 # the E2E harness, a shader's .spv or a README beside them. A paths filter reads the whole PR diff against its base, so
 # it still starts this workflow on every later push of a PR that touches one of them, a docs fixup or a merge of main
 # included. The fingerprint step below is what keeps those from being a second paid review (105k to 165k tokens each,
@@ -41,6 +41,8 @@ on:
       - 'src/TianWen.UI.Gui/**/*.razor'
       - 'src/TianWen.UI.FitsViewer/**/*.cs'
       - 'src/TianWen.UI.FitsViewer/**/*.razor'
+      - 'src/TianWen.UI.Workbench/**/*.cs'
+      - 'src/TianWen.UI.Workbench/**/*.razor'
       - 'src/TianWen.UI.Web/**/*.cs'
       - 'src/TianWen.UI.Web/**/*.razor'
 
@@ -73,7 +75,7 @@ jobs:
           lfs: false
           persist-credentials: false
 
-      # The UI diff of this PR against its base, as one short hash: the five UI projects and, since the agent's rule 4
+      # The UI diff of this PR against its base, as one short hash: the six UI projects and, since the agent's rule 4
       # reads test seams, the CHROME tests among the changed files of src/TianWen.Lib.Tests, which are the ones that
       # use a TianWen.UI namespace. Not every test file: a fix to a stacking test, in a PR that also touches UI,
       # would then be a second paid review of a diff the agent has nothing to say about, which is what this hash is
@@ -102,6 +104,7 @@ jobs:
             ':(glob)src/TianWen.UI.Shared/**/*.cs' ':(glob)src/TianWen.UI.Shared/**/*.razor' \
             ':(glob)src/TianWen.UI.Gui/**/*.cs' ':(glob)src/TianWen.UI.Gui/**/*.razor' \
             ':(glob)src/TianWen.UI.FitsViewer/**/*.cs' ':(glob)src/TianWen.UI.FitsViewer/**/*.razor' \
+            ':(glob)src/TianWen.UI.Workbench/**/*.cs' ':(glob)src/TianWen.UI.Workbench/**/*.razor' \
             ':(glob)src/TianWen.UI.Web/**/*.cs' ':(glob)src/TianWen.UI.Web/**/*.razor' \
             "${chrome_tests[@]}" | sha256sum | cut -c1-16)"
           echo "fp=$fp" >> "$GITHUB_OUTPUT"
