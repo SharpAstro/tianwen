@@ -4,7 +4,8 @@
 weights a caller names, none are in `src/TianWen.AI.Imaging/models/`, and RC-Astro stays the registered
 `IStarRemover`. What did reach the product is the chain round our models: catalogue-aware core protection and the
 dig fill (floor5). The baseline every arm is now held against is R4h, trained twice; R4i, R4j and R4k were killed
-by their registrations. Against StarXTerminator on the held-out whole masters, through the chain:
+by their registrations. Against StarXTerminator on the held-out whole masters, through the chain unless a row says
+as trained:
 
 | row | StarXTerminator | R4h seed 0 / 1 | where it stands |
 |---|---|---|---|
@@ -23,11 +24,12 @@ and what has been tried (each in section 6):
 - **The crowded rows sit where the plate builder's own finder misses stars** (#2203). The Tarantula's crowded flat
   is lumps of 15 to 100 px, not the judge's level. Gaia BP 17-19's gap sits in the densest part of the field, not
   on bright nebula: one cell of 4,066 stars (99 or more catalogued stars within 16 px), which StarXTerminator
-  removes 99.2 % of and R4h 82.7 and 87.5 %, holds 59 % of the bin's gap, and a drawn star stands that crowded
-  0.14 % of the time. Tried: cluster scenes and a second pass (R4a), nothing; stars drawn under the catalogue's
-  limit (R4c), which closed 60 % of BP's gap and 30 % of the crowded flat's on one seed; a catalogue-forced
-  deblend for the plates, a mirrored null that takes nebula (closed 2026-11-25); real pairs (R4k), which read
-  worse (87.4 and 87.5).
+  removes 99.2 % of and R4h 82.7 and 87.5 %, holds 59 % of the bin's gap on R4h's seed 0, and a drawn star stands
+  that crowded 0.14 % of the time. Tried: cluster scenes and a second pass (R4a), nothing; stars drawn under the
+  catalogue's limit (R4c), which closed 60 % of BP's gap and 30 % of the crowded flat's on one seed; for the
+  plates, a deblend fitted at Gaia's companions, which gained at most 0.2 over the same fit at mirrored points in
+  the crowded cells and took more from the nebula cell than from them, so the plates' recipe stays without it
+  (2026-11-25); real pairs (R4k), which read worse (87.4 and 87.5).
 - **The faint stars on bright nebula** are read with planted stars, since the real ones are too few to carry a bar
   (the Lagoon's gap is 16 stars of 84). Two seeds of one recipe have stood 3 to 20 points apart there. Tried:
   plate cells with drawn stars and the loss on the stars (R4j: 72.2 and 64.4 %), real pairs with the loss where
