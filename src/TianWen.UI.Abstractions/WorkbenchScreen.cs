@@ -140,16 +140,16 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
         var offer = actions.ViewOffer();
         var kinds = new List<Layout.ButtonGroupOption<WorkbenchViewKind>>
         {
-            new("Original", WorkbenchViewKind.Original) { Hit = new HitResult.ButtonHit("View:Original") },
+            new(WorkbenchViewKind.Original, "Original") { Hit = new HitResult.ButtonHit("View:Original") },
         };
         if (offer.ResultOffered)
         {
-            kinds.Add(new("Result", WorkbenchViewKind.Result) { Hit = new HitResult.ButtonHit("View:Result") });
+            kinds.Add(new(WorkbenchViewKind.Result, "Result") { Hit = new HitResult.ButtonHit("View:Result") });
         }
 
         if (offer.ComparisonOffered)
         {
-            kinds.Add(new("Comparison", WorkbenchViewKind.Comparison) { Hit = new HitResult.ButtonHit("View:Comparison") });
+            kinds.Add(new(WorkbenchViewKind.Comparison, "Comparison") { Hit = new HitResult.ButtonHit("View:Comparison") });
         }
 
         var style = new Layout.ButtonGroupStyle(palette.Selection, palette.RaisedBg, palette.SelectionText, palette.BodyText,

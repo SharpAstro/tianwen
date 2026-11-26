@@ -164,6 +164,7 @@ public sealed class WorkbenchActions(
                     ? null
                     : new WorkbenchPlan(folder, name, index, answered.Steps);
             }, appToken, logger, "Plan a run to the selected step",
+            onError: _ => state.Plan = null,
             onFinally: () => state.NeedsRedraw = true);
     }
 
