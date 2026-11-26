@@ -47,7 +47,7 @@ and what has been tried (each in section 6):
 
 Nothing above says a row cannot be reached; it says no route tried so far has reached it, what each route measured,
 and (the builder's own scorecard) what the routes tried so far share: real stars against the builder's plates show
-the model few faint stars on bright nebula taken, and every drawn-star arm drew on plates that keep two in five of a
+the model a minority of the faint stars on bright nebula taken, and every drawn-star arm drew on plates that keep two in five of a
 crowded field's faint stars. Both are measured on the held-out masters (the Lagoon, the Tarantula's plate) and
 inferred, not counted, for the arms' training plates. A target with those stars taken out has not been
 tried, since nothing made so far makes one. What comes next is the owner's. The status of 2026-11-11 and the one
@@ -10738,7 +10738,7 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
       measured. R4k seed 1's gain at 20 to 40 sky sigma of
       nebula (41.0 % left against R4h seed 0's 54.2), where the builder takes the most, fits the data teaching a
       little there. That the builder does the same on the training sessions' bright nebula, so that R4k's masks
-      held few such stars, follows from the finder's rule and is SUSPECTED: R4k's masks were not counted against
+      held a minority of such stars, follows from the finder's rule and is SUSPECTED: R4k's masks were not counted against
       the catalogue's faint stars on those sessions.
     - **The crowded rows, through the stored plates: the target is the farthest from StarXTerminator, and the
       models already stand over it.** R4h as trained takes 26 to 28 points more of the crowded flat than the
@@ -10752,7 +10752,7 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     - **So no row is shown unreachable, and what the routes tried so far share is measured on the held-out masters and
       inferred for the arms' training plates, not counted:** on the Lagoon master the builder takes about a third
       of the real faint stars on bright nebula, and on the Tarantula's plate it keeps two in five of the crowded
-      field's; that real pairs showed the model few such stars, and that every drawn-star arm drew on plates keeping
+      field's; that real pairs showed the model a minority of such stars, and that every drawn-star arm drew on plates keeping
       two in five, follows from the finder's rule and is inferred. A target with those stars taken out has not been tried, because nothing in the store or measured
       so far makes one; whether it would close the rows is not known.
   - **Nothing is adopted;** what follows is the owner's.
