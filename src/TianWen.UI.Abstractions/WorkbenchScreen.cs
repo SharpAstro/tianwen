@@ -155,7 +155,7 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
         var style = new Layout.ButtonGroupStyle(palette.Selection, palette.RaisedBg, palette.SelectionText, palette.BodyText,
             GuiTheme.Hover(palette.RaisedBg)) { Gap = 1f };
         return Layout.Builder.HStack(
-                Layout.Builder.ButtonGroup<WorkbenchViewKind>([.. kinds], actions.EffectiveView(), actions.ChooseView, style, BaseFontSize).WAuto())
+                Layout.Builder.ButtonGroup<WorkbenchViewKind>([.. kinds], actions.EffectiveView(), actions.ChooseView, style, BaseFontSize).WAuto().HStar())
             .WithGap(Gap).CrossCenter().Pad(Gap, 0f).Bg(palette.HeaderBg);
     }
 
@@ -173,7 +173,7 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
 
         var style = new Layout.ButtonGroupStyle(palette.Selection, palette.RaisedBg, palette.SelectionText, palette.BodyText,
             GuiTheme.Hover(palette.RaisedBg)) { Gap = 1f };
-        return Layout.Builder.ButtonGroup<string>(options, view.ImageName, actions.ChooseImage, style, BaseFontSize).WAuto();
+        return Layout.Builder.ButtonGroup<string>(options, view.ImageName, actions.ChooseImage, style, BaseFontSize).WAuto().HStar();
     }
 
     // Each step numbered and named by its operation's title, with its state in words and a mark from the runner's answer.

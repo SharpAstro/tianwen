@@ -431,6 +431,7 @@ public sealed class WorkbenchE2ETests : IDisposable
         await SelectAsync(e2e, 1, ct);
 
         e2e.Click(e2e.Region("View:Result"));
+        e2e.State.ChosenView.ShouldBe(WorkbenchViewKind.Result, "a press on the choice chooses it");
         await e2e.PumpUntilAsync(() => SameFile(e2e.Controller.Document?.FilePath, steps[1].Output), "step 2's result to open", ct);
         e2e.Viewer.Split.IsOn.ShouldBeFalse();
 
