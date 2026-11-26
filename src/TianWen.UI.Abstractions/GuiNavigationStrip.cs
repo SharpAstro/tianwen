@@ -83,9 +83,9 @@ public sealed class GuiNavigationStrip<TSurface>(Renderer<TSurface> renderer) : 
         // so, and kept until then (KeptLayout). The navigation is in the key because the presses act on it.
         var navigation = Navigation;
         var key = new StripKey(navigation?.CanGoBack ?? false, navigation?.CanGoForward ?? false, navigation);
-        if (!_kept.TryGet(key, bounds, Scale, FontPath, out var arranged))
+        if (!_kept.TryGet(key, bounds, Scale, FontPath, GuiTheme.PaletteGeneration, out var arranged))
         {
-            arranged = _kept.Keep(key, bounds, Scale, FontPath, ArrangeLayout(
+            arranged = _kept.Keep(key, bounds, Scale, FontPath, GuiTheme.PaletteGeneration, ArrangeLayout(
                 Layout.Builder.NavigationStrip(
                     key.CanGoBack,
                     key.CanGoForward,
