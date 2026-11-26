@@ -27,11 +27,15 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
     private const float StepBarHeight = 52f;
     private const float Gap = 8f;
     private const float TopBarHeight = 44f;
+    private const float ViewRowHeight = 36f;
+    private const float JobLinesHeight = 150f;
 
     private readonly ImageRendererBase<TSurface> _viewer;
     private readonly IReadOnlyList<PixelWidgetBase<TSurface>> _children;
     private readonly ListScrollController _panelScroll = new();
     private readonly ListCursor _imageCursor = new();
+    private readonly ListScrollController _jobScroll = new();
+    private int _jobLinesDrawn;
 
     /// <param name="renderer">The surface the screen and the viewer draw on.</param>
     /// <param name="viewer">The viewer embedded in the canvas; it takes this widget's window context.</param>
@@ -71,7 +75,7 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
             return;
         }
 
-        if (state.OriginalNote is { } note)
+        if (state.OriginalNote is { } note && actions.EffectiveView() is WorkbenchViewKind.Original)
         {
             RenderLayout(Layout.Builder.VStack(
                     Layout.Builder.Text(note, BaseFontSize, palette.DimText, TextAlign.Center, TextAlign.Center).WStar().HStar())
@@ -91,7 +95,10 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
         var steps = actions.Steps();
         var body = Layout.Builder.HStack(
                 Panel(state, actions).WFixed(PanelWidth).HStar(),
-                Layout.Builder.Fill(key: CanvasKey).WStar().HStar())
+                Layout.Builder.VStack(
+                        ViewRow(actions).WStar().HFixed(ViewRowHeight),
+                        Layout.Builder.Fill(key: CanvasKey).WStar().HStar())
+                    .WStar().HStar())
             .WStar().HStar();
         return Layout.Builder.VStack(
                 TopBar(state, actions).WStar().HFixed(TopBarHeight),
@@ -124,6 +131,32 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
         parts.Add(Layout.Builder.Button("Open project", Layout.ButtonKind.Standard, actions.ChooseProject, GuiTheme.Theme,
             tooltip: "Open a workbench project folder"));
         return Layout.Builder.HStack([.. parts]).WithGap(Gap).CrossCenter().Pad(Gap, 0f).Bg(palette.HeaderBg);
+    }
+
+    // Original, Result and Comparison as one choice of one height; a view the selected step cannot show is not offered.
+    private static Layout.Node ViewRow(WorkbenchActions actions)
+    {
+        var palette = GuiTheme.Palette;
+        var offer = actions.ViewOffer();
+        var kinds = new List<Layout.ButtonGroupOption<WorkbenchViewKind>>
+        {
+            new("Original", WorkbenchViewKind.Original) { Hit = new HitResult.ButtonHit("View:Original") },
+        };
+        if (offer.ResultOffered)
+        {
+            kinds.Add(new("Result", WorkbenchViewKind.Result) { Hit = new HitResult.ButtonHit("View:Result") });
+        }
+
+        if (offer.ComparisonOffered)
+        {
+            kinds.Add(new("Comparison", WorkbenchViewKind.Comparison) { Hit = new HitResult.ButtonHit("View:Comparison") });
+        }
+
+        var style = new Layout.ButtonGroupStyle(palette.Selection, palette.RaisedBg, palette.SelectionText, palette.BodyText,
+            GuiTheme.Hover(palette.RaisedBg)) { Gap = 1f };
+        return Layout.Builder.HStack(
+                Layout.Builder.ButtonGroup<WorkbenchViewKind>([.. kinds], actions.EffectiveView(), actions.ChooseView, style, BaseFontSize).WAuto())
+            .WithGap(Gap).CrossCenter().Pad(Gap, 0f).Bg(palette.HeaderBg);
     }
 
     private Layout.Node ImageChoice(WorkbenchView view, WorkbenchActions actions)
@@ -238,6 +271,10 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
             rows.Add(Words(message, step.State is StepState.Refused or StepState.Blocked ? palette.Error : palette.DimText));
         }
 
+        AddRun(rows, state, actions);
+        AddJob(rows, actions);
+        AddViews(rows, actions);
+
         rows.Add(Heading("Settings"));
         if (panel.SettingsRefusal is { } settingsRefusal)
         {
@@ -284,6 +321,111 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
         }
 
         return Column(rows);
+    }
+
+    // What a run does, said by the buttons themselves: where it starts, what it runs first, or that nothing needs to run. One run at
+    // a time: while one goes, the starts are not offered and Cancel is.
+    private static void AddRun(List<Layout.Node> rows, WorkbenchState state, WorkbenchActions actions)
+    {
+        var palette = GuiTheme.Palette;
+        rows.Add(Heading("Run"));
+        if (actions.Jobs.IsRunning)
+        {
+            rows.Add(Layout.Builder.Button("Cancel", Layout.ButtonKind.Standard, actions.CancelRun, GuiTheme.Theme,
+                tooltip: "End the run; the steps then show what the runner says of them").WStar());
+            return;
+        }
+
+        var here = actions.RunToHereOffer();
+        rows.Add(RunButton(here, actions.RunToHere, "Make this step, taking each step before it from the store where it is kept",
+            Layout.ButtonKind.Accent));
+        var next = actions.RunOnOffer();
+        rows.Add(RunButton(next, actions.RunOn, state.RunOn
+            ? "Make every step from the first that is not kept to the end of the list; a refused or blocked step stops the run"
+            : "Make only the next step that is not kept, then stop with it selected", Layout.ButtonKind.Standard));
+        var style = new Layout.CheckboxStyle(palette.ContentBg, palette.Accent, palette.DimText, GuiTheme.Hover(palette.PanelBg))
+        {
+            CheckedLabelColor = palette.BodyText,
+            RowFill = palette.PanelBg,
+            CheckedRowFill = palette.PanelBg,
+            BoxSize = BaseFontSize * 0.9f,
+        };
+        rows.Add(Layout.Builder.Checkbox("Run on until a step needs me", state.RunOn, actions.SetRunOn, style, BaseFontSize,
+                new HitResult.ButtonHit("RunOn"))
+            .WithTooltip("On, a run goes to the end of the list and stops at a refused or blocked step. Off, it makes one step and stops.")
+            .WStar());
+    }
+
+    // A start that can run is a button; one that cannot is its reason in words, so there is nothing to press and nothing cut.
+    private static Layout.Node RunButton(WorkbenchRunOffer offer, Action start, string tooltip, Layout.ButtonKind kind)
+        => offer.CanRun
+            ? Layout.Builder.Button(offer.Label, kind, start, GuiTheme.Theme, tooltip: tooltip).WStar()
+            : Words(offer.Label, GuiTheme.Palette.DimText);
+
+    // The job panel: the running step and how far it is (a bar, and the percentage in words, where the operation reports one), how
+    // the last run ended, and every line the run said, newest last, in a scroll of its own.
+    private void AddJob(List<Layout.Node> rows, WorkbenchActions actions)
+    {
+        var palette = GuiTheme.Palette;
+        var job = actions.Jobs.State;
+        if (!job.Running && job.Outcome is WorkbenchJobOutcome.None)
+        {
+            return;
+        }
+
+        rows.Add(Heading("Job"));
+        var failed = !job.Running && job.Outcome is WorkbenchJobOutcome.Stopped or WorkbenchJobOutcome.Failed;
+        rows.Add(Words(job.Words, failed ? palette.Error : palette.BodyText));
+        if (job.Running && job.Fraction is { } fraction)
+        {
+            var done = (float)Math.Clamp(fraction, 0d, 1d);
+            rows.Add(Layout.Builder.HStack(
+                    Layout.Builder.Fill().WStar(Math.Max(done, 0.001f)).HStar().Bg(palette.Accent),
+                    Layout.Builder.Fill().WStar(Math.Max(1f - done, 0.001f)).HStar().Bg(palette.RaisedBg))
+                .WStar().HFixed(BaseFontSize * 0.6f));
+        }
+
+        if (job.Lines.IsEmpty)
+        {
+            return;
+        }
+
+        var lines = new Layout.Node[job.Lines.Length];
+        for (var i = 0; i < lines.Length; i++)
+        {
+            lines[i] = Words(job.Lines[i], palette.DimText);
+        }
+
+        if (job.Lines.Length != _jobLinesDrawn)
+        {
+            // A new line scrolls the list to its end, so the newest is the one in view.
+            _jobLinesDrawn = job.Lines.Length;
+            _jobScroll.ScrollToEnd();
+        }
+
+        rows.Add(Layout.Builder.VStack(lines).WithGap(Gap / 2).Pad(Gap / 2).Bg(palette.ContentBg).WithScroll(_jobScroll)
+            .WStar().HFixed(JobLinesHeight));
+    }
+
+    // Which pictures the step has, and for one it has not, why, in words.
+    private static void AddViews(List<Layout.Node> rows, WorkbenchActions actions)
+    {
+        var offer = actions.ViewOffer();
+        if (offer is { ResultOffered: true, ComparisonOffered: true })
+        {
+            return;
+        }
+
+        rows.Add(Heading("Views"));
+        if (!offer.ResultOffered)
+        {
+            rows.Add(Words(offer.ResultNote ?? string.Empty, GuiTheme.Palette.DimText));
+        }
+
+        if (!offer.ComparisonOffered && offer.ComparisonNote is { } note)
+        {
+            rows.Add(Words(note, GuiTheme.Palette.DimText));
+        }
     }
 
     private Layout.Node Column(List<Layout.Node> rows)

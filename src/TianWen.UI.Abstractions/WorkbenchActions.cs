@@ -67,6 +67,26 @@ public sealed class WorkbenchActions(
     CancellationToken appToken)
 {
     private const string StatusSlot = "workbench.status";
+    private const string PlanSlot = "workbench.plan";
+
+    private readonly WorkbenchJobs _jobs = new(runner, catalog, tracker, logger, appToken,
+        () => state.NeedsRedraw = true, settled => Settled(settled, state, runner, tracker, logger, appToken));
+
+    /// <summary>The run on the tracker: its progress and lines, and the one place a run starts and is cancelled.</summary>
+    public WorkbenchJobs Jobs => _jobs;
+
+    // A run ended, however it did: the runner is asked afresh, so the bar shows its answer and never the click's.
+    private static void Settled(WorkbenchJobSettled settled, WorkbenchState state, WorkbenchRunner runner,
+        BackgroundTaskTracker tracker, ILogger logger, CancellationToken appToken)
+    {
+        state.SelectAfterStatus = settled.SelectStep;
+        state.IsReading = true;
+        state.NeedsRedraw = true;
+        tracker.RunExclusive<WorkbenchView>(StatusSlot, ct => ReadViewAsync(runner, settled.Folder, settled.Image, ct), appToken, logger,
+            "Read the workbench project after a run",
+            onError: ex => state.View = new WorkbenchView(settled.Folder, null, [], null, null, $"The project could not be read: {ex.Message}"),
+            onFinally: () => state.NeedsRedraw = true);
+    }
 
     /// <summary>
     /// Opens the project in <paramref name="folder"/> (or its <c>project.json</c>) and asks the runner where every edit of the
@@ -78,7 +98,7 @@ public sealed class WorkbenchActions(
         var projectFolder = Path.GetFullPath(File.Exists(folder) ? Path.GetDirectoryName(folder) ?? folder : folder);
         state.IsReading = true;
         state.NeedsRedraw = true;
-        tracker.RunExclusive<WorkbenchView>(StatusSlot, ct => ReadAsync(projectFolder, image, ct), appToken, logger,
+        tracker.RunExclusive<WorkbenchView>(StatusSlot, ct => ReadViewAsync(runner, projectFolder, image, ct), appToken, logger,
             "Read the workbench project",
             onError: ex => state.View = new WorkbenchView(projectFolder, null, [], null, null, $"The project could not be read: {ex.Message}"),
             onFinally: () => state.NeedsRedraw = true);
@@ -117,7 +137,150 @@ public sealed class WorkbenchActions(
             state.SelectedStep = index;
             state.CommandCopied = false;
             state.NeedsRedraw = true;
+            state.Plan = null;
+            RequestPlan();
         }
+    }
+
+    /// <summary>
+    /// Asks the runner, off the render thread, what a run to the selected step would do: a status through it. The latest selection
+    /// wins (a newer ask cancels an older one, and an answer for a step no longer selected is dropped in <see cref="TryAdoptStatus"/>).
+    /// Not asked while a run is going, which is writing the store.
+    /// </summary>
+    public void RequestPlan()
+    {
+        if (_jobs.IsRunning || state.View is not { Image: { } image, ImageName: { } name } view
+            || state.SelectedStep < 0 || state.SelectedStep >= image.Steps.Length)
+        {
+            return;
+        }
+
+        var (folder, index) = (view.Folder, state.SelectedStep);
+        tracker.RunExclusive<WorkbenchPlan?>(PlanSlot, async ct =>
+            {
+                var report = await runner.StatusAsync(folder, new WorkbenchRunOptions { Image = name, Through = index }, ct);
+                var answered = report.Images.FirstOrDefault(i => string.Equals(i.Name, name, StringComparison.Ordinal));
+                return answered is null || report.Refusal is not null || answered.Refusal is not null
+                    ? null
+                    : new WorkbenchPlan(folder, name, index, answered.Steps);
+            }, appToken, logger, "Plan a run to the selected step",
+            onFinally: () => state.NeedsRedraw = true);
+    }
+
+    /// <summary>Starts a run that makes the selected step, taking each earlier step from the store where it is there. Nothing
+    /// happens while a run is going or the step cannot run.</summary>
+    public void RunToHere()
+    {
+        if (state.View is { ImageName: { } name } view && RunToHereOffer() is { CanRun: true } offer)
+        {
+            _jobs.TryStart(view.Folder, name, offer.Index);
+        }
+    }
+
+    /// <summary>Starts the run the switch asks for: on, from the first step that is not kept to the end of the list; off, only
+    /// that step, which is then selected.</summary>
+    public void RunOn()
+    {
+        if (state.View is { ImageName: { } name } view && RunOnOffer() is { CanRun: true } offer)
+        {
+            _jobs.TryStart(view.Folder, name, state.RunOn ? null : offer.Index, selectAfter: state.RunOn ? -1 : offer.Index);
+        }
+    }
+
+    /// <summary>Ends the run that is going.</summary>
+    public void CancelRun() => _jobs.Cancel();
+
+    /// <summary>Flips the switch "Run on until a step needs me".</summary>
+    public void SetRunOn(bool on)
+    {
+        state.RunOn = on;
+        state.NeedsRedraw = true;
+    }
+
+    /// <summary>Chooses the picture over the canvas.</summary>
+    public void ChooseView(WorkbenchViewKind kind)
+    {
+        state.ChosenView = kind;
+        state.NeedsRedraw = true;
+    }
+
+    /// <summary>What the "Run to here" button says it will do, from the runner's status through the selected step.</summary>
+    public WorkbenchRunOffer RunToHereOffer()
+    {
+        var steps = Steps();
+        var selected = state.SelectedStep;
+        if (_jobs.IsRunning || selected < 0 || selected >= steps.Length)
+        {
+            return new WorkbenchRunOffer("Run to here", false, selected);
+        }
+
+        var step = steps[selected];
+        if (state.Plan is not { } plan || plan.Index != selected)
+        {
+            return new WorkbenchRunOffer("Run to here (reading what it needs)", false, selected);
+        }
+
+        switch (step.State)
+        {
+            case StepState.Refused or StepState.Blocked:
+                return new WorkbenchRunOffer($"Cannot run to here: the step is {step.Words}", false, selected);
+            case StepState.Off:
+                return new WorkbenchRunOffer("Cannot run to here: the step is off", false, selected);
+        }
+
+        var first = steps.Take(selected).Where(static s => s.State is StepState.WillRun).Select(static s => s.Index + 1).ToArray();
+        var ownRun = step.State is StepState.WillRun;
+        if (first.Length == 0 && !ownRun)
+        {
+            return new WorkbenchRunOffer(step.State is StepState.Derived
+                ? "Nothing to run: a derived step is made from its input when the step after it asks"
+                : "Nothing to run: this step is kept", false, selected);
+        }
+
+        var label = first.Length == 0 ? "Run to here" : $"Run to here (runs {Ranges(first)} first)";
+        return new WorkbenchRunOffer(label, true, selected);
+    }
+
+    /// <summary>What the "Run on" button says it will do: the first step that is not kept, and how far the switch takes the run.</summary>
+    public WorkbenchRunOffer RunOnOffer()
+    {
+        var steps = Steps();
+        if (_jobs.IsRunning || steps.IsEmpty)
+        {
+            return new WorkbenchRunOffer(state.RunOn ? "Run on" : "Run next step", false, -1);
+        }
+
+        var next = steps.FirstOrDefault(static s => s.State is StepState.WillRun or StepState.Refused or StepState.Blocked);
+        if (next is null)
+        {
+            return new WorkbenchRunOffer("Nothing to run: every step is kept", false, -1);
+        }
+
+        if (next.State is StepState.Refused or StepState.Blocked)
+        {
+            return new WorkbenchRunOffer($"Cannot run on: step {next.Index + 1} is {next.Words}", false, next.Index);
+        }
+
+        return new WorkbenchRunOffer(state.RunOn ? $"Run on from step {next.Index + 1}" : $"Run step {next.Index + 1}", true, next.Index);
+    }
+
+    // 1-based step numbers as a person says them: "2", "2 to 4", "2, 4 to 5".
+    internal static string Ranges(int[] numbers)
+    {
+        var parts = new System.Collections.Generic.List<string>();
+        for (var i = 0; i < numbers.Length;)
+        {
+            var j = i;
+            while (j + 1 < numbers.Length && numbers[j + 1] == numbers[j] + 1)
+            {
+                j++;
+            }
+
+            parts.Add(j == i ? $"{numbers[i]}" : $"{numbers[i]} to {numbers[j]}");
+            i = j + 1;
+        }
+
+        return string.Join(", ", parts);
     }
 
     /// <summary>Puts the selected step's command line on the clipboard.</summary>
@@ -137,6 +300,15 @@ public sealed class WorkbenchActions(
     /// </summary>
     public void TryAdoptStatus()
     {
+        if (tracker.TryCollect<WorkbenchPlan?>(PlanSlot, out var plan) && plan is not null && state.View is { } current
+            && string.Equals(plan.Folder, current.Folder, StringComparison.Ordinal)
+            && string.Equals(plan.Image, current.ImageName, StringComparison.Ordinal)
+            && plan.Index == state.SelectedStep)
+        {
+            state.Plan = plan;
+            state.NeedsRedraw = true;
+        }
+
         if (!tracker.TryCollect<WorkbenchView>(StatusSlot, out var view) || view is null)
         {
             return;
@@ -146,15 +318,23 @@ public sealed class WorkbenchActions(
         state.View = view;
         state.IsReading = false;
         state.NeedsRedraw = true;
+        state.Plan = null;
 
         var steps = view.Image?.Steps.Length ?? 0;
-        if (state.SelectedStep < 0 || state.SelectedStep >= steps || previous?.ImageName != view.ImageName)
+        if (state.SelectAfterStatus >= 0 && state.SelectAfterStatus < steps)
+        {
+            state.SelectedStep = state.SelectAfterStatus;
+            state.CommandCopied = false;
+        }
+        else if (state.SelectedStep < 0 || state.SelectedStep >= steps || previous?.ImageName != view.ImageName)
         {
             state.SelectedStep = steps > 0 ? 0 : -1;
             state.CommandCopied = false;
         }
 
+        state.SelectAfterStatus = -1;
         ShowOriginal(view);
+        RequestPlan();
     }
 
     /// <summary>The step bar: each edit of the image, named by its operation's title, in the runner's state.</summary>
@@ -168,7 +348,7 @@ public sealed class WorkbenchActions(
         var items = ImmutableArray.CreateBuilder<WorkbenchStepItem>(image.Steps.Length);
         foreach (var step in image.Steps)
         {
-            items.Add(ItemFor(step));
+            items.Add(ItemFor(StepAnswer(step)));
         }
 
         return items.MoveToImmutable();
@@ -182,7 +362,7 @@ public sealed class WorkbenchActions(
             return null;
         }
 
-        var step = image.Steps[state.SelectedStep];
+        var step = StepAnswer(image.Steps[state.SelectedStep]);
         var item = ItemFor(step);
         var description = catalog.TryGet(step.Operation, out var operation) ? operation.Description : null;
         var edit = view.ProjectImage is { } projectImage && step.Index < projectImage.Edits.Length ? projectImage.Edits[step.Index] : null;
@@ -203,6 +383,126 @@ public sealed class WorkbenchActions(
 
         return new WorkbenchStepPanel(item, description?.Summary ?? string.Empty, settings, settingsRefusal, step.ServedBy, step.CommandLine);
     }
+
+    /// <summary>
+    /// Which pictures the selected step can show beside the original, and in words why not where it cannot. A picture is a file of
+    /// the step's own that the viewer can draw: a derived step, a step that writes no pixels (its stored output is a header-only
+    /// finding), one whose results are named by its run, and one not made yet have none.
+    /// </summary>
+    public WorkbenchViewOffer ViewOffer()
+    {
+        if (state.View is not { Image: { } image } || state.SelectedStep < 0 || state.SelectedStep >= image.Steps.Length)
+        {
+            return new WorkbenchViewOffer(null, "Select a step to see its result.", null, "Select a step to compare it.");
+        }
+
+        var step = StepAnswer(image.Steps[state.SelectedStep]);
+        var number = step.Index + 1;
+        var resultFile = FileOfOwn(step, out var resultNote);
+        if (resultFile is null)
+        {
+            return new WorkbenchViewOffer(null, resultNote, null, $"Step {number} has no result to compare: {Lower(resultNote)}");
+        }
+
+        // The input is the nearest earlier enabled step's stored result, else the original. A step with no file of its own that
+        // makes the input (a derived step, one named by its run) leaves nothing to compare against, and says so. A step that writes
+        // no pixels hands its input on unchanged, so it is looked through.
+        for (var before = step.Index - 1; before >= 0; before--)
+        {
+            var earlier = StepAnswer(image.Steps[before]);
+            if (earlier.State is StepState.Off || IsFinding(earlier))
+            {
+                continue;
+            }
+
+            var input = FileOfOwn(earlier, out var inputNote);
+            return input is null
+                ? new WorkbenchViewOffer(resultFile, null, null, $"Step {number}'s input is step {before + 1}'s result, which has no file: {Lower(inputNote)}")
+                : new WorkbenchViewOffer(resultFile, null, input, null);
+        }
+
+        if (state.OriginalFile is { } original)
+        {
+            return new WorkbenchViewOffer(resultFile, null, original, null);
+        }
+
+        return new WorkbenchViewOffer(resultFile, null, null, $"Step {number}'s input is the original, which has no picture of its own: {Lower(state.OriginalNote)}");
+    }
+
+    private static string Lower(string? text) => string.IsNullOrEmpty(text) ? string.Empty : char.ToLowerInvariant(text[0]) + text[1..];
+
+    private bool IsFinding(StepReport step) => catalog.TryGet(step.Operation, out var operation) && operation is IFindingOperation;
+
+    // The image file a step keeps of its own, or null and why not.
+    private string? FileOfOwn(StepReport step, out string? why)
+    {
+        why = null;
+        var number = step.Index + 1;
+        if (step.State is StepState.Off)
+        {
+            why = $"Step {number} is switched off, so it has no result of its own.";
+        }
+        else if (step.State is StepState.Derived)
+        {
+            why = $"Step {number} is derived: it is made from its input when the step after it asks, and has no file of its own.";
+        }
+        else if (catalog.TryGet(step.Operation, out var operation) && operation is IFindingOperation)
+        {
+            why = $"Step {number} writes no pixels: it keeps a finding that the steps after it apply, so there is no picture of its own.";
+        }
+        else if (operation is IRunNamedOperation)
+        {
+            why = $"Step {number}'s results are named by its run, so it has no one file to show.";
+        }
+        else if (step.Output is not { Length: > 0 } output || !File.Exists(output))
+        {
+            why = step.State is StepState.Refused or StepState.Blocked
+                ? $"Step {number} made nothing: it is {step.Words}."
+                : $"Step {number} has not been made yet.";
+        }
+        else
+        {
+            return output;
+        }
+
+        return null;
+    }
+
+    /// <summary>The picture shown: the one chosen, or the original where the selected step cannot offer it.</summary>
+    public WorkbenchViewKind EffectiveView()
+    {
+        var offer = ViewOffer();
+        return state.ChosenView switch
+        {
+            WorkbenchViewKind.Result when offer.ResultFile is not null => WorkbenchViewKind.Result,
+            WorkbenchViewKind.Comparison when offer.ResultFile is not null && offer.InputFile is not null => WorkbenchViewKind.Comparison,
+            _ => WorkbenchViewKind.Original,
+        };
+    }
+
+    /// <summary>What the viewer should be showing now: the effective view and its files.</summary>
+    public WorkbenchShown? Wanted()
+    {
+        if (state.View is null)
+        {
+            return null;
+        }
+
+        var offer = ViewOffer();
+        return EffectiveView() switch
+        {
+            WorkbenchViewKind.Result => new WorkbenchShown(WorkbenchViewKind.Result, null, offer.ResultFile),
+            WorkbenchViewKind.Comparison => new WorkbenchShown(WorkbenchViewKind.Comparison, offer.InputFile, offer.ResultFile),
+            _ => new WorkbenchShown(WorkbenchViewKind.Original, null, state.OriginalFile),
+        };
+    }
+
+    // A step up to the selected one is as the status through that step found it (which of them will run and which are kept); every
+    // other step is as the whole image's status found it. Both are the runner's answers.
+    private StepReport StepAnswer(StepReport step)
+        => state.Plan is { } plan && step.Index <= plan.Index && step.Index < plan.Steps.Length && plan.Steps[step.Index].Operation == step.Operation
+            ? plan.Steps[step.Index]
+            : step;
 
     private WorkbenchStepItem ItemFor(StepReport step)
     {
@@ -246,7 +546,7 @@ public sealed class WorkbenchActions(
         return items.MoveToImmutable();
     }
 
-    private async Task<WorkbenchView?> ReadAsync(string folder, string? image, CancellationToken ct)
+    private static async Task<WorkbenchView?> ReadViewAsync(WorkbenchRunner runner, string folder, string? image, CancellationToken ct)
     {
         var read = await WorkbenchProjectFile.ReadAsync(folder, ct);
         if (read.Project is not { } project)
@@ -295,11 +595,7 @@ public sealed class WorkbenchActions(
         else
         {
             state.OriginalNote = null;
-            if (!string.Equals(state.OriginalFile, path, StringComparison.OrdinalIgnoreCase))
-            {
-                state.OriginalFile = path;
-                viewerState.RequestedFilePath = path;
-            }
+            state.OriginalFile = path;
         }
     }
 }

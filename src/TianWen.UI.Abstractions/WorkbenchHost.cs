@@ -32,6 +32,7 @@ public sealed class WorkbenchHost<TSurface>
     private readonly ImageRendererBase<TSurface> _viewer;
     private readonly ViewerState _viewerState;
     private readonly ViewerController _controller;
+    private readonly WorkbenchViewDriver<TSurface> _views;
     private readonly BackgroundTaskTracker _tracker;
     private readonly SignalBus _bus;
     private readonly ILogger _logger;
@@ -46,6 +47,7 @@ public sealed class WorkbenchHost<TSurface>
         _viewer = viewer;
         _viewerState = viewerState;
         _controller = controller;
+        _views = new WorkbenchViewDriver<TSurface>(actions, viewerState, controller, viewer);
         _tracker = tracker;
         _bus = bus;
         _logger = logger;
@@ -56,7 +58,6 @@ public sealed class WorkbenchHost<TSurface>
         viewerState.ShowFileList = false;
         viewer.Offer = ViewerOffer;
         viewer.AppToken = appToken;
-        _width = viewer.Ui.DpiScale > 0f ? 0f : 0f;
         Screen = new WorkbenchScreen<TSurface>(renderer, viewer) { Bus = bus };
 
         Router = new InputRouter(Screen.Ui, tracker, () =>
@@ -166,6 +167,7 @@ public sealed class WorkbenchHost<TSurface>
         _tracker.ProcessCompletions(_logger);
         Actions.TryAdoptStatus();
         _controller.HandleFileRequest(_appToken);
+        _views.Advance();
 
         if (_viewerState.NeedsReprocess)
         {
