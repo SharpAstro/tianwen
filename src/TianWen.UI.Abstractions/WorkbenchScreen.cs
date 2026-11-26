@@ -92,12 +92,12 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
         var body = Layout.Builder.HStack(
                 Panel(state, actions).WFixed(PanelWidth).HStar(),
                 Layout.Builder.Fill(key: CanvasKey).WStar().HStar())
-            .HStar();
+            .WStar().HStar();
         return Layout.Builder.VStack(
-                TopBar(state, actions).HFixed(TopBarHeight),
-                StepBar(state, actions, steps).HFixed(StepBarHeight),
+                TopBar(state, actions).WStar().HFixed(TopBarHeight),
+                StepBar(state, actions, steps).WStar().HFixed(StepBarHeight),
                 body)
-            .Bg(palette.ContentBg);
+            .Stretch().Bg(palette.ContentBg);
     }
 
     // The project, the image and Open project, on one row of one height and one middle.
