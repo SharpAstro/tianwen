@@ -93,6 +93,7 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
         new FillDigsOperation(),
         new ProtectCoresOperation(),
         new ScnrOperation(),
+        new WhiteBalanceOperation(),
     ]);
 
     // The real image command over the classical extractor, with what it said.
@@ -425,8 +426,9 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
         // The planes went through as one colour image (the stand-in saw three channels at once, not three mono planes) and
         // came back as three, each its OWN input's: the stand-in scales by 0.8, so a swapped or reused plane would show.
         // Denoiser is shared by the class's tests, so only what THIS run's workbench step handed it counts (the replay
-        // through the verbs above has called it again).
-        workbenchCalls.ShouldBe([3]);
+        // through the verbs above has called it again). Two calls: the gated passes run pass 2, measure that it takes a fifth
+        // off (under the gate's 35 %) and discard it, so the result is pass 1's.
+        workbenchCalls.ShouldBe([3, 3]);
         foreach (var (written, input) in new[]
         {
             (plane, red),
@@ -633,7 +635,7 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
         var operations = await InvokeAsync("operations");
         operations.Exit.ShouldBe(0);
         operations.Said.ShouldContain("crop (version 1)");
-        operations.Said.ShouldContain("gradient (version 1)");
+        operations.Said.ShouldContain("gradient (version 2)");
         operations.Said.ShouldContain("linear-fit (version 1)");
         operations.Said.ShouldContain("\"rejectHigh\":0.92");
 

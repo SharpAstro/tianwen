@@ -216,6 +216,12 @@ public class NarrowbandCombinationTests
         public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
             => EnhanceAsync(input, EnhanceOptions.Default, null, cancellationToken);
 
+        // The call the one denoise makes (NarrowbandCombination.DenoisePassesAsync), as every real denoiser takes it: the
+        // interface's default for it drops the options.
+        public Task<Image> EnhanceAsync(Image input, DenoiseVariant variant, EnhanceOptions options, IProgress<float>? progress = null,
+            CancellationToken cancellationToken = default)
+            => EnhanceAsync(input, options, progress, cancellationToken);
+
         public Task<Image> EnhanceAsync(Image input, EnhanceOptions options, IProgress<float>? progress = null, CancellationToken cancellationToken = default)
         {
             Calls.Add((input.ChannelCount, options.Tuning?.DenoiseStrength));

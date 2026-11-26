@@ -25,15 +25,15 @@ public class SharpenPipelineTests(ITestOutputHelper output)
     // --- Fake enhancers for validation + pass-through behaviour --------
 
     /// <summary>
-    /// Subtracts a constant from each pixel and clamps to >= 0. Stands in
-    /// for IStarRemover -- output is a "fake starless" plate where every
-    /// pixel has been dimmed by the constant. Combined with the canonical
-    /// Source - Starless split this produces a stars-only plate where each
-    /// pixel = min(Source, constant).
+    /// Keeps a fraction of each pixel, per channel, as its "fake starless" plate: the canonical Source - Starless split then
+    /// leaves the rest as the stars. Proportional, as a real remover's plate is to what it is handed: the enhance's split
+    /// is the guarded one (<c>NarrowbandCombination.SplitStarsAsync</c>), which hands the remover its frame divided by the
+    /// peak and multiplies the plate back, so a remover that took off a constant would take off a different amount on
+    /// every frame.
     /// </summary>
-    private sealed class ConstantStarRemover(float subtract) : IStarRemover
+    private sealed class ProportionalStarRemover(params float[] keep) : IStarRemover
     {
-        public string Name => "Test/ConstantStarRemover";
+        public string Name => "Test/ProportionalStarRemover";
         public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
         {
             var (channels, w, h) = input.Shape;
@@ -42,12 +42,12 @@ public class SharpenPipelineTests(ITestOutputHelper output)
             {
                 var plane = new float[h, w];
                 var src = input.GetChannelSpan(c);
+                var fraction = keep[Math.Min(c, keep.Length - 1)];
                 for (var y = 0; y < h; y++)
                 {
                     for (var x = 0; x < w; x++)
                     {
-                        var v = src[y * w + x] - subtract;
-                        plane[y, x] = v > 0f ? v : 0f;
+                        plane[y, x] = src[y * w + x] * fraction;
                     }
                 }
                 data[c] = plane;
@@ -62,32 +62,6 @@ public class SharpenPipelineTests(ITestOutputHelper output)
         public string Name => name;
         public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
             => Task.FromResult(input);
-    }
-
-    /// <summary>
-    /// Star remover that ignores the input and returns a uniform-colored plate
-    /// of the same shape. Useful for SCNR-on-stars tests where the test wants
-    /// to control the stars-only plate's per-channel distribution (the stars
-    /// plate becomes <c>Source - uniformR/G/B</c> per channel after the split,
-    /// so the test can dial in a green dominance independently of the source).
-    /// </summary>
-    private sealed class UniformStarRemover(float r, float g, float b) : IStarRemover
-    {
-        public string Name => $"Test/UniformStarRemover({r:F2},{g:F2},{b:F2})";
-        public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
-        {
-            var (channels, w, h) = input.Shape;
-            var data = new float[channels][,];
-            var fills = channels == 1 ? new[] { (r + g + b) / 3f } : new[] { r, g, b };
-            for (var c = 0; c < channels; c++)
-            {
-                var plane = new float[h, w];
-                var fill = c < fills.Length ? fills[c] : fills[^1];
-                for (var y = 0; y < h; y++) for (var x = 0; x < w; x++) plane[y, x] = fill;
-                data[c] = plane;
-            }
-            return Task.FromResult(new Image(data, BitDepth.Float32, 1.0f, 0f, 0f, input.ImageMeta));
-        }
     }
 
     /// <summary>Multiplies every pixel by a scalar. Stand-in for an enhancer that
@@ -157,11 +131,11 @@ public class SharpenPipelineTests(ITestOutputHelper output)
     [Fact]
     public async Task ProcessAsync_ReportsOneBoundaryTickPerStep()
     {
-        // ConstantStarRemover (not identity) for the star remover so `starless` is a fresh
+        // ProportionalStarRemover (not identity) for the star remover so `starless` is a fresh
         // plate -- mirrors ProcessAsync_CanonicalWithIdentityEnhancers, which releases the
         // identity gradientCorrected (== source) safely because starless is distinct.
         var pipeline = new SharpenPipeline(
-            starRemover: new ConstantStarRemover(0.2f),
+            starRemover: new ProportionalStarRemover(0.6f),
             gradientCorrector: new IdentityEnhancer("identity"));
         var src = SyntheticRgb(8, 8, 0.5f);
         var progress = new CollectingProgress<EnhanceProgress>();
@@ -345,7 +319,7 @@ public class SharpenPipelineTests(ITestOutputHelper output)
     [Fact]
     public async Task ProcessAsync_StarRemovalOnly_PopulatesStarlessAndStarsOnly()
     {
-        var pipeline = new SharpenPipeline(starRemover: new ConstantStarRemover(0.2f));
+        var pipeline = new SharpenPipeline(starRemover: new ProportionalStarRemover(0.6f));
         var src = SyntheticRgb(8, 8, 0.5f);
 
         var result = await pipeline.ProcessAsync(
@@ -359,7 +333,7 @@ public class SharpenPipelineTests(ITestOutputHelper output)
         result.DenoisedStarless.ShouldBeNull();
         result.Final.ShouldBeNull();
 
-        // Starless = max(Source - 0.2, 0) = 0.3 everywhere.
+        // Starless = 0.6 * Source = 0.3 everywhere.
         // StarsOnly = max(Source - Starless, 0) = max(0.5 - 0.3, 0) = 0.2.
         result.Starless[0, 0, 0].ShouldBe(0.3f, 1e-5f);
         result.StarsOnly[0, 0, 0].ShouldBe(0.2f, 1e-5f);
@@ -372,7 +346,7 @@ public class SharpenPipelineTests(ITestOutputHelper output)
         // produces Final = StarsOnly + Starless = Source (modulo clamping).
         var identity = new IdentityEnhancer("identity");
         var pipeline = new SharpenPipeline(
-            starRemover: new ConstantStarRemover(0.2f),
+            starRemover: new ProportionalStarRemover(0.6f),
             stellarSharpener: identity,
             nonStellarDeconvolver: identity,
             denoiser: identity,
@@ -399,7 +373,7 @@ public class SharpenPipelineTests(ITestOutputHelper output)
         // the underlying buffers released).
         var identity = new IdentityEnhancer("identity");
         var pipeline = new SharpenPipeline(
-            starRemover: new ConstantStarRemover(0.2f),
+            starRemover: new ProportionalStarRemover(0.6f),
             stellarSharpener: identity,
             nonStellarDeconvolver: identity,
             denoiser: identity,
@@ -435,7 +409,7 @@ public class SharpenPipelineTests(ITestOutputHelper output)
         // gradientCorrected.
         var identity = new IdentityEnhancer("identity");
         var pipeline = new SharpenPipeline(
-            starRemover: new ConstantStarRemover(0.2f),
+            starRemover: new ProportionalStarRemover(0.6f),
             stellarSharpener: identity,
             nonStellarDeconvolver: identity,
             denoiser: identity,
@@ -459,7 +433,7 @@ public class SharpenPipelineTests(ITestOutputHelper output)
     {
         // No deconv/denoise -> recombine uses raw Starless as the bg.
         var pipeline = new SharpenPipeline(
-            starRemover: new ConstantStarRemover(0.2f),
+            starRemover: new ProportionalStarRemover(0.6f),
             stellarSharpener: new IdentityEnhancer("stellar"));
         var src = SyntheticRgb(8, 8, 0.5f);
 
@@ -482,7 +456,7 @@ public class SharpenPipelineTests(ITestOutputHelper output)
     public async Task ProcessAsync_RecombineWithDeconvOnly_FallsBackToStarsOnlyForForeground()
     {
         var pipeline = new SharpenPipeline(
-            starRemover: new ConstantStarRemover(0.2f),
+            starRemover: new ProportionalStarRemover(0.6f),
             nonStellarDeconvolver: new IdentityEnhancer("deconv"));
         var src = SyntheticRgb(8, 8, 0.5f);
 
@@ -505,7 +479,7 @@ public class SharpenPipelineTests(ITestOutputHelper output)
     {
         // Denoise runs on the raw starless when no deconv preceded.
         var pipeline = new SharpenPipeline(
-            starRemover: new ConstantStarRemover(0.2f),
+            starRemover: new ProportionalStarRemover(0.6f),
             denoiser: new IdentityEnhancer("denoise"));
         var src = SyntheticRgb(8, 8, 0.5f);
 
@@ -535,7 +509,7 @@ public class SharpenPipelineTests(ITestOutputHelper output)
         // ScaleEnhancer(3x) on that -> 1.8 after denoise.
         // If denoise saw the raw starless (0.3) it'd produce 0.9.
         var pipeline = new SharpenPipeline(
-            starRemover: new ConstantStarRemover(0.2f),
+            starRemover: new ProportionalStarRemover(0.6f),
             nonStellarDeconvolver: new ScaleEnhancer(2.0f),
             denoiser: new ScaleEnhancer(3.0f));
         var src = SyntheticRgb(8, 8, 0.5f);
@@ -562,7 +536,7 @@ public class SharpenPipelineTests(ITestOutputHelper output)
         // Denoise (x3) -> 0.9, stored in DenoisedStarless.
         // Deconv (x2) on raw Starless (0.3) -> 0.6, stored in DeconvolvedStarless.
         var pipeline = new SharpenPipeline(
-            starRemover: new ConstantStarRemover(0.2f),
+            starRemover: new ProportionalStarRemover(0.6f),
             nonStellarDeconvolver: new ScaleEnhancer(2.0f),
             denoiser: new ScaleEnhancer(3.0f));
         var src = SyntheticRgb(8, 8, 0.5f);
@@ -588,7 +562,7 @@ public class SharpenPipelineTests(ITestOutputHelper output)
         // Blend=0.5 -> lerp(0.2, 0.4, 0.5) = 0.3.
         // Blend=0 -> input unchanged at 0.2.
         var pipeline = new SharpenPipeline(
-            starRemover: new ConstantStarRemover(0.2f),
+            starRemover: new ProportionalStarRemover(0.6f),
             stellarSharpener: new ScaleEnhancer(2.0f));
         var src = SyntheticRgb(8, 8, 0.5f);
 
@@ -615,7 +589,7 @@ public class SharpenPipelineTests(ITestOutputHelper output)
         // Starless=0.3. ScaleEnhancer(2x) -> 0.6.
         // Blend=0.5 -> lerp(0.3, 0.6, 0.5) = 0.45.
         var pipeline = new SharpenPipeline(
-            starRemover: new ConstantStarRemover(0.2f),
+            starRemover: new ProportionalStarRemover(0.6f),
             denoiser: new ScaleEnhancer(2.0f));
         var src = SyntheticRgb(8, 8, 0.5f);
 
@@ -644,7 +618,7 @@ public class SharpenPipelineTests(ITestOutputHelper output)
         // With identity enhancers, screen-mode split + screen-mode recombine
         // produces Final = Source.
         var pipeline = new SharpenPipeline(
-            starRemover: new ConstantStarRemover(0.2f),
+            starRemover: new ProportionalStarRemover(0.6f),
             stellarSharpener: new IdentityEnhancer("stellar"),
             nonStellarDeconvolver: new IdentityEnhancer("deconv"));
         var src = SyntheticRgb(8, 8, 0.5f);
@@ -667,7 +641,7 @@ public class SharpenPipelineTests(ITestOutputHelper output)
     [Fact]
     public async Task ProcessAsync_ScreenMode_UnscreenSplitProducesExpectedStarsValue()
     {
-        var pipeline = new SharpenPipeline(starRemover: new ConstantStarRemover(0.2f));
+        var pipeline = new SharpenPipeline(starRemover: new ProportionalStarRemover(0.6f));
         var src = SyntheticRgb(8, 8, 0.5f);
 
         var result = await pipeline.ProcessAsync(new SharpenRequest(src,
@@ -688,7 +662,7 @@ public class SharpenPipelineTests(ITestOutputHelper output)
     [Fact]
     public async Task ProcessAsync_ScnrStars_AppliesToStarsPlateNotStarless()
     {
-        // Source = (0.5, 0.8, 0.5). UniformStarRemover(0.3,0.3,0.3) ->
+        // Source = (0.5, 0.8, 0.5). ProportionalStarRemover(0.6, 0.375, 0.6) ->
         //   Starless = (0.3, 0.3, 0.3), StarsOnly = (0.2, 0.5, 0.2).
         // SCNR Average + amount=1 on stars: m = (0.2+0.2)/2 = 0.2,
         //   excess = 0.5-0.2 = 0.3, Gnew = 0.5 - 0.3 = 0.2 -- neutralised.
@@ -696,7 +670,7 @@ public class SharpenPipelineTests(ITestOutputHelper output)
         // The source is BALANCED (its white balance is in its pixels), which is the only colour SCNR may act on.
         var src = GreenStars(balanced: true);
 
-        var pipeline = new SharpenPipeline(starRemover: new UniformStarRemover(0.3f, 0.3f, 0.3f));
+        var pipeline = new SharpenPipeline(starRemover: new ProportionalStarRemover(0.6f, 0.375f, 0.6f));
         var result = await pipeline.ProcessAsync(new SharpenRequest(src,
         [
             new RemoveStarsStep(),
@@ -725,7 +699,7 @@ public class SharpenPipelineTests(ITestOutputHelper output)
     [Fact]
     public async Task ProcessAsync_ScnrStars_IsSkippedOnUnbalancedColour()
     {
-        var pipeline = new SharpenPipeline(starRemover: new UniformStarRemover(0.3f, 0.3f, 0.3f));
+        var pipeline = new SharpenPipeline(starRemover: new ProportionalStarRemover(0.6f, 0.375f, 0.6f));
         var result = await pipeline.ProcessAsync(new SharpenRequest(GreenStars(balanced: false),
         [
             new RemoveStarsStep(),
@@ -742,7 +716,7 @@ public class SharpenPipelineTests(ITestOutputHelper output)
     [Fact]
     public async Task ProcessAsync_ScnrStars_RunsAfterTheProgramsWhiteBalance()
     {
-        var pipeline = new SharpenPipeline(starRemover: new UniformStarRemover(0.3f, 0.3f, 0.3f));
+        var pipeline = new SharpenPipeline(starRemover: new ProportionalStarRemover(0.6f, 0.375f, 0.6f));
         var result = await pipeline.ProcessAsync(new SharpenRequest(GreenStars(balanced: false),
         [
             new WhiteBalanceStep(new ColourCalibration(1f, 1f, 1f, ColourCalibrationSource.Spcc)),
@@ -755,7 +729,8 @@ public class SharpenPipelineTests(ITestOutputHelper output)
         result.StarsOnly![1, 0, 0].ShouldBe(0.2f, 1e-5f, "SCNR ran on the balanced stars");
     }
 
-    // (0.5, 0.8, 0.5) everywhere; a UniformStarRemover(0.3, 0.3, 0.3) leaves stars of (0.2, 0.5, 0.2).
+    // (0.5, 0.8, 0.5) everywhere; a ProportionalStarRemover(0.6, 0.375, 0.6) leaves a plate of (0.3, 0.3, 0.3) and stars of
+    // (0.2, 0.5, 0.2).
     private static Image GreenStars(bool balanced)
     {
         const int w = 4, h = 4;
