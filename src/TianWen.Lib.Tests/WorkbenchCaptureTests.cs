@@ -154,9 +154,16 @@ public sealed class WorkbenchCaptureTests : IDisposable
         var regions = e2e.Regions();
         var cut = e2e.Host.Screen.CutTexts();
         cut.IsEmpty.ShouldBeFalse("premise: the long titles really do need an ellipsis, or this test proves nothing");
+        var canvas = e2e.Host.Screen.CanvasRect;
         foreach (var (full, shown, bounds) in cut)
         {
             var (cx, cy) = (bounds.X + (bounds.Width / 2f), bounds.Y + (bounds.Height / 2f));
+            if (cx >= canvas.X && cx <= canvas.X + canvas.Width && cy >= canvas.Y && cy <= canvas.Y + canvas.Height)
+            {
+                // The viewer's own toolbar and strips paint inside the canvas and are the viewer's to keep (ViewerE2E); this screen owns the rest.
+                continue;
+            }
+
             regions.Where(r => cx >= r.X && cx <= r.X + r.Width && cy >= r.Y && cy <= r.Y + r.Height && r.Tooltip is not null)
                 .ShouldContain(r => r.Tooltip!.Contains(full, StringComparison.Ordinal),
                     $"'{full}' is shown as '{shown}' and carries its whole text on hover");
