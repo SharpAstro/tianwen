@@ -642,6 +642,22 @@ Tracked as #2236. The workflow file (steps, gates, for each), the facts in Lib e
 workflow, with its parity test against `tianwen stack --enhance`. A built-in gate calls the pipeline's own decider
 ([A gate shows a decision](#a-gate-shows-a-decision-it-does-not-replace-one)). No window.
 
+**The enhance as the first built-in workflow: one routine per step (2026-11-26).** Measured on the 10P master on
+2026-11-24, a chain of the single steps (deblur, gradient, remove-stars, denoise, add-stars) was not the one-step enhance:
+the single deblur kept a lifted star's light and wrote a peak near 3.0 that every reader took for ADU (#2504), the two star
+removals and the two denoises were different routines, and SCNR on the stars had no step. The owner chose, 2026-11-26:
+- **the one deblur keeps the lift, and the file says its scale** (`UNITREF`, #2504, done in #2528);
+- **the one star removal is the guarded split**, cores protected and the plate held at or under its input
+  (`NarrowbandCombination.SplitStarsAsync`);
+- **the one denoise is the enhance's gated passes** (`NarrowbandCombination.DenoisePassesAsync`), which `image denoise` now
+  runs too;
+- **SCNR on the stars is its own operation** (`scnr`, `image scnr`, the SCNR part of #2282).
+
+So the enhance program's deblur, star removal and starless denoise call the single steps' routines (`enhance` version 2;
+`denoise`, `denoise-colour` version 2; `combine` version 3), each model taking a lifted frame on its own range and handing it
+back on the frame's scale. What is left for W9 proper: the enhance written as a workflow of those steps, kept step by step,
+and the chain measured against the one-step enhance again on the 10P master.
+
 ### W10 The missing operation verbs
 
 Tracked as #2237. The audit of [the operation table](#the-operations-what-exists-and-what-is-missing) against the code is done
@@ -655,7 +671,9 @@ with the viewer and `image autocrop` calling it; `image crop` to four given numb
 does not call the routine yet: whether it should is #2291 (see Crop and auto-crop).
 
 Still to fly, each as a Lib routine with a verb and tests, one small PR each, none needing the app: rotate and flip (#2280),
-resample and bin (#2281), and the colour and tone operations that are `Image` methods with no verb (#2282 to #2285).
+resample and bin (#2281), and the colour and tone operations that are `Image` methods with no verb (#2282 to #2285). SCNR
+went first, as the enhance retrofit's step (`image scnr`, 2026-11-26); saturation, highlight compression and background
+reduction are what is left of #2282.
 
 ### W11 Memory, GPU and disk for many open images
 

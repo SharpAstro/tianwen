@@ -10,7 +10,7 @@ using Xunit;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// The enhance denoises the starless plate in passes of its own (<c>SharpenPipeline.DenoisePassesAsync</c>), each a denoiser call
+/// The enhance denoises the starless plate in passes of its own (<c>NarrowbandCombination.DenoisePassesAsync</c>), each a denoiser call
 /// on the last one's output, kept while it takes enough off the coarse sky noise (<see cref="MultiScaleNoise"/>). On the Sculptor
 /// master NoiseXTerminator's pass 2 took 47 % off and was the owner's choice by eye; pass 3 took 22 % and only blotched the sky.
 /// </summary>

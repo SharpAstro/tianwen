@@ -97,6 +97,17 @@ public sealed record FillDigsSettings
     public bool KeepOvershoot { get; set; }
 }
 
+/// <summary>The settings of <see cref="ScnrOperation"/>.</summary>
+public sealed record ScnrSettings
+{
+    /// <summary>What green is taken down to: the mean of red and blue (average, the enhance's), or the larger of them
+    /// (maximum, which takes more) (<c>--mode</c>).</summary>
+    public ScnrMode Mode { get; set; } = ScnrMode.Average;
+
+    /// <summary>How much of the way green goes, from above 0 to 1 (<c>--amount</c>).</summary>
+    public float Amount { get; set; } = 1f;
+}
+
 /// <summary>The settings of <see cref="DeblurOperation"/>.</summary>
 public sealed record DeblurSettings
 {
@@ -228,6 +239,7 @@ public sealed record ContinuumSettings
 [JsonSerializable(typeof(AddLineSettings))]
 [JsonSerializable(typeof(LrgbSettings))]
 [JsonSerializable(typeof(FillDigsSettings))]
+[JsonSerializable(typeof(ScnrSettings))]
 [JsonSerializable(typeof(ContinuumSettings))]
 [JsonSerializable(typeof(ProtectCoresSettings))]
 [JsonSerializable(typeof(DeblurSettings))]

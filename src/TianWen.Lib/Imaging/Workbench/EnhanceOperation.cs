@@ -111,9 +111,13 @@ public sealed class EnhanceOperation(SharpenPipeline pipeline, ILogger<EnhanceOp
     public const string Id = "enhance";
 
     /// <inheritdoc/>
+    /// <remarks>Version 2 (2026-11-26, the enhance retrofit): one routine per step, the single steps' own, as the owner chose:
+    /// the deblur keeps a lifted star's light with headroom (its result says it is on a unit scale, #2504), the star removal
+    /// is the guarded split (cores protected, the plate held at or under its input) and the denoise the gated passes it
+    /// already ran, now on the plate's own scale. The same settings give other pixels.</remarks>
     public override OperationDescription Description { get; } = new(
         Id,
-        Version: 1,
+        Version: 2,
         Title: "Enhance",
         Verb: "image sharpen",
         OperationOutputKind.Stored,

@@ -152,6 +152,7 @@ its own image, and every setting at its default. An edit names an operation by i
 | `add-stars` | stored | `image add-stars` | `stars`: the stars a star removal took out |
 | `fill-digs` | stored | `image fill-digs` | `input`: the master the stars were removed from. Its own image is the starless plate |
 | `protect-cores` | stored | `image protect-cores` | `input`: the master the stars were removed from. Its own image is the starless plate |
+| `scnr` | stored | `image scnr` | none. Its own image is a stars plate whose colour is balanced in its pixels (`WBAPPLD`); any other is refused |
 | `match-psf` | stored, one run for several | `image match-psf` | the other masters of the run |
 | `deblur` | stored, one run for several | `image deblur` | the other masters of the run |
 | `denoise` | stored, one run for several | `image denoise` | the other masters of the run |

@@ -333,6 +333,52 @@ internal sealed partial class ImageSubCommand
         return cmd;
     }
 
+    // -------- tianwen image scnr ---------------------------------------
+
+    private Command BuildScnrCommand()
+    {
+        var inputArg = new Argument<string>("stars") { Description = "The stars plate (image remove-stars --stars-output), its colour balanced." };
+        var outputOpt = new Option<string?>("--output", "-o") { Description = "Output FITS. Default: <stars>_scnr.fits." };
+        var modeOpt = new Option<string>("--mode")
+        {
+            Description = "What green is taken down to: average, the mean of red and blue (the enhance's), or maximum, the larger of them, "
+                + "which takes more.",
+            DefaultValueFactory = static _ => "average",
+        };
+        var amountOpt = new Option<float>("--amount")
+        {
+            Description = "How much of the way green goes, from above 0 to 1.",
+            DefaultValueFactory = static _ => 1f,
+        };
+        var cmd = new Command("scnr", "The step the enhance runs on its stars before they go back, alone (SCNR, Image.SubtractiveChromaticNoise): "
+            + "green taken down to where a neutral star has it. Balanced colour only: on a plate whose colour is not balanced in its pixels "
+            + "green is not where a neutral star has it, and the step refuses it.")
+        {
+            Arguments = { inputArg },
+            Options = { outputOpt, modeOpt, amountOpt },
+        };
+        var scnr = new ScnrOperation();
+        cmd.SetAction(async (parseResult, ct) =>
+        {
+            ScnrMode? mode = parseResult.GetValue(modeOpt) switch
+            {
+                "average" => ScnrMode.Average,
+                "maximum" => ScnrMode.Maximum,
+                _ => null,
+            };
+            if (mode is not { } chosen)
+            {
+                consoleHost.WriteError($"[scnr] --mode is average or maximum, not '{parseResult.GetValue(modeOpt)}'.");
+                return 1;
+            }
+
+            var input = parseResult.Required(inputArg);
+            return await RunStepAsync("scnr", scnr, new ScnrSettings { Mode = chosen, Amount = parseResult.GetValue(amountOpt) },
+                [input], StepOutput(input, "_scnr", parseResult.GetValue(outputOpt), 1), ct);
+        });
+        return cmd;
+    }
+
     // -------- tianwen image denoise ------------------------------------
 
     private Command BuildDenoiseCommand()

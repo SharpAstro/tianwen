@@ -143,8 +143,9 @@ public sealed class UnitReferredCardTests(ITestOutputHelper output) : IDisposabl
     }
 
     [Fact]
-    public void TheCombineIsVersionTwo()
-        => new CombineOperation().Description.Version.ShouldBe(2, "a combine with deblur keeps its masters' scale now, so a version 1 result runs again");
+    public void TheCombineIsVersionThree()
+        => new CombineOperation().Description.Version.ShouldBe(3,
+            "version 2: a combine with deblur keeps its masters' scale; version 3: its colour denoise runs the gated passes");
 
     [Fact]
     public void ScaleFloatValuesIntoModelRangeDividesADeclaredImageByItsPeakAndLeavesAnyOther()

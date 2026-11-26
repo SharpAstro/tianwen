@@ -492,7 +492,9 @@ public sealed class WorkbenchEnhanceParityTests(ITestOutputHelper output) : IDis
     public async Task TheDefaultProgramIsPinnedSoAChangeToItIsANewVersionOfTheOperation()
     {
         const string why = "the default program changed: raise EnhanceOperation's Version with it (docs/architecture/workbench-operations.md)";
-        new EnhanceOperation(new SharpenPipeline()).Description.Version.ShouldBe(1, "this test pins version 1's program: pin the new one with the new number");
+        // Version 2 has version 1's program, step for step; what changed is the routine behind three of its steps (the one
+        // deblur with headroom, the guarded star split, the gated denoise on the plate's own scale), which changes pixels.
+        new EnhanceOperation(new SharpenPipeline()).Description.Version.ShouldBe(2, "this test pins version 2's program: pin the new one with the new number");
 
         (await ProgramAsync(EnhanceCapabilities.AllRoles(deblur: false), new EnhanceSettings())).Program.ToSteps().ToArray().ShouldBe(
         [

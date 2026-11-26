@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Imaging.StarRemoval;
 using TianWen.Lib.Stat;
@@ -32,8 +34,16 @@ public static class NarrowbandCombination
     /// divisor (the largest finite value among them), absent pixels filled with the plane's median for the remover and
     /// absent again after.
     /// </summary>
-    public static async Task<Image[]> StarlessAsync(IReadOnlyList<Image> planes, IStarRemover remover, CancellationToken cancellationToken = default)
-        => (await ThroughOneScaleAsync(planes, remover, headroom: 1f, EnhanceOptions.Default, cancellationToken)).Planes;
+    public static Task<Image[]> StarlessAsync(IReadOnlyList<Image> planes, IStarRemover remover, CancellationToken cancellationToken = default)
+        => StarlessAsync(planes, remover, EnhanceOptions.Default, progress: null, cancellationToken);
+
+    /// <summary><see cref="StarlessAsync(IReadOnlyList{Image}, IStarRemover, CancellationToken)"/> with the remover run under
+    /// <paramref name="options"/> (its backend and tuning) and reporting to <paramref name="progress"/>: how the enhance
+    /// program runs it.</summary>
+    public static async Task<Image[]> StarlessAsync(IReadOnlyList<Image> planes, IStarRemover remover, EnhanceOptions options,
+        IProgress<float>? progress, CancellationToken cancellationToken = default)
+        => (await ThroughOneScaleAsync(planes, input => remover.EnhanceAsync(input, options, progress, cancellationToken), headroom: 1f,
+            declaresUnitScale: false, cancellationToken)).Planes;
 
     /// <summary>
     /// Every plane split into its starless plate and its stars (the plane less the plate) on one scale
@@ -91,11 +101,23 @@ public static class NarrowbandCombination
     /// cores and the dig fill (or neither) made it, so a measurement reads the remover's own overshoot, and the stars layer
     /// may hold negative values (#2433).
     /// </summary>
-    public static async Task<(Image[] Starless, Image[] Stars, ExtendedCoreMask[]? Cores, double[]? DigFillShare)> SplitStarsAsync(
+    public static Task<(Image[] Starless, Image[] Stars, ExtendedCoreMask[]? Cores, double[]? DigFillShare)> SplitStarsAsync(
         IReadOnlyList<Image> planes, IStarRemover remover, ExtendedCoreMask.Options? protectCores, bool fillDigs,
         IReadOnlyList<FrameStar>? catalogStars, bool holdAtOrUnderPlane, CancellationToken cancellationToken = default)
+        => SplitStarsAsync(planes, remover, protectCores, fillDigs, catalogStars, holdAtOrUnderPlane, EnhanceOptions.Default, progress: null,
+            cancellationToken);
+
+    /// <summary>
+    /// The one star removal, for <c>image remove-stars</c> and the enhance program alike (the owner's choice, 2026-11-26: the
+    /// guarded split, its cores protected and its plate held at or under its plane): the split above with the remover run under
+    /// <paramref name="options"/> and reporting to <paramref name="progress"/>.
+    /// </summary>
+    public static async Task<(Image[] Starless, Image[] Stars, ExtendedCoreMask[]? Cores, double[]? DigFillShare)> SplitStarsAsync(
+        IReadOnlyList<Image> planes, IStarRemover remover, ExtendedCoreMask.Options? protectCores, bool fillDigs,
+        IReadOnlyList<FrameStar>? catalogStars, bool holdAtOrUnderPlane, EnhanceOptions options, IProgress<float>? progress,
+        CancellationToken cancellationToken = default)
     {
-        var starless = await StarlessAsync(planes, remover, cancellationToken);
+        var starless = await StarlessAsync(planes, remover, options, progress, cancellationToken);
         var cores = protectCores is null ? null : new ExtendedCoreMask[planes.Count];
         var filled = fillDigs && remover.TakesDigFill ? new double[planes.Count] : null;
         var stars = new Image[planes.Count];
@@ -196,19 +218,111 @@ public static class NarrowbandCombination
     /// stars to nearly one width (LDN 1622: 1.97 to 2.24 px before, 1.41 to 1.46 after) where blurring them to the widest
     /// (<see cref="PsfMatch"/>) gives up the detail the luminance is for.
     /// </remarks>
-    public static Task<(Image[] Planes, long AtCeiling)> DeblurAsync(
+    public static async Task<(Image[] Planes, long AtCeiling)> DeblurAsync(
         IReadOnlyList<Image> planes, IImageDeblurrer deblurrer, float headroom = DefaultDeblurHeadroom, CancellationToken cancellationToken = default)
-        => ThroughOneScaleAsync(planes, deblurrer, headroom, EnhanceOptions.Default, cancellationToken, declaresUnitScale: true);
+    {
+        var (deblurred, atCeiling, _) = await DeblurAsync(planes, deblurrer, headroom, EnhanceOptions.Default, progress: null, cancellationToken);
+        return (deblurred, atCeiling);
+    }
+
+    /// <summary>
+    /// <see cref="DeblurAsync(IReadOnlyList{Image}, IImageDeblurrer, float, CancellationToken)"/> with the deblurrer run under
+    /// <paramref name="options"/> and reporting to <paramref name="progress"/>: how the enhance program runs it, so the enhance
+    /// and <c>image deblur</c> are one deblur (the owner's choice, 2026-11-26: keep the lifted star's light). Also whether the
+    /// deblurrer handed every plane back untouched (present but unlicensed), so the caller can say it did nothing.
+    /// </summary>
+    public static Task<(Image[] Planes, long AtCeiling, bool PassedThrough)> DeblurAsync(
+        IReadOnlyList<Image> planes, IImageDeblurrer deblurrer, float headroom, EnhanceOptions options, IProgress<float>? progress,
+        CancellationToken cancellationToken = default)
+        => ThroughOneScaleAsync(planes, input => deblurrer.EnhanceAsync(input, options, progress, cancellationToken), headroom,
+            declaresUnitScale: true, cancellationToken);
 
     /// <summary>
     /// Every plane denoised by <paramref name="denoiser"/> (RC-Astro NoiseXTerminator where licensed) under
-    /// <paramref name="options"/> (its strength), each back on its own scale, absent pixels absent. Hand it STARLESS
-    /// planes: a star is never denoised, as the enhance pipeline's split program never does (its denoise runs on the
-    /// starless plate).
+    /// <paramref name="options"/> (its strength), each back on its own scale, absent pixels absent, in the gated passes the
+    /// enhance runs (<see cref="DenoisePassesAsync"/>). Hand it STARLESS planes: a star is never denoised, as the enhance
+    /// pipeline's split program never does (its denoise runs on the starless plate).
     /// </summary>
-    public static async Task<Image[]> DenoiseAsync(
+    public static Task<Image[]> DenoiseAsync(
         IReadOnlyList<Image> planes, IDenoiseEnhancer denoiser, EnhanceOptions options, CancellationToken cancellationToken = default)
-        => (await ThroughOneScaleAsync(planes, denoiser, headroom: 1f, options, cancellationToken)).Planes;
+        => DenoisePassesAsync(planes, denoiser, DenoiseVariant.Default, options, progress: null, logger: null, cancellationToken);
+
+    /// <summary>
+    /// The one denoise, for the single step and the enhance program alike (the owner's choice, 2026-11-26): every plane through
+    /// <paramref name="denoiser"/> on one scale in passes, each pass one denoiser call on the last one's output
+    /// (NoiseXTerminator at <c>--it 1</c>, never its own iterations, which left the Sculptor's residual unchanged at 2 and 3 for
+    /// twice and three times the time). Pass 1 always runs. A further pass is kept for a plane only while it takes at least
+    /// <see cref="SharpenPipeline.MinCoarseReduction"/> off that plane's coarse sky noise (<see cref="MultiScaleNoise"/>, the 16
+    /// and 32 px bands), measured on the same sky pixels before and after; the first that does not is discarded and ends the
+    /// plane's passes, up to <see cref="SharpenPipeline.MaxDenoisePasses"/>. A stated <see cref="EnhanceTuning.DenoiseIterations"/>
+    /// is that many passes, ungated. A single-pixel noise estimate cannot gate this: one pass on the Sculptor took 70 % off at
+    /// 1 px and only 37 % at 32 px, so the blotches a second pass removes are invisible to it.
+    /// </summary>
+    public static async Task<Image[]> DenoisePassesAsync(
+        IReadOnlyList<Image> planes, IDenoiseEnhancer denoiser, DenoiseVariant variant, EnhanceOptions options, IProgress<float>? progress,
+        ILogger? logger, CancellationToken cancellationToken = default)
+    {
+        Task<Image> Pass(Image input) => denoiser.EnhanceAsync(input, variant, options, progress, cancellationToken);
+
+        var current = (await ThroughOneScaleAsync(planes, Pass, headroom: 1f, declaresUnitScale: false, cancellationToken)).Planes;
+        var stated = options.Tuning?.DenoiseIterations;
+        var passes = Math.Clamp(stated ?? SharpenPipeline.MaxDenoisePasses, 1, SharpenPipeline.MaxDenoisePasses);
+        var noise = new MultiScaleNoise?[current.Length];
+        var going = new List<int>(current.Length);
+        for (var i = 0; i < current.Length; i++)
+        {
+            noise[i] = stated is null ? MultiScaleNoise.Measure(current[i]) : null;
+            // A plane whose sky cannot be measured cannot be gated, and is not denoised again on a guess.
+            if (stated is not null || noise[i] is not null)
+            {
+                going.Add(i);
+            }
+        }
+
+        for (var pass = 2; pass <= passes && going.Count > 0; pass++)
+        {
+            var (next, _, passedThrough) = await ThroughOneScaleAsync([.. going.Select(i => current[i])], Pass, headroom: 1f,
+                declaresUnitScale: false, cancellationToken);
+            if (passedThrough)
+            {
+                // A denoiser that hands its input back changed nothing, and a further pass would change nothing either.
+                foreach (var image in next)
+                {
+                    image.Release();
+                }
+                break;
+            }
+
+            var stillGoing = new List<int>(going.Count);
+            for (var k = 0; k < going.Count; k++)
+            {
+                var i = going[k];
+                if (stated is null && noise[i] is { } measured)
+                {
+                    var after = MultiScaleNoise.Measure(next[k], onSkyOf: measured);
+                    var reduction = after is null ? 0f : 1f - (after.Coarse / measured.Coarse);
+                    logger?.LogInformation("Denoise pass {Pass} took {Reduction:P0} off the coarse sky noise ({Before:E2} to {After:E2}); {Verdict}",
+                        pass, reduction, measured.Coarse, after?.Coarse ?? float.NaN,
+                        reduction >= SharpenPipeline.MinCoarseReduction ? "kept" : "discarded, the passes stop");
+                    if (after is null || reduction < SharpenPipeline.MinCoarseReduction)
+                    {
+                        next[k].Release();
+                        continue;
+                    }
+
+                    noise[i] = after;
+                }
+
+                current[i].Release();
+                current[i] = next[k];
+                stillGoing.Add(i);
+            }
+
+            going = stillGoing;
+        }
+
+        return current;
+    }
 
     /// <summary>
     /// Three mono planes denoised together as one colour image, so the denoiser sees their colour, and handed back as
@@ -242,10 +356,12 @@ public static class NarrowbandCombination
     // Every plane through one enhancer on ONE scale: a scale measured between two planes then still holds between their
     // results, which a divisor per plane breaks (1.8 percent on LDN 1622's starless pair). `declaresUnitScale` is for the
     // routine that can lift a highlight past 2.0 (the deblur): its result says it is on its input's unit scale (#2504). The
-    // others carry what their input says and nothing more, so a file nothing lifted keeps its bytes.
-    private static async Task<(Image[] Planes, long AtCeiling)> ThroughOneScaleAsync(
-        IReadOnlyList<Image> planes, IImageEnhancer enhancer, float headroom, EnhanceOptions options, CancellationToken cancellationToken,
-        bool declaresUnitScale = false)
+    // others carry what their input says and nothing more, so a file nothing lifted keeps its bytes. `enhance` is the one
+    // call of the enhancer, with whatever options and progress its caller runs it under; PassedThrough says the enhancer
+    // handed back every input it was given (a deblurrer present but unlicensed), so the caller can say it did nothing.
+    private static async Task<(Image[] Planes, long AtCeiling, bool PassedThrough)> ThroughOneScaleAsync(
+        IReadOnlyList<Image> planes, Func<Image, Task<Image>> enhance, float headroom, bool declaresUnitScale,
+        CancellationToken cancellationToken)
     {
         var peak = 0f;
         foreach (var plane in planes)
@@ -265,8 +381,10 @@ public static class NarrowbandCombination
 
         var result = new Image[planes.Count];
         long atCeiling = 0;
+        var passedThrough = 0;
         for (var i = 0; i < planes.Count; i++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var plane = planes[i];
             var (channels, width, height) = plane.Shape;
             var scaled = new float[channels][,];
@@ -286,7 +404,11 @@ public static class NarrowbandCombination
                 scaled[c] = dst;
             }
             var input = new Image(scaled, BitDepth.Float32, 1f / headroom, 0f, 0f, plane.ImageMeta);
-            var output = await enhancer.EnhanceAsync(input, options, null, cancellationToken);
+            var output = await enhance(input);
+            if (ReferenceEquals(output, input))
+            {
+                passedThrough++;
+            }
             input.Release();
 
             // Labelled with the peak and floor it HOLDS, not the input's: a deblurred star stands 3.4 times above the
@@ -339,7 +461,7 @@ public static class NarrowbandCombination
                 : new Image(back, BitDepth.Float32, stepped.MaxValue, stepped.MinValue, stepped.Pedestal,
                     meta with { NoiseReduction = noiseReduction });
         }
-        return (result, atCeiling);
+        return (result, atCeiling, planes.Count > 0 && passedThrough == planes.Count);
     }
 
     // An enhancer's [0, 1] ceiling, less a float's rounding.
