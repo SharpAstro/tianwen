@@ -460,7 +460,7 @@ that name. Every non-empty Missing cell names the open issue that carries it.
 
 - **A. A mode of `tianwen-fits`** (Astro Photo Viewer): already in the Store and on macOS, already stacks a SER. But the viewer is a
   viewer; a project, a step bar and batches change what the Store app is, and its size.
-- **B. A new app in this repo, the product Astro Photo Stacker (the executable's name, `tianwen-edit` here, is open)**: an AOT binary on the same SdlVulkan and DIR.Lib stack, sharing the
+- **B. A new app in this repo, the product Astro Photo Stacker (the owner's names, 2026-11-26, recorded on #1640: executable `tianwen-edit`, project `TianWen.UI.Workbench`)**: an AOT binary on the same SdlVulkan and DIR.Lib stack, sharing the
   viewer's widgets and `StandaloneViewerHost`. One more binary to package (a release asset, a `.dmg`, perhaps an MSIX), and the
   viewer gains "Open in the workbench".
 - **C. A tab of `tianwen-gui`**: the GUI is the rig's app, bound to its node; processing yesterday's data should not need a node,
