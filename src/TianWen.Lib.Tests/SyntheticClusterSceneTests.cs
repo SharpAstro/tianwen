@@ -1,6 +1,10 @@
 using System;
+using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using Shouldly;
+using TianWen.AI.Imaging;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.StarRemoval;
 using Xunit;
 
@@ -140,6 +144,106 @@ public sealed class SyntheticClusterSceneTests
         Math.Sqrt(residual.Sum(static r => r * r) / residual.Length).ShouldBe(expected, expected * 0.01, "the stars' own shot noise");
         var corr = Enumerable.Range(n / 2, n / 2).Sum(i => residual[i - (n / 2)] * field[i]) / residual.Length / expected;
         corr.ShouldBe(0.0, 0.01, "drawn apart from the truth's own noise");
+    }
+
+    /// <summary>The starless truth's channel is the sky, the smooth expected light and the nebula, and the faint populations'
+    /// grain only where it is kept: without it, what the grain held is left to the stars truth (the composite less this).</summary>
+    [Fact]
+    public void TheStarlessPlaneHoldsTheGrainOnlyWhereItIsKept()
+    {
+        float[] surface = [0.10f, 0.20f, 0.30f];
+        float[] grain = [0.01f, -0.02f, 0.03f];
+        float[] nebula = [0.5f, 0.0f, 0.25f];
+
+        var without = SyntheticClusterScene.StarlessPlane(1.0, surface, grain: default, nebula);
+        var with = SyntheticClusterScene.StarlessPlane(1.0, surface, grain, nebula);
+
+        without.ShouldBe([1.6f, 1.2f, 1.55f], 1e-6f);
+        with.ShouldBe([1.61f, 1.18f, 1.58f], 1e-6f);
+        SyntheticClusterScene.StarlessPlane(1.0, surface, grain: default, nebula: null).ShouldBe([1.1f, 1.2f, 1.3f], 1e-6f);
+    }
+
+    /// <summary>The owner reversed the rule of 2026-10-20 on 2026-11-26: a scene's starless truth, as the render takes it from
+    /// its spec, is by default the sky, the smooth expected light and the nebula alone, and keeps the faint populations' grain
+    /// (their departure from their expectation, from <see cref="SyntheticClusterScene.GrainFromScale"/> up) only when asked
+    /// to.</summary>
+    [Fact]
+    public void AScenesStarlessTruthKeepsTheFaintGrainOnlyWhenAskedTo()
+    {
+        const int size = 64;
+        const double sky = 0.05;
+        var spec = new SyntheticClusterSpec(size, 0, 0, 0.0, 1500, 40.0, 400.0, 0.006, 6, 0.25, 1.12, 0.0, 0, 0, ClusterOptics.Plain, [], 1);
+        var rng = new Random(29);
+        var surface = Enumerable.Range(0, size * size).Select(i => 0.1f + (0.001f * (i / size))).ToArray();
+        var deviation = Enumerable.Range(0, size * size).Select(_ => (float)(rng.NextDouble() - 0.5) * 0.02f).ToArray();
+        var nebula = Enumerable.Range(0, size * size).Select(i => 0.002f * (i % size)).ToArray();
+
+        var byDefault = SyntheticClusterScene.StarlessFor(spec, sky, surface, deviation, nebula);
+        var asked = SyntheticClusterScene.StarlessFor(spec with { FaintGrainInTruth = true }, sky, surface, deviation, nebula);
+
+        byDefault.ShouldBe(SyntheticClusterScene.StarlessPlane(sky, surface, grain: default, nebula), "the sky, the expected light and the nebula");
+        var grain = ATrousWaveletTransform.Decompose(deviation, size, size, SyntheticClusterScene.GrainFromScale).Residual.ToArray();
+        grain.Max(Math.Abs).ShouldBeGreaterThan(0f);
+        for (var i = 0; i < grain.Length; i++)
+        {
+            (asked[i] - byDefault[i]).ShouldBe(grain[i], 1e-6f, "asked, the grain from 16 px up is added and nothing else");
+        }
+    }
+
+    /// <summary>One export output holds one truth rule: an output no run has claimed takes any, a recorded rule binds from the
+    /// moment it is written (before the first sky, so a run started beside it cannot bring the other rule), and an output
+    /// whose skies predate the record was written under the faint grain's rule.</summary>
+    [Fact]
+    public void AnExportOutputSaysWhichTruthItsSkiesWereRenderedUnder()
+    {
+        using var folders = new TempFolders();
+        var outDir = folders.Create("cluster-export").FullName;
+        var truthFile = Path.Combine(outDir, SyntheticClusterExport.TruthFileName);
+
+        SyntheticClusterExport.WrittenTruthRule(outDir).ShouldBeNull("an output no run has claimed");
+        Directory.CreateDirectory(Path.Combine(outDir, SyntheticClusterExport.FragmentDir));
+        SyntheticClusterExport.WrittenTruthRule(outDir).ShouldBeNull("an empty fragment folder holds no sky");
+        File.WriteAllText(truthFile, SyntheticClusterExport.TruthRule(faintGrainInTruth: false) + "\n");
+        SyntheticClusterExport.WrittenTruthRule(outDir).ShouldBe("no-faint-grain", "a recorded rule binds before the first sky");
+        File.WriteAllText(Path.Combine(outDir, SyntheticClusterExport.FragmentDir, "s0001.jsonl"), "{}\n");
+        SyntheticClusterExport.WrittenTruthRule(outDir).ShouldBe("no-faint-grain", "the recorded rule");
+        File.Delete(truthFile);
+        SyntheticClusterExport.WrittenTruthRule(outDir).ShouldBe("faint-grain", "skies from before the rule was recorded kept the grain");
+    }
+
+    /// <summary>An export run under the other truth rule than its output's skies is refused before it opens anything, and
+    /// records nothing; a run under the output's own rule passes the check and records the rule (this one then stops at its
+    /// missing master).</summary>
+    [Fact]
+    public async Task AnExportRunUnderTheOtherTruthRuleIsRefused()
+    {
+        using var folders = new TempFolders();
+        var outDir = folders.Create("cluster-export").FullName;
+        var truthFile = Path.Combine(outDir, SyntheticClusterExport.TruthFileName);
+        Directory.CreateDirectory(Path.Combine(outDir, SyntheticClusterExport.FragmentDir));
+        File.WriteAllText(Path.Combine(outDir, SyntheticClusterExport.FragmentDir, "s0001.jsonl"), "{}\n");
+        var spec = new SyntheticClusterSpec(256, 0, 0, 0.0, 1500, 40.0, 400.0, 0.006, 6, 0.25, 1.12, 0.0, 0, 0, ClusterOptics.Plain, [], 1);
+        var run = new SyntheticClusterRun(Path.Combine(outDir, "no-master.fits"), Path.Combine(outDir, "no-plate.fits"), outDir, spec,
+            [ClusterOptics.Plain], [0.0], [0.0]);
+        var ct = TestContext.Current.CancellationToken;
+
+        var refused = await Should.ThrowAsync<InvalidOperationException>(
+            () => SyntheticClusterExport.RunAsync(run, 2, 1, [ClusterOptics.Plain], 0.5, 1, stretchFromMaster: true, progress: null, ct));
+        refused.Message.ShouldContain("rendered under the faint-grain truth; a run under the no-faint-grain truth");
+        File.Exists(truthFile).ShouldBeFalse("a refused run records nothing");
+
+        var oldRule = run with { Base = spec with { FaintGrainInTruth = true } };
+        await Should.ThrowAsync<InvalidDataException>(
+            () => SyntheticClusterExport.RunAsync(oldRule, 2, 1, [ClusterOptics.Plain], 0.5, 1, stretchFromMaster: true, progress: null, ct));
+        File.ReadAllText(truthFile).Trim().ShouldBe("faint-grain", "the output's own rule passes and is recorded");
+
+        // An output a run claimed and wrote no sky into (a second run started beside the first, or a stopped one) still
+        // refuses the other rule, and says how its user hands it over.
+        var claimed = folders.Create("cluster-export").FullName;
+        File.WriteAllText(Path.Combine(claimed, SyntheticClusterExport.TruthFileName), "faint-grain\n");
+        var beside = await Should.ThrowAsync<InvalidOperationException>(
+            () => SyntheticClusterExport.RunAsync(run with { OutDir = claimed }, 2, 1, [ClusterOptics.Plain], 0.5, 1, stretchFromMaster: true, progress: null, ct));
+        beside.Message.ShouldContain("claimed for the faint-grain truth (truth.txt) and holds no sky yet; delete that file");
     }
 
     [Theory]

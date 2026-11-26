@@ -35,7 +35,8 @@ namespace TianWen.AI.Imaging;
 /// Both sides are stretched with one set of parameters, chosen as a Stars-mode export chooses them
 /// (<see cref="DatasetDegradationExporter.StarsStretch"/>): the master's own by default, as inference stretches it (#1776), or
 /// the plate's (H6, every cluster export before), the plate put on the master's scale first. One output holds one stretch
-/// (<see cref="StretchFileName"/>), so a resumed run cannot mix them. A sky is held out WHOLE, by its seed (<see cref="HeldOut"/>): every optics and every cell of
+/// (<see cref="StretchFileName"/>), so a resumed run cannot mix them, and one truth rule (<see cref="TruthFileName"/>,
+/// <see cref="SyntheticClusterSpec.FaintGrainInTruth"/>) for the same reason. A sky is held out WHOLE, by its seed (<see cref="HeldOut"/>): every optics and every cell of
 /// it, never a tile of a training sky. Each sky's rows land in a fragment of their own once all its tiles are written, so a
 /// run resumes where it stopped and several runs over disjoint seeds share one output; the manifest, the split lists and the
 /// scene table are rebuilt from the fragments at the end of every run.
@@ -59,6 +60,38 @@ public static class SyntheticClusterExport
 
     /// <summary>Whose stretch the output's tiles are in, <c>master</c> or <c>plate</c>, written by its first run.</summary>
     public const string StretchFileName = "stretch.txt";
+
+    /// <summary>
+    /// Which truth rule the output's skies were rendered under (<see cref="TruthRule"/>), written by its first run. An output
+    /// that holds skies and no such file was written before the rule was recorded, when every export kept the faint grain.
+    /// </summary>
+    public const string TruthFileName = "truth.txt";
+
+    /// <summary>The truth rule's name as <see cref="TruthFileName"/> records it.</summary>
+    public static string TruthRule(bool faintGrainInTruth) => faintGrainInTruth ? "faint-grain" : "no-faint-grain";
+
+    /// <summary>
+    /// The truth rule <paramref name="outDir"/> is bound to, or null for an output no run has claimed: its
+    /// <see cref="TruthFileName"/> whenever that exists (a run records its rule before its first sky, so a second run started
+    /// beside it under the other rule is refused), else the faint grain's rule when it holds a sky's fragment (every export
+    /// before the rule was recorded kept the grain).
+    /// </summary>
+    internal static string? WrittenTruthRule(string outDir)
+    {
+        var truthFile = Path.Combine(outDir, TruthFileName);
+        if (File.Exists(truthFile))
+        {
+            return File.ReadAllText(truthFile).Trim();
+        }
+        return HoldsASky(outDir) ? TruthRule(faintGrainInTruth: true) : null;
+    }
+
+    /// <summary>Whether <paramref name="outDir"/> holds a rendered sky's fragment.</summary>
+    internal static bool HoldsASky(string outDir)
+    {
+        var fragments = Path.Combine(outDir, FragmentDir);
+        return Directory.Exists(fragments) && Directory.EnumerateFiles(fragments, "s*.jsonl").Any();
+    }
 
     /// <summary>Every <see cref="ValEvery"/>-th seed is a held-out sky (seeds 10, 20, ...): one in ten, by seed alone, so a
     /// split never depends on which runs drew which seeds.</summary>
@@ -128,6 +161,15 @@ public static class SyntheticClusterExport
         {
             throw new InvalidOperationException($"{run.OutDir} holds tiles in the {written}'s stretch; a run in the {stretchName}'s needs an output of its own");
         }
+        var truthRule = TruthRule(run.Base.FaintGrainInTruth);
+        if (WrittenTruthRule(run.OutDir) is { } writtenRule && writtenRule != truthRule)
+        {
+            // An output a stopped run claimed and wrote no sky into can be handed over by its user, never silently.
+            throw new InvalidOperationException(HoldsASky(run.OutDir)
+                ? $"{run.OutDir} holds skies rendered under the {writtenRule} truth; a run under the {truthRule} truth needs an output of its own"
+                : $"{run.OutDir} is claimed for the {writtenRule} truth ({TruthFileName}) and holds no sky yet; delete that file to run under the {truthRule} truth here");
+        }
+        await WriteAtomicAsync(Path.Combine(run.OutDir, TruthFileName), truthRule + "\n", cancellationToken);
         var (master, source, line) = await run.OpenSourceAsync(cancellationToken);
         progress?.Report(line);
         if (!Image.TryReadFitsFile(run.PlatePath, out var plate))
