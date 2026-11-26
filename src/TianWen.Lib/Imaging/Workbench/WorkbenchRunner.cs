@@ -26,7 +26,8 @@ public enum StepState
     WillRun,
 
     /// <summary>Its result is not in the store and nothing asked for needs it: a step after it has its own result
-    /// there. It is made again only when something asks for it.</summary>
+    /// there, or the run stops before it (<see cref="WorkbenchRunOptions.Through"/> names an earlier step). It is made
+    /// again only when something asks for it.</summary>
     NotNeeded,
 
     /// <summary>This run made its result.</summary>
@@ -71,6 +72,57 @@ public sealed record StepReport(
     /// <summary>One short word for whose models <see cref="ServedBy"/> names (<see cref="IOperation.ServedTag"/>): rc,
     /// tw or mix. Empty where no model serves the step, or what serves it does not say whose it is.</summary>
     public string ServedTag { get; init; } = string.Empty;
+
+    /// <summary>The state in the words a person reads (<see cref="StepStates.Words"/>).</summary>
+    public string Words => StepStates.Words(State);
+}
+
+/// <summary>The words for a step's state, said once for every host: the command line's output and a window's step bar.</summary>
+public static class StepStates
+{
+    /// <summary>The state in the words a status or a run prints.</summary>
+    public static string Words(StepState state) => state switch
+    {
+        StepState.Off => "off",
+        StepState.Derived => "derived",
+        StepState.Kept => "kept",
+        StepState.WillRun => "will run",
+        StepState.NotNeeded => "not in the store, and not needed",
+        StepState.Ran => "ran",
+        StepState.Refused => "refused",
+        StepState.Blocked => "blocked",
+        _ => state.ToString(),
+    };
+}
+
+/// <summary>What a <see cref="WorkbenchProgress"/> tells.</summary>
+public enum WorkbenchProgressKind
+{
+    /// <summary>The step's work began. A step taken from the store never starts: it is only reported ended, as kept.</summary>
+    Started,
+
+    /// <summary>How far the running step is, in <see cref="WorkbenchProgress.Fraction"/>.</summary>
+    Fraction,
+
+    /// <summary>The step ended; <see cref="WorkbenchProgress.State"/> says how.</summary>
+    Ended,
+}
+
+/// <summary>One report of a run: a step started, how far it is, or that it ended.</summary>
+/// <param name="Image">The image whose edit list holds the step.</param>
+/// <param name="StepIndex">The step's place in that edit list, from 0 (the number a status prints is one more).</param>
+/// <param name="Operation">The operation's id.</param>
+/// <param name="Kind">What is told.</param>
+public sealed record WorkbenchProgress(string Image, int StepIndex, string Operation, WorkbenchProgressKind Kind)
+{
+    /// <summary>For <see cref="WorkbenchProgressKind.Fraction"/>: how far the work is, in [0, 1].</summary>
+    public double Fraction { get; init; }
+
+    /// <summary>For <see cref="WorkbenchProgressKind.Ended"/>: Ran, Kept, Refused or Blocked.</summary>
+    public StepState? State { get; init; }
+
+    /// <summary>For an ended step that was refused or blocked: why.</summary>
+    public string? Message { get; init; }
 }
 
 /// <summary>One image of a project, as a status or a run found it.</summary>
@@ -132,6 +184,21 @@ public sealed record WorkbenchRunOptions
     /// (<see cref="FrameDigestIndex"/>), and correct the index: what finds a frame changed in place under an unchanged
     /// size and time.</summary>
     public bool VerifyFrames { get; init; }
+
+    /// <summary>
+    /// Make <see cref="Image"/> only up to this edit: its place in the image's edit list, from 0 (a status prints the
+    /// number as one more). A status says which steps up to it will run and which are kept; a run makes that step's
+    /// result, taking each earlier step from the store when its key is there and running it otherwise. The steps after
+    /// it are not asked for: they are Kept where their result is in the store, else NotNeeded, never WillRun. Null makes
+    /// the image whole. It needs <see cref="Image"/>, cannot be combined with <see cref="ExportPath"/> (an export is the
+    /// image's final result, which a run to a step does not make), and a step out of range or switched off is refused in words.
+    /// </summary>
+    public int? Through { get; init; }
+
+    /// <summary>Told, synchronously on the thread that does the work, of each step a run makes or takes from the store: that it
+    /// started, how far it is where its operation reports a fraction, and that it ended with its state and message. A
+    /// status reports nothing.</summary>
+    public IProgress<WorkbenchProgress>? Progress { get; init; }
 }
 
 /// <summary>
@@ -213,7 +280,7 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
         var store = await StepStore.OpenAsync(Path.Combine(folder, StepStore.FolderName), cancellationToken);
         var frames = await FrameDigestIndex.OpenAsync(store.Folder, cancellationToken);
         frames.KeepOnly(images.Where(static image => !string.IsNullOrWhiteSpace(image.Path)).Select(image => Path.GetFullPath(image.Path, folder)));
-        var planner = new Planner(folder, byName, operations, store, frames, options.VerifyFrames, cancellationToken);
+        var planner = new Planner(folder, byName, operations, store, frames, options.VerifyFrames, run ? options.Progress : null, cancellationToken);
         try
         {
             foreach (var image in images)
@@ -227,6 +294,32 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             // is the cost the index is there to save. A cancelled walk keeps what it learned (an unfinished walk
             // prunes nothing), so the next run does not start the night from zero.
             await frames.SaveAsync(CancellationToken.None);
+        }
+
+        if (options.Through is { } through)
+        {
+            if (options.Image is not { } throughImage)
+            {
+                return new WorkbenchReport([], "making an image up to a step needs the image named");
+            }
+
+            if (options.ExportPath is not null)
+            {
+                return new WorkbenchReport([], "an export is the image's final result, which making it up to a step does not make: leave one of them out");
+            }
+
+            var edits = planner.Plan(throughImage).Steps;
+            if (through < 0 || through >= edits.Count)
+            {
+                return new WorkbenchReport([], edits.Count == 0
+                    ? $"'{throughImage}' has no edits, so there is no step {through + 1} to make"
+                    : $"'{throughImage}' has {edits.Count} edit(s), so there is no step {through + 1} to make (1 to {edits.Count})");
+            }
+
+            if (!edits[through].Edit.Enabled)
+            {
+                return new WorkbenchReport([], $"step {through + 1} of '{throughImage}' ({edits[through].Edit.Operation}) is switched off: there is nothing to make up to it");
+            }
         }
 
         if (options.ExportPath is { } wanted)
@@ -256,9 +349,14 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
 
         ImmutableArray<string> asked = options.Image is { } name ? [name] : [.. images.Select(static image => image.Name)];
         // An image is made as far as it can be planned: a refused edit stops what is after it, never what is before.
+        // Up to a step, the image is made as far as that step: what is after it is not asked for.
+        Node? TargetOf(ImagePlan plan) => options.Through is { } upTo && string.Equals(plan.Image.Name, options.Image, StringComparison.Ordinal)
+            ? plan.NodeThrough(upTo)
+            : plan.Furthest;
+
         foreach (var each in asked)
         {
-            if (planner.Plan(each).Furthest is { } furthest)
+            if (TargetOf(planner.Plan(each)) is { } furthest)
             {
                 MarkNeeded(furthest);
             }
@@ -273,7 +371,7 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             foreach (var each in asked)
             {
                 var asking = planner.Plan(each);
-                if (asking.Furthest is { } furthest
+                if (TargetOf(asking) is { } furthest
                     && await EnsureAsync(furthest, store, options.Say, cancellationToken) is null
                     && furthest is { Producer: { Step.State: StepState.Ran or StepState.Kept } gaveNone, ResultName: { Length: > 0 } leftOut }
                     && asking.Refusal is null)
@@ -346,6 +444,17 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
     private static async ValueTask<OperationInput?> EnsureAsync(Node node, StepStore store, Action<string>? say, CancellationToken cancellationToken)
     {
         var handed = await MakeAsync(node, store, say, cancellationToken);
+        if (node is { Progress: { } progress, Step: { State: StepState.Ran or StepState.Kept or StepState.Refused or StepState.Blocked } ended, Reported: false })
+        {
+            // Once a step: a kept one is told ended with no start, and a step several edit lists reach is told once.
+            node.Reported = true;
+            progress.Report(new WorkbenchProgress(node.ImageName, ended.Index, node.Operation?.Description.Id ?? ended.Edit.Operation, WorkbenchProgressKind.Ended)
+            {
+                State = ended.State,
+                Message = ended.Message,
+            });
+        }
+
         if (handed is null && node is { Attempt: { } attempt, Step: { State: StepState.Refused, Message: { } why } })
         {
             // What it was refused for is kept for the length of the call, under the step's key or the key of the run
@@ -415,6 +524,7 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
 
         if (operation is IJointOperation joint)
         {
+            Start(node);
             return await RunJointAsync(node, step, joint, inputs, store, say, cancellationToken);
         }
 
@@ -425,11 +535,13 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
 
         if (operation is IMultiResultOperation several)
         {
+            Start(node);
             return await RunSeveralAsync(node, step, several, inputs, store, say, cancellationToken);
         }
 
         using var staging = store.Stage(node.Key);
-        var outcome = await operation.RunAsync(node.Settings, inputs, staging.Path, Named(say, node), cancellationToken);
+        Start(node);
+        var outcome = await operation.RunAsync(node.Settings, inputs, staging.Path, Named(say, node), FractionsOf(node), cancellationToken);
         if (outcome.Succeeded && !File.Exists(staging.Path))
         {
             outcome = OperationOutcome.Failed($"'{operation.Description.Id}' reported a result and wrote no file");
@@ -464,6 +576,7 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             else
             {
                 using var staging = store.Stage(node.FindingKey);
+                Start(node);
                 var outcome = await finder.FindAsync(node.Settings, inputs, staging.Path, Named(say, node), cancellationToken);
                 if (outcome.Succeeded && !File.Exists(staging.Path))
                 {
@@ -616,7 +729,8 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
     {
         var id = named.Description.Id;
         using var work = store.Work();
-        var ran = await named.RunIntoAsync(node.Settings, inputs, work.Folder, Named(say, node), cancellationToken);
+        Start(node);
+        var ran = await named.RunIntoAsync(node.Settings, inputs, work.Folder, Named(say, node), FractionsOf(node), cancellationToken);
         var outcome = ran.Outcome;
         var results = ran.Results.IsDefault ? [] : ran.Results;
         if (outcome.Succeeded)
@@ -867,6 +981,31 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             && OrEmpty(planned.Inputs).SequenceEqual(OrEmpty(onDisk.Inputs), StringComparer.Ordinal)
             && JsonNode.DeepEquals(planned.Settings ?? new JsonObject(), onDisk.Settings ?? new JsonObject());
 
+    // A step's work began: told once, only for a step that is run (a kept step is only told ended).
+    private static void Start(Node node)
+    {
+        if (node is { Progress: { } progress, Step: { } step })
+        {
+            progress.Report(new WorkbenchProgress(node.ImageName, step.Index, node.Operation?.Description.Id ?? step.Edit.Operation, WorkbenchProgressKind.Started));
+        }
+    }
+
+    // Where a running operation reports its fraction: null when nobody listens. It reports on the caller's thread, as
+    // the operation calls it, and never outside [0, 1].
+    private static IProgress<double>? FractionsOf(Node node)
+        => node is { Progress: { } progress, Step: { } step }
+            ? new FractionReport(progress, node.ImageName, step.Index, node.Operation?.Description.Id ?? step.Edit.Operation)
+            : null;
+
+    private sealed class FractionReport(IProgress<WorkbenchProgress> progress, string image, int index, string operation) : IProgress<double>
+    {
+        public void Report(double value)
+            => progress.Report(new WorkbenchProgress(image, index, operation, WorkbenchProgressKind.Fraction)
+            {
+                Fraction = double.IsNaN(value) ? 0 : Math.Clamp(value, 0, 1),
+            });
+    }
+
     private static Action<string>? Named(Action<string>? say, Node node)
         => say is null ? null : line => say($"[{node.Label}] {line}");
 
@@ -908,6 +1047,15 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
         public string? File { get; set; }
 
         public bool Needed { get; set; }
+
+        /// <summary>Who is told of this step's run (<see cref="WorkbenchRunOptions.Progress"/>); null on a status.</summary>
+        public IProgress<WorkbenchProgress>? Progress { get; init; }
+
+        /// <summary>The image whose edit list holds the step, for a progress report.</summary>
+        public string ImageName { get; init; } = string.Empty;
+
+        /// <summary>True once the step's end was told.</summary>
+        public bool Reported { get; set; }
 
         /// <summary>For a node that is an extra result of a step: the result's name. Null otherwise.</summary>
         public string? ResultName { get; init; }
@@ -986,6 +1134,22 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
         /// edit that was refused; null when its file is not there.</summary>
         public Node? Furthest { get; set; }
 
+        /// <summary>What the image's first edit takes: its file, or what it starts from; null when that cannot be had.</summary>
+        public Node? Origin { get; set; }
+
+        /// <summary>The image as far as the edit at <paramref name="index"/>: that step's result, or where the steps up
+        /// to it could be planned, when it, or one before it, cannot be.</summary>
+        public Node? NodeThrough(int index)
+        {
+            var node = Origin;
+            for (var i = 0; i <= index && i < Steps.Count; i++)
+            {
+                node = Steps[i].Node ?? node;
+            }
+
+            return node;
+        }
+
         public ImageReport Report() => new(
             Image.Name,
             Path.Length > 0 ? Path : Image.Result is { Length: > 0 } result ? $"from {Image.From} ({result})" : $"from {Image.From}",
@@ -1009,7 +1173,7 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
 
     /// <summary>Works out every image's steps and keys, each image once.</summary>
     private sealed class Planner(string folder, Dictionary<string, ProjectImage> byName, OperationCatalog operations, StepStore store,
-        FrameDigestIndex frames, bool verifyFrames, CancellationToken cancellationToken)
+        FrameDigestIndex frames, bool verifyFrames, IProgress<WorkbenchProgress>? progress, CancellationToken cancellationToken)
     {
         private readonly Dictionary<string, ImagePlan> _plans = new(StringComparer.Ordinal);
 
@@ -1113,6 +1277,7 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             }
 
             plan.Furthest = current;
+            plan.Origin = current;
             var edits = OrEmpty(image.Edits);
             for (var i = 0; i < edits.Length; i++)
             {
@@ -1333,6 +1498,8 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                     Settings = settings,
                     Inputs = members,
                     Step = step,
+                    Progress = progress,
+                    ImageName = plan.Image.Name,
                     RunKey = runKey,
                     Attempt = AttemptOf(runKey),
                     ExtraKeys = [.. operation.Description.ExtraResults.Select(result => StepKey.OfResult(memberKey, result.Name))],
@@ -1368,6 +1535,8 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                     Settings = settings,
                     Inputs = taken,
                     Step = step,
+                    Progress = progress,
+                    ImageName = plan.Image.Name,
                     Attempt = operation is IDerivedOperation ? null : AttemptOf(key),
                     FindingKey = operation is IFindingOperation ? StepKey.OfFinding(key) : string.Empty,
                     // The results a step is not whole without: one it may leave out is not among them.

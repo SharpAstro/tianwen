@@ -30,13 +30,15 @@ public partial class DesktopAppIdentityTests
     [Fact]
     public void EachIdIsReverseDnsAndFitsAWindowsAppId()
     {
-        foreach (var identity in new[] { DesktopAppIdentity.Gui, DesktopAppIdentity.Viewer })
+        foreach (var identity in new[] { DesktopAppIdentity.Gui, DesktopAppIdentity.Viewer, DesktopAppIdentity.Workbench })
         {
             ReverseDns.IsMatch(identity.Id).ShouldBeTrue($"{identity.Id} is reverse-DNS, lower case, no spaces");
             identity.Id.Length.ShouldBeLessThanOrEqualTo(128);
         }
 
         DesktopAppIdentity.Gui.Id.ShouldNotBe(DesktopAppIdentity.Viewer.Id, "two apps, two taskbar groups");
+        DesktopAppIdentity.Workbench.Id.ShouldNotBe(DesktopAppIdentity.Viewer.Id, "two apps, two taskbar groups");
+        DesktopAppIdentity.Workbench.Id.ShouldNotBe(DesktopAppIdentity.Gui.Id, "two apps, two taskbar groups");
     }
 
     [Fact]
@@ -60,6 +62,7 @@ public partial class DesktopAppIdentityTests
     [Trait("Category", "Invariant")]
     [InlineData("TianWen.UI.Gui")]
     [InlineData("TianWen.UI.FitsViewer")]
+    [InlineData("TianWen.UI.Workbench")]
     public void EachAppClaimsItsIdentityBeforeItsFirstWindowAndTellsSdl(string project)
     {
         if (ChromeMeasuresThroughTheEngineTests.FindSourceRoot() is not { } src)

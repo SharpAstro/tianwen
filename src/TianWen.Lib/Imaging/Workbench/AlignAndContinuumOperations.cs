@@ -31,7 +31,7 @@ public sealed class AlignOperation : Operation<NoSettings>
         Verb: "image align",
         OperationOutputKind.Stored,
         ExtraInputs: [new OperationInputRole("reference", "The master whose grid the image is put on; it is not resampled.")],
-        Settings: []);
+        Settings: []) { Summary = "Puts the image on the pixel grid of a reference master so the two can be combined." };
 
     /// <inheritdoc/>
     protected override JsonTypeInfo<NoSettings> SettingsInfo => OperationSettingsJsonContext.Default.NoSettings;
@@ -117,7 +117,7 @@ public sealed class ContinuumOperation : Operation<ContinuumSettings>
             new OperationSetting("method", "Which measured scale to subtract with: flattest (the least-deviation residual over the continuum's "
                 + "signal) or photometric (the stars' median flux ratio). Both are always reported."),
             new OperationSetting("significance", "A continuum pixel carries the flattest fit only this many of its noise above its median."),
-        ]);
+        ]) { Summary = "Subtracts the continuum of a broadband master from a narrowband one, leaving the emission line alone." };
 
     /// <inheritdoc/>
     protected override JsonTypeInfo<ContinuumSettings> SettingsInfo => OperationSettingsJsonContext.Default.ContinuumSettings;

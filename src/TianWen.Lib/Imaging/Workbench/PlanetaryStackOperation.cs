@@ -153,7 +153,7 @@ public sealed class PlanetaryStackOperation : MultiResultOperation<PlanetaryStac
             new OperationSetting("colourBalance", "Balance a colour master to the planet's own colour."),
             new OperationSetting("colourSaturation", "The saturation the colour balance is made at."),
         ])
-    {
+    { Summary = "Stacks the best frames of a planetary video into one sharp image.",
         ExtraResults = [new OperationResultRole(Sharpened, "The master sharpened by the gains derived through its limb.")],
     };
 

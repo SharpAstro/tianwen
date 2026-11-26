@@ -69,6 +69,16 @@ public interface IOperation
     /// <param name="cancellationToken">Ends the work.</param>
     ValueTask<OperationOutcome> RunAsync(string canonicalSettings, IReadOnlyList<OperationInput> inputs, string outputPath, Action<string>? say,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// As <see cref="RunAsync(string, IReadOnlyList{OperationInput}, string, Action{string}?, CancellationToken)"/>, with a place to
+    /// report how far the work is, as a fraction in [0, 1]. The runner calls this one. An operation that reports no fraction
+    /// keeps this default, which is the routine above; one with engine progress overrides it and the routine above is
+    /// then this one with no <paramref name="progress"/>, so a verb and the runner reach the same code.
+    /// </summary>
+    ValueTask<OperationOutcome> RunAsync(string canonicalSettings, IReadOnlyList<OperationInput> inputs, string outputPath, Action<string>? say,
+        IProgress<double>? progress, CancellationToken cancellationToken)
+        => RunAsync(canonicalSettings, inputs, outputPath, say, cancellationToken);
 }
 
 /// <summary>
@@ -178,6 +188,12 @@ public interface IRunNamedOperation : IOperation
     /// <param name="cancellationToken">Ends the work.</param>
     ValueTask<NamedResults> RunIntoAsync(string canonicalSettings, IReadOnlyList<OperationInput> inputs, string folder, Action<string>? say,
         CancellationToken cancellationToken);
+
+    /// <summary>As <see cref="RunIntoAsync(string, IReadOnlyList{OperationInput}, string, Action{string}?, CancellationToken)"/>, with
+    /// a place to report a fraction in [0, 1]. The runner calls this one; the default reports none.</summary>
+    ValueTask<NamedResults> RunIntoAsync(string canonicalSettings, IReadOnlyList<OperationInput> inputs, string folder, Action<string>? say,
+        IProgress<double>? progress, CancellationToken cancellationToken)
+        => RunIntoAsync(canonicalSettings, inputs, folder, say, cancellationToken);
 }
 
 /// <summary>One result of a run that names its own results.</summary>
@@ -233,6 +249,12 @@ public abstract class Operation<TSettings> : IOperation
     /// <inheritdoc cref="IOperation.RunAsync"/>
     public abstract ValueTask<OperationOutcome> RunAsync(TSettings settings, IReadOnlyList<OperationInput> inputs, string outputPath, Action<string>? say,
         CancellationToken cancellationToken);
+
+    /// <summary>As <see cref="RunAsync(TSettings, IReadOnlyList{OperationInput}, string, Action{string}?, CancellationToken)"/>, reporting a
+    /// fraction in [0, 1] where the engine has one. Override this one for an operation with progress; the default reports none.</summary>
+    public virtual ValueTask<OperationOutcome> RunAsync(TSettings settings, IReadOnlyList<OperationInput> inputs, string outputPath, Action<string>? say,
+        IProgress<double>? progress, CancellationToken cancellationToken)
+        => RunAsync(settings, inputs, outputPath, say, cancellationToken);
 
     /// <inheritdoc/>
     public bool TryReadSettings(string? settingsJson, [NotNullWhen(true)] out string? canonical, [NotNullWhen(false)] out string? refusal)
@@ -292,6 +314,10 @@ public abstract class Operation<TSettings> : IOperation
     ValueTask<OperationOutcome> IOperation.RunAsync(string canonicalSettings, IReadOnlyList<OperationInput> inputs, string outputPath, Action<string>? say,
         CancellationToken cancellationToken)
         => RunAsync(Parse(canonicalSettings), inputs, outputPath, say, cancellationToken);
+
+    ValueTask<OperationOutcome> IOperation.RunAsync(string canonicalSettings, IReadOnlyList<OperationInput> inputs, string outputPath, Action<string>? say,
+        IProgress<double>? progress, CancellationToken cancellationToken)
+        => RunAsync(Parse(canonicalSettings), inputs, outputPath, say, progress, cancellationToken);
 }
 
 /// <summary>An <see cref="Operation{TSettings}"/> several images go through in one run (<see cref="IJointOperation"/>).</summary>
@@ -342,6 +368,12 @@ public abstract class RunNamedOperation<TSettings> : Operation<TSettings>, IRunN
     public abstract ValueTask<NamedResults> RunIntoAsync(TSettings settings, IReadOnlyList<OperationInput> inputs, string folder, Action<string>? say,
         CancellationToken cancellationToken);
 
+    /// <summary>As <see cref="RunIntoAsync(TSettings, IReadOnlyList{OperationInput}, string, Action{string}?, CancellationToken)"/>, reporting
+    /// a fraction in [0, 1]. An operation with engine progress overrides this one and the routine above calls it with none.</summary>
+    public virtual ValueTask<NamedResults> RunIntoAsync(TSettings settings, IReadOnlyList<OperationInput> inputs, string folder, Action<string>? say,
+        IProgress<double>? progress, CancellationToken cancellationToken)
+        => RunIntoAsync(settings, inputs, folder, say, cancellationToken);
+
     /// <summary>The verb's routine: the results are left in the folder <paramref name="outputPath"/> names, under the
     /// names the run gives them.</summary>
     public sealed override async ValueTask<OperationOutcome> RunAsync(TSettings settings, IReadOnlyList<OperationInput> inputs, string outputPath, Action<string>? say,
@@ -351,6 +383,10 @@ public abstract class RunNamedOperation<TSettings> : Operation<TSettings>, IRunN
     ValueTask<NamedResults> IRunNamedOperation.RunIntoAsync(string canonicalSettings, IReadOnlyList<OperationInput> inputs, string folder, Action<string>? say,
         CancellationToken cancellationToken)
         => RunIntoAsync(Parse(canonicalSettings), inputs, folder, say, cancellationToken);
+
+    ValueTask<NamedResults> IRunNamedOperation.RunIntoAsync(string canonicalSettings, IReadOnlyList<OperationInput> inputs, string folder, Action<string>? say,
+        IProgress<double>? progress, CancellationToken cancellationToken)
+        => RunIntoAsync(Parse(canonicalSettings), inputs, folder, say, progress, cancellationToken);
 }
 
 /// <summary>An <see cref="Operation{TSettings}"/> whose one run gives several results (<see cref="IMultiResultOperation"/>).</summary>

@@ -28,6 +28,11 @@ public sealed record DesktopAppIdentity(string Id, string DisplayName)
     /// <summary><c>tianwen-fits</c>, published in the Store as Astro Photo Viewer.</summary>
     public static DesktopAppIdentity Viewer { get; } = new("com.sharpastro.tianwen.fits", "Astro Photo Viewer");
 
+    /// <summary><c>tianwen-edit</c>, the processing application.</summary>
+    /// <remarks>The display name is a working name: the product name is the owner's to settle at W8 (#1648), the packaging step, and
+    /// the id stays whatever the name becomes.</remarks>
+    public static DesktopAppIdentity Workbench { get; } = new("com.sharpastro.tianwen.edit", "Tianwen Edit");
+
     /// <summary>The same identity for SDL, which applies it before <c>SDL_Init</c>; the version stays the entry
     /// assembly's. Inside an app package (<paramref name="packaged"/>) the identifier is left to SDL, because the
     /// package's manifest names the app there and an id of ours would split an SDL toast from the package's windows.</summary>

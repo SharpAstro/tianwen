@@ -141,7 +141,7 @@ public sealed class CometStackOperation(ILogger<StackingPipeline>? logger = null
                 "Mosaic: splitting took 10P's comet from 85.7% of its flux to 22.4% (StarRemovalMode)."),
             new OperationSetting("inheritWhiteBalance", "Take the white balance of the master the run follows, so the two layers share one. Only a master that states one gives it: an original the stack verb wrote with a picture or with an inherited balance (--inherit-wb), or the master of a run that itself inherited one. A workbench step's master has none of its own, and a master that states none is refused."),
         ])
-    {
+    { Summary = "Stacks a night's frames on the comet's own motion, keeping the comet sharp and the stars trailed.",
         NamedByRun = true,
         TakesFrameSet = true,
     };

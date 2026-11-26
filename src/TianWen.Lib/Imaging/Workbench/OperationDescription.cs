@@ -61,6 +61,10 @@ public sealed record OperationDescription(
     ImmutableArray<OperationInputRole> ExtraInputs,
     ImmutableArray<OperationSetting> Settings)
 {
+    /// <summary>What the operation does, in one plain sentence a person reads in a step panel. No em-dash and no double
+    /// hyphen. Every operation the catalog registers fills it (a test holds that).</summary>
+    public string Summary { get; init; } = string.Empty;
+
     /// <summary>The results it gives beyond its main one, each kept in the store under a key of its own.</summary>
     public ImmutableArray<OperationResultRole> ExtraResults { get; init; } = [];
 

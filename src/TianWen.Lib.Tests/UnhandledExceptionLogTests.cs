@@ -113,7 +113,7 @@ public class UnhandledExceptionLogTests
             .ToArray();
 
         programs.Select(static p => p.Name).ShouldBe(
-            ["TianWen.AI.MCP", "TianWen.AscomHost", "TianWen.Cli", "TianWen.Server", "TianWen.UI.FitsViewer", "TianWen.UI.Gui"],
+            ["TianWen.AI.MCP", "TianWen.AscomHost", "TianWen.Cli", "TianWen.Server", "TianWen.UI.FitsViewer", "TianWen.UI.Gui", "TianWen.UI.Workbench"],
             "a new program hooks its unhandled exceptions and is listed here; one that need not goes into notPrograms with its reason");
         foreach (var (name, program) in programs)
         {

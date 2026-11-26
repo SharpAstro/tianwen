@@ -54,7 +54,7 @@ public sealed class MatchPsfOperation : JointOperation<NoSettings>
     /// <inheritdoc/>
     public override OperationDescription Description { get; } = new(
         Id, Version: 1, Title: "Match PSF", Verb: "image match-psf", OperationOutputKind.Stored, ExtraInputs: [], Settings: [])
-    {
+    { Summary = "Blurs each image to the star size of the softest one, so the images share one star shape.",
         Joint = true,
     };
 
@@ -114,7 +114,7 @@ public sealed class DeblurOperation(IImageDeblurrer? deblurrer = null) : JointOp
                 "BlurX lifted LDN 1622's brightest star to 3.4 times its input peak; at 4 no pixel came back clipped, and the result agreed "
                 + "with 8's to 0.7 percent on star pixels (NarrowbandCombination.DefaultDeblurHeadroom)."),
         ])
-    {
+    { Summary = "Sharpens the image by taking out the blur of the telescope and the seeing.",
         Joint = true,
     };
 
@@ -211,7 +211,7 @@ public sealed class DenoiseOperation(IDenoiseEnhancer? denoiser = null) : JointO
         [
             new OperationSetting("strength", "Strength in 0 to 1. Left out: the denoiser's own (NoiseXTerminator's is set from each plate's noise)."),
         ])
-    {
+    { Summary = "Lowers the noise of the image while it keeps the detail.",
         Joint = true,
     };
 
@@ -324,7 +324,7 @@ public sealed class DenoiseColourOperation(IDenoiseEnhancer? denoiser = null) : 
         [
             new OperationSetting("strength", "Strength in 0 to 1. Left out: the denoiser's own (NoiseXTerminator's is set from each plate's noise)."),
         ])
-    {
+    { Summary = "Lowers the noise of three planes together as one colour image, and hands each plane back.",
         ExtraResults =
         [
             new OperationResultRole(Green, "The green plane, denoised."),
@@ -463,7 +463,7 @@ public sealed class RemoveStarsOperation(IStarRemover? starRemover = null, ICele
             new OperationSetting("keepOvershoot", "Leave the plate as the remover wrote it. By default it is held at or under its input, so the stars are "
                 + "never negative and plate plus stars is the input (#2433)."),
         ])
-    {
+    { Summary = "Takes the stars out of the image and keeps them as an image of their own.",
         Joint = true,
         ExtraResults = [new OperationResultRole(Stars, "The stars it took out: the input less its starless plate.")],
     };

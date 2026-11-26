@@ -40,6 +40,26 @@ public sealed class WorkbenchRegistrationTests
         provider.GetRequiredService<OperationCatalog>().ShouldBeSameAs(catalog, "one catalog a host");
     }
 
+    /// <summary>The app's step panel reads each operation's one sentence, so none may be left empty, and none uses a dash for an aside.</summary>
+    [Fact]
+    [Trait("Category", "Invariant")]
+    public void EveryOperationSaysInOneSentenceWhatItDoes()
+    {
+        using var provider = new ServiceCollection()
+            .AddLogging()
+            .AddWorkbench()
+            .BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
+
+        foreach (var operation in provider.GetRequiredService<OperationCatalog>().All)
+        {
+            var summary = operation.Description.Summary;
+            summary.ShouldNotBeNullOrWhiteSpace($"'{operation.Description.Id}' has a Summary");
+            summary.ShouldEndWith(".", customMessage: $"'{operation.Description.Id}' says it in a sentence");
+            summary.ShouldNotContain("—", customMessage: operation.Description.Id);
+            summary.ShouldNotContain("--", customMessage: operation.Description.Id);
+        }
+    }
+
     /// <summary>
     /// The solve is built by hand because it takes the factory's pick: left to the container, a constructor that asks
     /// for an <see cref="IPlateSolver"/> is handed the LAST one registered, which is not the factory.

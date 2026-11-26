@@ -74,7 +74,7 @@ public sealed class PlanetaryComposeOperation : MultiResultOperation<PlanetaryCo
             new OperationSetting("ringFeatherOuter", "Where the turn is taken whole."),
             new OperationSetting("colourBalance", "Balance the colour master to the planet's own colour."),
         ])
-    {
+    { Summary = "Joins the planetary stacks of the colour channels into one colour master and a luminance.",
         AnyNumber = true,
         ExtraResults = [new OperationResultRole(Luminance, "The IR or L stacks joined, where there was one.", Optional: true)],
     };

@@ -460,7 +460,7 @@ that name. Every non-empty Missing cell names the open issue that carries it.
 
 - **A. A mode of `tianwen-fits`** (Astro Photo Viewer): already in the Store and on macOS, already stacks a SER. But the viewer is a
   viewer; a project, a step bar and batches change what the Store app is, and its size.
-- **B. A new app in this repo, the product Astro Photo Stacker (the executable's name, `tianwen-stack` here, is open)**: an AOT binary on the same SdlVulkan and DIR.Lib stack, sharing the
+- **B. A new app in this repo, the product Astro Photo Stacker (the owner's names, 2026-11-26, recorded on #1640: executable `tianwen-edit`, project `TianWen.UI.Workbench`)**: an AOT binary on the same SdlVulkan and DIR.Lib stack, sharing the
   viewer's widgets and `StandaloneViewerHost`. One more binary to package (a release asset, a `.dmg`, perhaps an MSIX), and the
   viewer gains "Open in the workbench".
 - **C. A tab of `tianwen-gui`**: the GUI is the rig's app, bound to its node; processing yesterday's data should not need a node,
@@ -485,7 +485,7 @@ widened to the full processing application DSPX points at, and the plan was re-c
 day, beside Astro Photo Viewer (`tianwen-fits`). A Store product of its own is B. A search the same day found no application
 of that exact name, in the Microsoft Store or elsewhere; the nearest are "Astro Stacker: Star Images" on Apple's App Store and
 two GitHub projects named AstroStacker and astro-stacker, and trademark registers were not searched. Still open in #1640: the
-executable's name (`tianwen-stack` is the working one) and the drawing.
+executable's name (`tianwen-edit` is the working one) and the drawing.
 
 The owner's words the same day, on what the other two apps keep: "yes stand-alone. the existing gui currently only have live
 stacking planned, and the viewer will keep the planet stacking for now", and then "but we should also be able to handle .ser
@@ -518,8 +518,8 @@ W10 waits on nothing, the owner's W0 included: its verbs are useful from the com
 ### W0 Where it lives
 
 Tracked as #1640. Decided by the owner from the three choices above, with the name. **Decided 2026-11-22**: B, a product of
-its own, named Astro Photo Stacker ([Where it lives](#where-it-lives-w0-the-owners-decision)). The executable's name is
-still open, and W1 does not wait on it.
+its own, named Astro Photo Stacker ([Where it lives](#where-it-lives-w0-the-owners-decision)). The owner's names (2026-11-26): executable `tianwen-edit`, project
+`TianWen.UI.Workbench`.
 
 ### W1 The step runner and the project, headless
 
@@ -602,7 +602,8 @@ does it: [workbench-operations.md](../architecture/workbench-operations.md), "A 
 
 ### W2 The app's shell
 
-Tracked as #1642. The step bar left to right, Original / Enhanced / Comparison views (`SplitCompareController`), a job panel with progress and cancel fed
+Tracked as #1642. **Built** (2026-11-26): how it works is [workbench-app.md](../architecture/workbench-app.md); what it leaves out
+is settings editing (W6, W12), gates (W9), the other screens (W4 to W6) and packaging (W8). The design as planned: the step bar left to right, Original / Enhanced / Comparison views (`SplitCompareController`), a job panel with progress and cancel fed
 by the engines' `IProgress`, each step's command line. Built so `StandaloneViewerHost`'s headless test path drives it in CI at DPI 1
 and 1.5.
 

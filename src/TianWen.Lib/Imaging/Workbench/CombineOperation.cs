@@ -68,7 +68,7 @@ public sealed class CombineOperation(
             new OperationSetting("denoise", "Denoise the starless planes; the stars are never denoised, so it needs starless."),
             new OperationSetting("denoiseStrength", "With denoise: the strength for the planes that carry the detail. Left out: the denoiser's own."),
             new OperationSetting("colourDenoiseStrength", "With denoise and lrgb: the strength for the colour, whose fine detail the luminance replaces."),
-        ]);
+        ]) { Summary = "Joins separate red, green, blue and optional H-alpha masters into one colour image." };
 
     /// <inheritdoc/>
     protected override JsonTypeInfo<CombineSettings> SettingsInfo => OperationSettingsJsonContext.Default.CombineSettings;

@@ -34,4 +34,5 @@
   <Project Path="TianWen.UI.Gui/TianWen.UI.Gui.csproj" />
   <Project Path="TianWen.UI.Shared/TianWen.UI.Shared.csproj" />
   <Project Path="TianWen.UI.Web/TianWen.UI.Web.csproj" />
+  <Project Path="TianWen.UI.Workbench/TianWen.UI.Workbench.csproj" />
 </Solution>

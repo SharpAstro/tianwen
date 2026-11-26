@@ -1,0 +1,56 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- tianwen-edit, the processing application (docs/plans/stacking-workbench.md). Not a release asset yet: that is W8 (#1648). -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <SiblingDebugTwinIds>DIR.Lib;SdlVulkan.Renderer</SiblingDebugTwinIds>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>tianwen-edit</AssemblyName>
+    <PublishAot>true</PublishAot>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\TianWen.UI.FitsViewer\Resources\MilkyWay.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(Version)' == '' ">
+    <Version Condition=" '$(VersionSuffix)' != '' And $(VersionSuffix[0]) != '+'">$(VersionPrefix)-$(VersionSuffix)</Version>
+    <Version Condition=" '$(VersionSuffix)' != '' And $(VersionSuffix[0]) == '+'">$(VersionPrefix)$(VersionSuffix)</Version>
+    <Version Condition=" '$(Version)' == '' ">$(VersionPrefix)</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SDL3-CS" />
+    <PackageReference Include="SDL3-CS.Native" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="System.CommandLine" />
+  </ItemGroup>
+
+  <!-- The app identity claim (AppIdentity.Claim) is AppShell's, a package unless the sibling clone is there. -->
+  <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
+    <ProjectReference Include="..\..\..\AppShell\src\SharpAstro.AppShell\SharpAstro.AppShell.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
+    <PackageReference Include="SharpAstro.AppShell" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TianWen.UI.Shared\TianWen.UI.Shared.csproj" />
+    <!-- The enhancers (the in-house ONNX models and the RC-Astro CLI wrappers) the workbench's enhance steps run on. -->
+    <ProjectReference Include="..\TianWen.AI.Imaging\TianWen.AI.Imaging.csproj" />
+  </ItemGroup>
+
+  <Import Project="..\VCRuntimeRedist.targets" />
+
+  <!-- LINKED, not copied, as in tianwen-fits: one copy of each face in the repo (an LFS object), and the same text on every host.
+       (No double hyphen anywhere in a comment here: XML forbids it.) -->
+  <ItemGroup>
+    <Content Include="..\TianWen.UI.Gui\Fonts\DejaVuSans.ttf" Link="Fonts\DejaVuSans.ttf"
+             CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\TianWen.UI.Gui\Fonts\Noto-COLRv1.ttf" Link="Fonts\Noto-COLRv1.ttf"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

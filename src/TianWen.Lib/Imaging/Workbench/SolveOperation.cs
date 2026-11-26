@@ -136,7 +136,7 @@ public sealed class SolveOperation(IPlateSolver? plateSolver) : FindingOperation
             new OperationSetting("searchRa", "Where to look: the right ascension in hours. With searchDec, or both left out for a blind solve."),
             new OperationSetting("searchDec", "Where to look: the declination in degrees."),
             new OperationSetting("searchRadius", "How far around that place to look, in degrees. Used only with a place to look."),
-        ]);
+        ]) { Summary = "Finds where in the sky the image points and records it, with no change to the pixels." };
 
     /// <inheritdoc/>
     protected override JsonTypeInfo<SolveSettings> SettingsInfo => OperationSettingsJsonContext.Default.SolveSettings;

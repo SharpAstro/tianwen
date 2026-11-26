@@ -146,7 +146,12 @@ public sealed class EnhanceOperation(SharpenPipeline pipeline, ILogger<EnhanceOp
             new OperationSetting("deconvBeta", "The Moffat beta of the kernel."),
             new OperationSetting("deconvResample", "The scale the frame is deconvolved at."),
             new OperationSetting("whiteBalance", "An SPCC white balance for the input as red, green, blue; it wins over one the input states."),
-        ]);
+        ])
+    {
+        Summary = "Runs the sharpening program on the image, one step after another: it takes out the background gradient, "
+            + "deblurs the stars, splits the stars from the rest with their cores protected, denoises each part and puts them "
+            + "back together, each step only as far as the models on this computer serve it.",
+    };
 
     /// <inheritdoc/>
     protected override JsonTypeInfo<EnhanceSettings> SettingsInfo => OperationSettingsJsonContext.Default.EnhanceSettings;
