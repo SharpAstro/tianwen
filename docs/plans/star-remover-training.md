@@ -46,7 +46,7 @@ and what has been tried (each in section 6):
   real ones taken), so a loss counted only where
   it took a star would see a minority of them there (the net of its mask's own rule uncounted). **R4k's own training
   sessions are counted (2026-11-26) and are not the same:** there the builder took 69 % of such stars and R4k's
-  masks covered 65 % of them, some 51,000 stars, so R4k's loss saw most of them taken; the Lagoon master, where the
+  masks covered 64 % of them, some 41,700 stars inside the rim its loss reads, so R4k's loss saw most of them taken; the Lagoon master, where the
   builder takes a tenth to a third, is the harder case, and what the training showed did not carry over to it. Why
   not, and why the drawn-star arms leave them, is not measured.
 
@@ -10803,9 +10803,12 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     position counts there, a bump of the nebula among them; the "all 104 sessions" line holds them and the others do
     not. "Bright nebula" is the level rule of the scorecard's row, so on the training sessions it takes in the
     star-cloud backgrounds of the Magellanic Clouds as well as nebula.
-  - **What it says.** R4k's loss saw some 51,000 such stars taken (64.5 % of 79,458; the script counts a star 3 px inside its cell,
-    `--edge 3`, while the trainer's loss skips a 16 px rim (`BORDER` in `n2n_smoke.py`), so counted by `--edge 16` it is about 41,000
-    if the stars lie evenly over the cell, not re-run; the conclusion stands). The pool is star-weighted: by the scratch
+  - **What it says.** R4k's loss saw some 41,700 such stars taken. The table counts a star 3 px inside its cell
+    (`--edge 3`), while the trainer's loss skips a 16 px rim (`BORDER` in `n2n_smoke.py`); counted again with
+    `--edge 16` (2026-11-26, the same script and inputs), the 95 checked sessions hold 64,793 such stars, of which the
+    builder took 68.8 % and the mask covers 64.4 % (24,256 / 34,410 / 6,127 at 20 to 40 / 40 to 80 / 80 and over,
+    covered 66.3 / 68.8 / 32.7 %; dark sky 289,396 stars, covered 77.8 %), so every share moves by 0.2 points or
+    less and the count is 41,700 where the table's reading gives 51,000. The pool is star-weighted: by the scratch
     coverage.txt only 39 of the 95 sessions carry 5 or more such stars, 15 of those cover under 50 % (13 % of the stars),
     the median session covers 56 % and the range is 15 to 93 %. Most of them at 20 to 80 sky
     sigma of nebula, where the builder takes seven in ten on these sessions against a tenth to a third on the Lagoon
