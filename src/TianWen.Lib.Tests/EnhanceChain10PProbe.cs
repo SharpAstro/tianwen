@@ -204,6 +204,9 @@ public sealed class EnhanceChain10PProbe(ITestOutputHelper output)
 
             Array.Sort(sky, 0, n);
             levels[c] = n == 0 ? double.NaN : sky[n / 2];
+            // As the peak: a NaN level (every finite pixel outside the ring on a star) would pass the sky bar blind, and
+            // carry into the star light and so the green share.
+            double.IsFinite(levels[c]).ShouldBeTrue($"premise: channel {c} has a finite value off the stars and outside the ring to take a sky level of");
             peaks[c] = peak;
         }
 
@@ -215,13 +218,20 @@ public sealed class EnhanceChain10PProbe(ITestOutputHelper output)
             {
                 for (var x = stars.NextSetBit(y, 0); x >= 0; x = stars.NextSetBit(y, x + 1))
                 {
-                    light[c] += plane[y * width + x] - levels[c];
+                    // A non-finite value on a star is kept out of its light, as out of the peak and the sky.
+                    var v = plane[y * width + x];
+                    if (float.IsFinite(v))
+                    {
+                        light[c] += v - levels[c];
+                    }
                 }
             }
         }
 
         image.TryEstimateSkyNoise(1, ring, out var greenSigma).ShouldBeTrue("premise: the result has sky to read its green noise on");
-        return new Reading(levels[1], greenSigma, peaks, light[1] / (light[0] + light[1] + light[2]));
+        var greenShare = light[1] / (light[0] + light[1] + light[2]);
+        double.IsFinite(greenShare).ShouldBeTrue("premise: the stars hold light over the sky to take a green share of");
+        return new Reading(levels[1], greenSigma, peaks, greenShare);
     }
 
     private sealed record Difference(long Count, long OnStars, long Read, double Largest);
