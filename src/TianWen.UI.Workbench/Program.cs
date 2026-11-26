@@ -122,7 +122,7 @@ var imageRenderer = gpu.Top;
 
 using var cts = new CancellationTokenSource();
 var workbenchState = new WorkbenchState();
-var actions = new WorkbenchActions(workbenchState, state, sp.GetRequiredService<WorkbenchRunner>(),
+var actions = new WorkbenchActions(workbenchState, sp.GetRequiredService<WorkbenchRunner>(),
     sp.GetRequiredService<OperationCatalog>(), tracker, sp.GetRequiredService<IFileDialogs>(),
     text => SetClipboardText(text), logger, cts.Token);
 var host = new WorkbenchHost<VulkanContext>(renderer, imageRenderer, state, controller, workbenchState, actions, tracker, bus,

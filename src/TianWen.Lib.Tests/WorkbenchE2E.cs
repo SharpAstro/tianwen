@@ -50,7 +50,7 @@ internal sealed class WorkbenchE2E : IAsyncDisposable
         Viewer.EmojiFontPath = File.Exists(emoji) ? emoji : string.Empty;
         Viewer.FontFallback = FontFallbackResolver.FromRoles(face, emojiFontPath: File.Exists(emoji) ? emoji : null, scriptFontPaths: []);
         State = new WorkbenchState();
-        Actions = new WorkbenchActions(State, ViewerState, runner, catalog, Tracker, FileDialog, Clipboard.Add,
+        Actions = new WorkbenchActions(State, runner, catalog, Tracker, FileDialog, Clipboard.Add,
             NullLogger.Instance, _appCts.Token);
         Host = new WorkbenchHost<RgbaImage>(_renderer, Viewer, ViewerState, Controller, State, Actions, Tracker, Bus,
             NullLogger.Instance, _appCts.Token);

@@ -60,7 +60,6 @@ public sealed record WorkbenchStepPanel(
 /// </remarks>
 public sealed class WorkbenchActions(
     WorkbenchState state,
-    ViewerState viewerState,
     WorkbenchRunner runner,
     OperationCatalog catalog,
     BackgroundTaskTracker tracker,
@@ -193,7 +192,7 @@ public sealed class WorkbenchActions(
         }
 
         var (folder, index) = (view.Folder, state.SelectedStep);
-        tracker.RunExclusive<WorkbenchPlan?>(PlanSlot, async ct =>
+        tracker.RunExclusive<WorkbenchPlan>(PlanSlot, async ct =>
             {
                 var report = await runner.StatusAsync(folder, new WorkbenchRunOptions { Image = name, Through = index }, ct);
                 var answered = report.Images.FirstOrDefault(i => string.Equals(i.Name, name, StringComparison.Ordinal));
@@ -338,7 +337,7 @@ public sealed class WorkbenchActions(
     /// </summary>
     public void TryAdoptStatus()
     {
-        if (tracker.TryCollect<WorkbenchPlan?>(PlanSlot, out var plan) && plan is not null && state.View is { } current
+        if (tracker.TryCollect<WorkbenchPlan>(PlanSlot, out var plan) && plan is not null && state.View is { } current
             && string.Equals(plan.Folder, current.Folder, StringComparison.Ordinal)
             && string.Equals(plan.Image, current.ImageName, StringComparison.Ordinal)
             && plan.Index == state.SelectedStep)
