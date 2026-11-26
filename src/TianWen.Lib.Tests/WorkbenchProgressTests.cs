@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
@@ -67,31 +68,19 @@ public sealed class WorkbenchProgressTests(ITestOutputHelper output) : IDisposab
     /// <summary>Takes each report as it is made, on the thread that makes it: no posting to a context, no waiting.</summary>
     private sealed class Told : IProgress<WorkbenchProgress>
     {
-        public List<WorkbenchProgress> Reports { get; } = [];
+        private readonly ConcurrentQueue<WorkbenchProgress> _reports = [];
 
-        public void Report(WorkbenchProgress value)
-        {
-            lock (Reports)
-            {
-                Reports.Add(value);
-            }
-        }
+        public ImmutableArray<WorkbenchProgress> Reports => [.. _reports];
+
+        public void Report(WorkbenchProgress value) => _reports.Enqueue(value);
 
         public string[] Lines
-        {
-            get
+            => [.. Reports.Select(static r => r.Kind switch
             {
-                lock (Reports)
-                {
-                    return [.. Reports.Select(static r => r.Kind switch
-                    {
-                        WorkbenchProgressKind.Started => $"{r.StepIndex + 1} started",
-                        WorkbenchProgressKind.Fraction => $"{r.StepIndex + 1} {r.Fraction}",
-                        _ => $"{r.StepIndex + 1} {r.State}",
-                    })];
-                }
-            }
-        }
+                WorkbenchProgressKind.Started => $"{r.StepIndex + 1} started",
+                WorkbenchProgressKind.Fraction => $"{r.StepIndex + 1} {r.Fraction}",
+                _ => $"{r.StepIndex + 1} {r.State}",
+            })];
     }
 
     private async Task<string> ProjectAsync(string name, params ProjectEdit[] edits)

@@ -118,6 +118,57 @@ public sealed class WorkbenchJobTests : IDisposable
     }
 
     [Fact(Timeout = 120_000)]
+    public async Task AStartTheMomentTheFirstRunEndedCanBeCancelledAndKeepsItsOwnSource()
+    {
+        var second = new GateOperation("gate2");
+        var catalog = new OperationCatalog([_add, _gate, second]);
+        var first = await ProjectAsync(WorkbenchFixtures.Edit("gate"));
+        var next = await ProjectAsync(WorkbenchFixtures.Edit("gate2"));
+        WorkbenchJobs? jobs = null;
+        var again = 0;
+        jobs = new WorkbenchJobs(new WorkbenchRunner(catalog), catalog, _tracker, NullLogger.Instance, _app.Token,
+            () => Interlocked.Increment(ref _redraws),
+            settled =>
+            {
+                _settled.Enqueue(settled);
+                // The click on the frame the end asked for: it lands inside the end of the first run.
+                if (Interlocked.Exchange(ref again, 1) == 0)
+                {
+                    jobs?.TryStart(next, "m", through: null).ShouldBeTrue("the first run is over, so the slot is free");
+                }
+            });
+
+        jobs.TryStart(first, "m", through: null).ShouldBeTrue();
+        await _gate.Started.Task.WaitAsync(TestContext.Current.CancellationToken);
+        _gate.Release.SetResult();
+        await second.Started.Task.WaitAsync(TestContext.Current.CancellationToken);
+
+        jobs.IsRunning.ShouldBeTrue("the second run is going");
+        jobs.Cancel();
+        await _tracker.DrainAsync();
+
+        jobs.State.Outcome.ShouldBe(WorkbenchJobOutcome.Cancelled, "the second run could be cancelled; it held its own source");
+        jobs.IsRunning.ShouldBeFalse();
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task ARunOfOneImageIsNotStoppedByAnotherImagesRefusal()
+    {
+        var folder = _folders.Create("two-").FullName;
+        var master = WorkbenchFixtures.WriteMaster(folder, "master", WorkbenchFixtures.Master(seed: 1));
+        await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("m", master, WorkbenchFixtures.Edit("add", Amount(1))),
+            WorkbenchFixtures.Picture("n", master, WorkbenchFixtures.Edit("narrowband-from-a-newer-version"))), TestContext.Current.CancellationToken);
+        var jobs = Jobs();
+
+        jobs.TryStart(folder, "m", through: null).ShouldBeTrue();
+        await _tracker.DrainAsync();
+
+        jobs.State.Outcome.ShouldBe(WorkbenchJobOutcome.Finished, "the other image's unknown operation is not this run's");
+        _settled.Single().SelectStep.ShouldBe(-1);
+    }
+
+    [Fact(Timeout = 120_000)]
     public async Task AppShutdownEndsARunThroughTheLinkedToken()
     {
         var folder = await ProjectAsync(WorkbenchFixtures.Edit("gate"));

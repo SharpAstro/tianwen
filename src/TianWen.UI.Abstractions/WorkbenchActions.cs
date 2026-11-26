@@ -82,6 +82,14 @@ public sealed class WorkbenchActions(
     private static void Settled(WorkbenchJobSettled settled, WorkbenchState state, WorkbenchRunner runner,
         BackgroundTaskTracker tracker, ILogger logger, CancellationToken appToken)
     {
+        // The person may have opened another project or image while the run went: what the run left is then not what is on show.
+        if (state.View is not { } shown || !string.Equals(shown.Folder, settled.Folder, StringComparison.Ordinal)
+            || !string.Equals(shown.ImageName, settled.Image, StringComparison.Ordinal))
+        {
+            state.NeedsRedraw = true;
+            return;
+        }
+
         state.SelectAfterStatus = settled.SelectStep;
         state.IsReading = true;
         state.NeedsRedraw = true;
@@ -165,7 +173,7 @@ public sealed class WorkbenchActions(
                 var answered = report.Images.FirstOrDefault(i => string.Equals(i.Name, name, StringComparison.Ordinal));
                 return answered is null || report.Refusal is not null || answered.Refusal is not null
                     ? null
-                    : new WorkbenchPlan(folder, name, index, answered.Steps);
+                    : new WorkbenchPlan(folder, name, index, answered.Steps) { Existing = WorkbenchOriginal.ExistingOutputs(answered.Steps) };
             }, appToken, logger, "Plan a run to the selected step",
             onError: _ => state.Plan = null,
             onFinally: () => state.NeedsRedraw = true);
@@ -458,7 +466,7 @@ public sealed class WorkbenchActions(
         {
             why = $"Step {number}'s results are named by its run, so it has no one file to show.";
         }
-        else if (step.Output is not { Length: > 0 } output || !File.Exists(output))
+        else if (step.Output is not { Length: > 0 } output || !IsThere(output))
         {
             why = step.State is StepState.Refused or StepState.Blocked
                 ? $"Step {number} made nothing: it is {step.Words}."
@@ -471,6 +479,10 @@ public sealed class WorkbenchActions(
 
         return null;
     }
+
+    // Whether an output was there when the runner's answer was read: a value taken with the answer, never the disk on a frame.
+    private bool IsThere(string output)
+        => state.View?.Existing.Contains(output) == true || state.Plan?.Existing.Contains(output) == true;
 
     /// <summary>The picture shown: the one chosen, or the original where the selected step cannot offer it.</summary>
     public WorkbenchViewKind EffectiveView()
@@ -567,39 +579,17 @@ public sealed class WorkbenchActions(
 
         var report = await runner.StatusAsync(folder, name, ct);
         var imageReport = report.Images.FirstOrDefault(i => string.Equals(i.Name, name, StringComparison.Ordinal));
-        return new WorkbenchView(folder, project, names, name, imageReport, report.Refusal ?? imageReport?.Refusal);
+        return new WorkbenchView(folder, project, names, name, imageReport, report.Refusal ?? imageReport?.Refusal)
+        {
+            Existing = imageReport is null ? [] : WorkbenchOriginal.ExistingOutputs(imageReport.Steps),
+            Original = WorkbenchOriginal.Of(imageReport?.Path),
+        };
     }
 
-    // Gives the viewer the original when it is a file it draws, and says in words what it is when it is not.
+    // Gives the viewer the original when it is a file it draws, and says in words what it is when it is not: as the answer found it.
     private void ShowOriginal(WorkbenchView view)
     {
-        var path = view.Image?.Path;
-        if (string.IsNullOrEmpty(path))
-        {
-            state.OriginalNote = null;
-            state.OriginalFile = null;
-            return;
-        }
-
-        if (Directory.Exists(path))
-        {
-            state.OriginalFile = null;
-            state.OriginalNote = "This image's original is a folder of frames. A step stacks them, and there is nothing to draw until it has run.";
-        }
-        else if (string.Equals(Path.GetExtension(path), ".ser", StringComparison.OrdinalIgnoreCase))
-        {
-            state.OriginalFile = null;
-            state.OriginalNote = "This image's original is a SER capture. The planetary stack step makes its master, and there is nothing to draw until it has run.";
-        }
-        else if (!File.Exists(path))
-        {
-            state.OriginalFile = null;
-            state.OriginalNote = $"The original is not there: {path}";
-        }
-        else
-        {
-            state.OriginalNote = null;
-            state.OriginalFile = path;
-        }
+        state.OriginalFile = view.Original?.File;
+        state.OriginalNote = view.Original?.Note;
     }
 }

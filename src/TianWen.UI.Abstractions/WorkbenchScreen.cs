@@ -34,6 +34,7 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
     private readonly IReadOnlyList<PixelWidgetBase<TSurface>> _children;
     private readonly ListScrollController _panelScroll = new();
     private readonly ListCursor _imageCursor = new();
+    private readonly ListCursor _viewCursor = new();
     private readonly ListScrollController _jobScroll = new();
     private int _jobLinesDrawn;
 
@@ -159,7 +160,7 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
     }
 
     // Original, Result and Comparison as one choice of one height; a view the selected step cannot show is not offered.
-    private static Layout.Node ViewRow(WorkbenchActions actions)
+    private Layout.Node ViewRow(WorkbenchActions actions)
     {
         var palette = GuiTheme.Palette;
         var offer = actions.ViewOffer();
@@ -177,33 +178,27 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
             kinds.Add(new(WorkbenchViewKind.Comparison, "Comparison") { Hit = new HitResult.ButtonHit("View:Comparison") });
         }
 
-        // The group shares the width it is given equally, so it is given what its segments need: each as wide as the longest word.
-        var segment = BaseFontSize * 0.62f * "Comparison".Length + Gap * 3;
-        var style = new Layout.ButtonGroupStyle(palette.Selection, palette.RaisedBg, palette.SelectionText, palette.BodyText,
-            GuiTheme.Hover(palette.RaisedBg)) { Gap = 1f, SegmentWidth = segment };
+        // The engine measures the segments: the control is as wide as its words, and drops to its narrow form when the row is short.
         return Layout.Builder.HStack(
-                Layout.Builder.ButtonGroup<WorkbenchViewKind>([.. kinds], actions.EffectiveView(), actions.ChooseView, style, BaseFontSize)
-                    .WFixed((segment + 1f) * kinds.Count).HStar())
+                Layout.Builder.Segmented<WorkbenchViewKind>([.. kinds], actions.EffectiveView(), actions.ChooseView, GuiTheme.Theme,
+                    _viewCursor, "WorkbenchViews", BaseFontSize).WAuto())
             .WithGap(Gap).CrossCenter().Pad(Gap, 0f).Bg(palette.HeaderBg);
     }
 
     private Layout.Node ImageChoice(WorkbenchView view, WorkbenchActions actions)
     {
-        var palette = GuiTheme.Palette;
         var options = new Layout.ButtonGroupOption<string>[view.ImageNames.Length];
         for (var i = 0; i < options.Length; i++)
         {
             options[i] = new Layout.ButtonGroupOption<string>(view.ImageNames[i], view.ImageNames[i])
             {
                 Hit = new HitResult.ButtonHit($"Image:{view.ImageNames[i]}"),
+                Tooltip = view.ImageNames[i],
             };
         }
 
-        var segment = Math.Max(96f, view.ImageNames.Max(static n => n.Length) * BaseFontSize * 0.62f + Gap * 3);
-        var style = new Layout.ButtonGroupStyle(palette.Selection, palette.RaisedBg, palette.SelectionText, palette.BodyText,
-            GuiTheme.Hover(palette.RaisedBg)) { Gap = 1f, SegmentWidth = segment };
-        return Layout.Builder.ButtonGroup<string>(options, view.ImageName, actions.ChooseImage, style, BaseFontSize)
-            .WFixed((segment + 1f) * options.Length).HStar();
+        return Layout.Builder.Segmented<string>(options, view.ImageName ?? string.Empty, actions.ChooseImage, GuiTheme.Theme,
+            _imageCursor, "WorkbenchImages", BaseFontSize).WAuto();
     }
 
     // Each step numbered and named by its operation's title, with its state in words and a mark from the runner's answer.
@@ -468,14 +463,17 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
     // A sentence that wraps rather than clips (the engine's flow of words, as the viewer's panels do).
     private static Layout.Node Words(string text, RGBAColor32 color)
     {
-        var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        var nodes = new Layout.Node[words.Length];
-        for (var i = 0; i < words.Length; i++)
+        var nodes = new List<Layout.Node>();
+        foreach (var word in text.Split(' ', StringSplitOptions.RemoveEmptyEntries))
         {
-            nodes[i] = Layout.Builder.Text(words[i], BaseFontSize, color);
+            // A word too long for the panel is broken into pieces that each fit, so no character is cut at the edge.
+            foreach (var piece in Pieces(word))
+            {
+                nodes.Add(Layout.Builder.Text(piece, BaseFontSize, color));
+            }
         }
 
-        return Layout.Builder.WrapH(nodes).WithGap(BaseFontSize / 3).WStar();
+        return Layout.Builder.WrapH([.. nodes]).WithGap(BaseFontSize / 3).WStar();
     }
 
     // The command as one flow of arguments, wrapped, never cut. An argument too long for the panel (a path) is broken after a

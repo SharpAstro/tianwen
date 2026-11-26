@@ -52,6 +52,12 @@ public sealed record WorkbenchJobState(
     /// <summary>No run yet.</summary>
     public static WorkbenchJobState Idle { get; } = new(false, string.Empty, -1, string.Empty, null, [], WorkbenchJobOutcome.None, string.Empty);
 
+    /// <summary>
+    /// The cancel source of the run this state belongs to, published in the same swap as <see cref="Running"/>, so a cancel can
+    /// never find a state with no source and a run can never take another's.
+    /// </summary>
+    internal CancellationTokenSource? Owner { get; init; }
+
     /// <summary>The running step in words: its number and title, and how far it is where that is known.</summary>
     public string Words => !Running ? Text
         : StepIndex < 0 ? "Starting"
@@ -87,7 +93,6 @@ public sealed class WorkbenchJobs(
     private const int MostLines = 2000;
 
     private WorkbenchJobState _state = WorkbenchJobState.Idle;
-    private CancellationTokenSource? _cts;
 
     /// <summary>What the job panel shows now.</summary>
     public WorkbenchJobState State => Volatile.Read(ref _state);
@@ -105,12 +110,16 @@ public sealed class WorkbenchJobs(
     /// <param name="selectAfter">The step to select when the run ended without stopping at a refused one; -1 for none.</param>
     public bool TryStart(string folder, string image, int? through, int selectAfter = -1)
     {
-        var started = new WorkbenchJobState(true, image, -1, string.Empty, null, [], WorkbenchJobOutcome.None, string.Empty);
+        // The source is made first and published in the same swap that says a run is going, so Cancel finds it from the moment
+        // Running is true; at the end a run drops only its own state.
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(appToken);
+        var started = new WorkbenchJobState(true, image, -1, string.Empty, null, [], WorkbenchJobOutcome.None, string.Empty) { Owner = cts };
         while (true)
         {
             var seen = State;
             if (seen.Running)
             {
+                cts.Dispose();
                 return false;
             }
 
@@ -120,8 +129,6 @@ public sealed class WorkbenchJobs(
             }
         }
 
-        var cts = CancellationTokenSource.CreateLinkedTokenSource(appToken);
-        Volatile.Write(ref _cts, cts);
         var outcome = WorkbenchJobOutcome.Cancelled;
         var stoppedAt = -1;
         requestRedraw();
@@ -135,7 +142,7 @@ public sealed class WorkbenchJobs(
                     Progress = new Sink(Progressed),
                 }, ct);
                 ct.ThrowIfCancellationRequested();
-                (outcome, stoppedAt) = Judge(report, through);
+                (outcome, stoppedAt) = Judge(report, image, through);
             },
             cts.Token, logger, "Run the workbench project",
             onError: ex =>
@@ -146,8 +153,8 @@ public sealed class WorkbenchJobs(
             onCancel: () => outcome = WorkbenchJobOutcome.Cancelled,
             onFinally: () =>
             {
-                Finish(outcome);
-                Interlocked.Exchange(ref _cts, null)?.Dispose();
+                Finish(cts, outcome);
+                cts.Dispose();
                 requestRedraw();
                 onSettled(new WorkbenchJobSettled(folder, image, outcome, outcome is WorkbenchJobOutcome.Stopped ? stoppedAt : selectAfter));
             });
@@ -157,7 +164,7 @@ public sealed class WorkbenchJobs(
     /// <summary>Cancels the run that is going, if any; it ends at its next check of the token.</summary>
     public void Cancel()
     {
-        if (Volatile.Read(ref _cts) is { } cts)
+        if (State is { Running: true, Owner: { } cts })
         {
             try
             {
@@ -170,7 +177,7 @@ public sealed class WorkbenchJobs(
         }
     }
 
-    private (WorkbenchJobOutcome, int) Judge(WorkbenchReport report, int? through)
+    private (WorkbenchJobOutcome, int) Judge(WorkbenchReport report, string imageName, int? through)
     {
         if (report.Refusal is { } refusal)
         {
@@ -178,7 +185,8 @@ public sealed class WorkbenchJobs(
             return (WorkbenchJobOutcome.Stopped, -1);
         }
 
-        foreach (var image in report.Images)
+        // The report holds every image of the project; this run answers for the one it made, never for another's refusal.
+        foreach (var image in report.Images.Where(i => string.Equals(i.Name, imageName, StringComparison.Ordinal)))
         {
             if (image.Refusal is { } imageRefusal)
             {
@@ -218,7 +226,7 @@ public sealed class WorkbenchJobs(
         }
     }
 
-    private void Finish(WorkbenchJobOutcome outcome)
+    private void Finish(CancellationTokenSource owner, WorkbenchJobOutcome outcome)
     {
         var text = outcome switch
         {
@@ -227,7 +235,7 @@ public sealed class WorkbenchJobs(
             WorkbenchJobOutcome.Failed => "The run failed; its last line says why.",
             _ => null,
         };
-        Update(s => s with { Running = false, Fraction = null, Outcome = outcome, Text = text ?? s.Text });
+        Update(s => ReferenceEquals(s.Owner, owner) ? s with { Running = false, Fraction = null, Outcome = outcome, Text = text ?? s.Text, Owner = null } : s);
     }
 
     private string TitleOf(string operation) => catalog.TryGet(operation, out var op) ? op.Description.Title : operation;
@@ -241,7 +249,8 @@ public sealed class WorkbenchJobs(
         while (true)
         {
             var seen = State;
-            if (ReferenceEquals(Interlocked.CompareExchange(ref _state, change(seen), seen), seen))
+            var next = change(seen);
+            if (ReferenceEquals(Interlocked.CompareExchange(ref _state, next, seen), seen))
             {
                 break;
             }

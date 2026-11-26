@@ -14,9 +14,10 @@ into the host, never into `Program.cs`.
 
 The pieces it holds:
 
-- `WorkbenchState`: what the runner last said about the project on show, the selected step and the loop's flags. One
-  immutable value is replaced whole, so the render thread never sees half an answer. Everything the runner said is set from
-  its answer, never from a click.
+- `WorkbenchState`: the project on show, the selected step and the loop's flags. What the runner said is one immutable
+  `WorkbenchView` (the project, the image, its report, which outputs exist and what the original is, all worked out off the
+  render thread with the answer), replaced whole, so the render thread never sees half an answer and never asks the disk.
+  The state itself holds mutable flags and the selection, set from the runner's answer or a click on the selection only.
 - `WorkbenchActions`: what the window does (open a project, choose an image or a step, copy a command line, start a run).
   It asks the runner off the render thread and its answer is adopted in `BeforeFrame`, where the document may change.
 - `WorkbenchJobs`: one run at a time (see "Jobs and cancel").
@@ -25,7 +26,7 @@ The pieces it holds:
 
 ## The screen and the layout
 
-One `Layout` tree, built each frame from the state: the top bar (the project's folder and Open project), the step bar, a
+One `Layout` tree, built each frame from the state: the top bar (the project's folder, the choice of image where the project has several, and Open project), the step bar, a
 340-wide panel on the left and, beside it, the view row with the viewer's own renderer in a keyed canvas. The viewer's
 toolbar is cut to the controls that are about looking (`ViewerOffer`): no Open file, Enhance, crop or solve, because
 those are operations here, and no file list.
@@ -46,9 +47,9 @@ The look follows `.github/docs/ui-changes.md`. Specifically:
 
 ## Step-bar states
 
-Each cell shows the number, the title and a word from the runner's status, never from a click: kept, will run, running,
-refused, blocked, and a "changed" note when a step's settings (or a step before it) are not what the last run made it from.
-A refused step (the operation is unknown, or its settings are refused) says why in the panel, and the steps after it are
+Each cell shows the number, the title and a word from the runner's status, never from a click: kept, will run, not needed,
+derived, off, refused, blocked, and a "changed" note when a step's settings (or a step before it) are not what the last run made it from.
+A step that is running is not a state of the bar: the job panel shows it. A refused step (the operation is unknown, or its settings are refused) says why in the panel, and the steps after it are
 blocked. Selecting a step shows its panel: the words and reason, Run, the job, Views, Settings and Command line (the line
 the verb would take, to copy; "There is no command line until the step can be planned" when it is refused).
 
@@ -66,17 +67,18 @@ the verb would take, to copy; "There is no command line until the step can be pl
 engine's `IProgress` and log lines into one immutable `WorkbenchJobState` (running, step, title, fraction where the
 operation reports one, every line, how it ended) and says when it ended. A second start while one runs is refused, and no
 screen offers it. The panel shows the running step, a bar, the lines, and Cancel, which ends the run at its next check of
-the token. A run ends as Made, Stopped (at a refused or blocked step, with the reason), Cancelled or Failed (an
+the token. A run ends as Finished, Stopped (at a refused or blocked step, with the reason), Cancelled or Failed (an
 exception). What a run did to the steps is never read from the job: the settled callback asks the runner afresh.
 
 ## The three views
 
-Original, Enhanced (the selected step's stored result) and Comparison (the step's input against its result, through the
+Original, Result (the selected step's stored result) and Comparison (the step's input against its result, through the
 viewer's `SplitCompareController`). A view the selected step cannot offer is not offered, and the canvas shows the
 original with the words saying why: a step that is not made yet, one that is refused or blocked, one that wrote no pixels
 (a finding, the plate solve), one whose results are named by its run (a stack's masters, which has no image of its own),
 and a first step, which has no input to compare. An original the viewer cannot draw (a folder of frames, a SER capture)
-is described in words.
+is described in words. Which pictures a step offers is worked out once with the runner's answer, off the render thread, and
+every part of a frame reads that one value.
 
 ## What W2 leaves out
 

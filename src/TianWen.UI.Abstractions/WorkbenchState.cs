@@ -25,6 +25,15 @@ public sealed record WorkbenchView(
     ImageReport? Image,
     string? Refusal)
 {
+    /// <summary>
+    /// The files among the steps' outputs that were there when the runner answered, worked out off the render thread with the
+    /// answer, so a frame asks this value and never the disk.
+    /// </summary>
+    public ImmutableHashSet<string> Existing { get; init; } = [];
+
+    /// <summary>What the image's original is to the viewer, worked out with the answer; null before there is an image.</summary>
+    public WorkbenchOriginal? Original { get; init; }
+
     /// <summary>The image on show, as the project file states it (its edits' settings).</summary>
     public ProjectImage? ProjectImage
         => Project is { } project && ImageName is { } name
@@ -107,7 +116,44 @@ public enum WorkbenchViewKind
 /// <param name="Image">The image.</param>
 /// <param name="Index">The step the status goes through.</param>
 /// <param name="Steps">The image's steps as that status found them.</param>
-public sealed record WorkbenchPlan(string Folder, string Image, int Index, ImmutableArray<StepReport> Steps);
+public sealed record WorkbenchPlan(string Folder, string Image, int Index, ImmutableArray<StepReport> Steps)
+{
+    /// <summary>The outputs among its steps that were there when it was read, worked out off the render thread.</summary>
+    public ImmutableHashSet<string> Existing { get; init; } = [];
+}
+
+/// <summary>What an image's original is to the viewer: a file it draws, or in words why not.</summary>
+/// <param name="File">The file the viewer is given; null when it cannot draw the original.</param>
+/// <param name="Note">What the original is in words when it cannot be drawn; null when there is a file.</param>
+public sealed record WorkbenchOriginal(string? File, string? Note)
+{
+    /// <summary>Looks at the disk once; call it off the render thread.</summary>
+    public static WorkbenchOriginal Of(string? path)
+    {
+        if (string.IsNullOrEmpty(path))
+        {
+            return new WorkbenchOriginal(null, null);
+        }
+
+        if (System.IO.Directory.Exists(path))
+        {
+            return new WorkbenchOriginal(null, "This image's original is a folder of frames. A step stacks them, and there is nothing to draw until it has run.");
+        }
+
+        if (string.Equals(System.IO.Path.GetExtension(path), ".ser", StringComparison.OrdinalIgnoreCase))
+        {
+            return new WorkbenchOriginal(null, "This image's original is a SER capture. The planetary stack step makes its master, and there is nothing to draw until it has run.");
+        }
+
+        return System.IO.File.Exists(path)
+            ? new WorkbenchOriginal(path, null)
+            : new WorkbenchOriginal(null, $"The original is not there: {path}");
+    }
+
+    /// <summary>The outputs among <paramref name="steps"/> that exist now; call it off the render thread.</summary>
+    public static ImmutableHashSet<string> ExistingOutputs(System.Collections.Generic.IEnumerable<StepReport> steps)
+        => steps.Select(static s => s.Output).OfType<string>().Where(static o => o.Length > 0 && System.IO.File.Exists(o)).ToImmutableHashSet();
+}
 
 /// <summary>What the "Run to here" or "Run on" button says it will do.</summary>
 /// <param name="Label">The button's words.</param>

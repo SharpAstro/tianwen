@@ -41,6 +41,13 @@ internal sealed class WorkbenchE2E : IAsyncDisposable
         Controller = new ViewerController(ViewerState, new DocumentCache(), FileDialog, Substitute.For<IPlateSolverFactory>(),
             Clock, Tracker, NullLogger<ViewerController>.Instance, external: null);
         Viewer = new RetainingSurface(_renderer, Bus) { DpiScale = dpiScale };
+        // The app draws with its bundled face, not the machine's: the marks, the widths and the ellipsis points of a capture are
+        // then the app's own (the test host bundles it under TestFonts, as the apps do under Fonts).
+        var face = Path.Combine(AppContext.BaseDirectory, "TestFonts", "DejaVuSans.ttf");
+        var emoji = Path.Combine(AppContext.BaseDirectory, "TestFonts", "NotoEmoji-Web.ttf");
+        Viewer.FontPath = face;
+        Viewer.EmojiFontPath = File.Exists(emoji) ? emoji : string.Empty;
+        Viewer.FontFallback = FontFallbackResolver.FromRoles(face, emojiFontPath: File.Exists(emoji) ? emoji : null, scriptFontPaths: []);
         State = new WorkbenchState();
         Actions = new WorkbenchActions(State, ViewerState, runner, catalog, Tracker, FileDialog, Clipboard.Add,
             NullLogger.Instance, _appCts.Token);

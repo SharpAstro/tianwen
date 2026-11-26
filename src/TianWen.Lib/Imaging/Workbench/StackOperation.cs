@@ -137,7 +137,8 @@ public sealed class StackOperation(ILogger<StackingPipeline>? logger = null) : R
     /// <inheritdoc/>
     public override OperationDescription Description { get; } = new(
         Id, Version: 1, Title: "Stack", Verb: "stack", OperationOutputKind.Stored, ExtraInputs: [], Settings: SettingsListed)
-    { Summary = "Aligns and stacks a night's light frames with their calibration frames into one master for each group.",
+    {
+        Summary = "Aligns and stacks a night's light frames with their calibration frames into one master for each group.",
         NamedByRun = true,
         TakesFrameSet = true,
     };
@@ -583,8 +584,6 @@ public sealed class StackOperation(ILogger<StackingPipeline>? logger = null) : R
         return beside.ToImmutable();
     }
 
-    // The scan's summary alone, said where it is reported: the one report that comes once and from the run's own
-    // flow. A frame's and a strip's ticks come from many threads, and a step's lines are no place for them.
     /// <summary>
     /// The pipeline's phases as one fraction in [0, 1] that never goes down: each phase has a share, and an item-paced
     /// phase fills its share as its items finish. A night with several groups runs the phases again for each, so a
@@ -630,6 +629,8 @@ public sealed class StackOperation(ILogger<StackingPipeline>? logger = null) : R
         }
     }
 
+    // The scan's summary alone, said where it is reported: the one report that comes once and from the run's own
+    // flow. A frame's and a strip's ticks come from many threads, and a step's lines are no place for them.
     internal sealed class ScanReports(Action<string> say) : IProgress<StackingProgress>
     {
         public void Report(StackingProgress value)

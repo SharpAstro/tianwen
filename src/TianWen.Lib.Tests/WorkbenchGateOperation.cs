@@ -13,7 +13,7 @@ namespace TianWen.Lib.Tests;
 /// the test to open the gate or for its cancellation token, which is how a test holds a run in the middle without waiting out a
 /// clock. Once through it copies its input.
 /// </summary>
-internal sealed class GateOperation : Operation<AddSettings>
+internal sealed class GateOperation(string id = "gate") : Operation<AddSettings>
 {
     /// <summary>Completes when the operation stands at the gate, its line said and its half reported.</summary>
     public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -22,7 +22,7 @@ internal sealed class GateOperation : Operation<AddSettings>
     public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public override OperationDescription Description { get; } = new(
-        "gate", Version: 1, Title: "Gate", Verb: "none", OperationOutputKind.Stored, ExtraInputs: [], Settings: [])
+        id, Version: 1, Title: "Gate", Verb: "none", OperationOutputKind.Stored, ExtraInputs: [], Settings: [])
     {
         Summary = "Waits at a gate the test holds, then copies the image.",
     };

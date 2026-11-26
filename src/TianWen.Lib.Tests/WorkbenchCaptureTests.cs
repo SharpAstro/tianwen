@@ -75,6 +75,10 @@ public sealed class WorkbenchCaptureTests : IDisposable
         { 2000, 1100, 1f, UiThemeState.Dark, "running" },
         { 2000, 1100, 1f, UiThemeState.Night, "running" },
         { 2000, 1100, 1.5f, UiThemeState.Dark, "running" },
+        { 1280, 800, 1f, UiThemeState.Dark, "result" },
+        { 1280, 800, 1f, UiThemeState.Night, "comparison" },
+        { 2000, 1100, 1f, UiThemeState.Dark, "comparison" },
+        { 2000, 1100, 1f, UiThemeState.Night, "result" },
     };
 
     [Theory(Timeout = 180_000)]
@@ -99,6 +103,24 @@ public sealed class WorkbenchCaptureTests : IDisposable
                 steps[8].State.ShouldBe(StepState.Refused);
                 steps[8].Message.ShouldNotBeNullOrWhiteSpace();
             }
+            else if (scenario is "result" or "comparison")
+            {
+                // Run to step 3 with the gate open, so steps 1 to 3 are kept (a tick), then look at step 2's result or comparison.
+                _gradient.Release.TrySetResult();
+                e2e.Click(cells[2]);
+                await e2e.PumpUntilAsync(
+                    () => e2e.Texts().Any(static t => t.Text.StartsWith("Run to here", StringComparison.Ordinal)), "the run button for step 3", ct);
+                e2e.Click(e2e.Texts().Single(static t => t.Text.StartsWith("Run to here", StringComparison.Ordinal)).Bounds);
+                await e2e.PumpFramesUntilAsync(
+                    () => !e2e.Actions.Jobs.IsRunning && e2e.Actions.Jobs.State.Outcome is WorkbenchJobOutcome.Finished
+                        && e2e.State.View!.Image!.Steps[2].State is StepState.Kept, "step 3 kept", ct);
+                e2e.Click(cells[1]);
+                await e2e.PumpFramesUntilAsync(() => e2e.Actions.ViewOffer() is { ResultOffered: true, ComparisonOffered: true },
+                    "step 2's result and comparison offered", ct);
+                e2e.Click(e2e.Regions().Single(r => r.Result is HitResult.ButtonHit hit
+                    && hit.Action == (scenario == "result" ? "View:Result" : "View:Comparison")));
+                e2e.Actions.EffectiveView().ShouldBe(scenario == "result" ? WorkbenchViewKind.Result : WorkbenchViewKind.Comparison);
+            }
             else
             {
                 e2e.Click(cells[2]);
@@ -115,6 +137,7 @@ public sealed class WorkbenchCaptureTests : IDisposable
                 NothingIsCutSilently(e2e);
                 StepWordsAndMarksMeetContrast(e2e, theme);
                 ControlsShareOneHeightAndOneMiddle(e2e);
+                NothingIsCutAtThePanelsEdge(e2e);
             }
             finally
             {
@@ -138,6 +161,47 @@ public sealed class WorkbenchCaptureTests : IDisposable
             regions.Where(r => cx >= r.X && cx <= r.X + r.Width && cy >= r.Y && cy <= r.Y + r.Height && r.Tooltip is not null)
                 .ShouldContain(r => r.Tooltip!.Contains(full, StringComparison.Ordinal),
                     $"'{full}' is shown as '{shown}' and carries its whole text on hover");
+        }
+    }
+
+    // A text that fits no ellipsis can save is one longer than its box, drawn as arranged past the panel's edge: none of the panel's
+    // painted texts may end beyond where the canvas begins, so a long unbroken word is broken, never cut at the edge.
+    private static void NothingIsCutAtThePanelsEdge(WorkbenchE2E e2e)
+    {
+        var steps = e2e.StepCells();
+        var below = steps[0].Y + steps[0].Height;
+        var edge = e2e.Host.Screen.CanvasRect.X;
+        edge.ShouldBeGreaterThan(0f);
+        foreach (var t in e2e.Texts().Where(t => t.Bounds.Y >= below && t.Bounds.X < edge))
+        {
+            (t.Bounds.X + t.Bounds.Width).ShouldBeLessThanOrEqualTo(edge + 0.5f, $"'{t.Text}' ends inside the panel");
+        }
+    }
+
+    [Theory(Timeout = 180_000)]
+    [InlineData(1280u, 800u, 1f)]
+    [InlineData(1280u, 800u, 1.5f)]
+    public async Task SixImagesWithLongNamesKeepEveryTopBarControlInsideTheWindow(uint width, uint height, float dpi)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("workbench-six-images-").FullName;
+        var master = WorkbenchFixtures.WriteMaster(folder, "master", WorkbenchFixtures.Master(seed: 1));
+        var pictures = Enumerable.Range(1, 6)
+            .Select(i => WorkbenchFixtures.Picture($"narrowband-night-{i}-of-the-long-run", master, WorkbenchFixtures.Edit("add", Amount(i))))
+            .ToArray();
+        await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(pictures), ct);
+
+        await using var e2e = WorkbenchE2E.Start(dpi, Runner(), Catalog(), width, height);
+        await e2e.OpenProjectAsync(folder, ct);
+
+        var steps = e2e.StepCells();
+        steps.Length.ShouldBe(1);
+        var top = e2e.Regions().Where(r => r.Result is HitResult.ButtonHit && r.Y + r.Height <= steps[0].Y + 0.5f).ToArray();
+        top.Length.ShouldBeGreaterThan(1, "the image choice and Open project are in the top bar");
+        foreach (var r in top)
+        {
+            r.X.ShouldBeGreaterThanOrEqualTo(0f);
+            (r.X + r.Width).ShouldBeLessThanOrEqualTo(width + 0.5f, "a top bar control lies inside the window");
         }
     }
 
