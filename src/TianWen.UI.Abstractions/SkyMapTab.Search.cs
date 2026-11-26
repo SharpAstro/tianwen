@@ -715,9 +715,8 @@ namespace TianWen.UI.Abstractions
             parts[ObjectPanelBackground] = ArrangeLayout(Layout.Builder.Spacer().Bg(palette.Background),
                 new RectF32(px, py, pw, ph), scale: scale);
 
-            // Text inset from the panel edge, and narrow enough to clear the close affordance.
-            var textX = px + 10f;
-            var textW = pw - 40f;
+            // Text inset from the panel edge, and narrow enough to clear the close affordance: the viewer's column too.
+            var (textX, textW) = ObjectInfoPanel.TextColumn(px, pw, dpiScale);
 
             var textBlockH = ObjectInfoPanel.DesignTextBlockHeight(in options) * dpiScale;
             var textRect = new RectF32(textX, py, textW, textBlockH);
@@ -732,9 +731,9 @@ namespace TianWen.UI.Abstractions
             var nightSectionH = ObjectInfoPanel.HasNightCurveSection(in options) ? ObjectInfoPanel.DesignNightCurveSectionHeight * dpiScale : 0f;
             if (ObjectInfoPanel.BuildNightCurveSection(in options, in palette) is { } nightSection)
             {
-                // In the text rows' inset (textX, textW), so the curve and its line align with the rows and clear the frame. The
-                // inset is 10 px on the left and 30 on the right on purpose: the right margin is the rows' own (textW = pw - 40),
-                // which clears the close affordance, and one inset for every row is what keeps the curve flush with the text.
+                // In the text rows' column (textX, textW), so the curve and its line align with the rows and clear the frame. The
+                // column's right inset is wider than its left on purpose: it clears the close affordance
+                // (ObjectInfoPanel.DesignTextInsetRight), and one column for every row is what keeps the curve flush with the text.
                 parts[ObjectPanelNight] = ArrangeLayout(nightSection, new RectF32(textX, belowRows, textW, nightSectionH), scale: scale);
             }
 

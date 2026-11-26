@@ -59,6 +59,23 @@ namespace TianWen.UI.Abstractions
         /// <summary>Design size of the square close affordance at the top right.</summary>
         public const float DesignCloseSize = 20f;
 
+        /// <summary>Design inset of the text column from the panel's left edge.</summary>
+        public const float DesignTextInsetLeft = 10f;
+
+        /// <summary>
+        /// Design inset of the text column from the panel's right edge: the close affordance and a gap the size of the
+        /// left inset, so the rows, and the night curve and links that share their column, never run under the close.
+        /// </summary>
+        public const float DesignTextInsetRight = DesignCloseSize + DesignTextInsetLeft;
+
+        /// <summary>
+        /// The text column of a panel at <paramref name="panelX"/>, <paramref name="panelWidth"/> wide (device pixels): the rows,
+        /// the sparkline, the night curve and the links all sit in it. Both hosts place the column through this, so neither
+        /// re-derives the insets; the atlas's copy once kept them in raw pixels and its rows ran under the close above 100% (#1447).
+        /// </summary>
+        public static (float X, float Width) TextColumn(float panelX, float panelWidth, float dpiScale)
+            => (panelX + (DesignTextInsetLeft * dpiScale), panelWidth - ((DesignTextInsetLeft + DesignTextInsetRight) * dpiScale));
+
         /// <summary>
         /// Which optional pieces this host can answer for. Everything here defaults to the CHEAPEST
         /// answer, so a host that states nothing gets the four rows that need no site and no actions.

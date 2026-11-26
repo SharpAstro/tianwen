@@ -135,6 +135,13 @@ public sealed class GuiFrameScheduler
     /// <summary>Whether the frame in flight, or the last one drawn, repainted less than the whole window.</summary>
     public bool FrameIsNarrow { get; private set; }
 
+    /// <summary>
+    /// Whether the frame in flight, or the last one drawn, was owed to the clock's tick and nothing else: the one frame
+    /// whose whole damage is the clock's rectangle, so a host may paint the clock alone rather than the window
+    /// (<c>GuiWindowChrome.TryRepaintClockAlone</c>). A narrowed frame with a pointer move's rectangle in it is not one.
+    /// </summary>
+    public bool FrameIsClockAlone { get; private set; }
+
     /// <summary>How often each cause asked, since the host last read them: for a log line, never for a decision.</summary>
     public FrameCauseCounts Causes;
 
@@ -308,6 +315,9 @@ public sealed class GuiFrameScheduler
         _settlingAsked = false;
         var narrow = _reasons.TryTakeNarrow(_narrowed, out var clock)
             && !shuttingDown && GuiTimeCadence.MayNarrow(tab);
+        // Before the clock's own rectangle joins them: any rectangle here is a move's.
+        var movesStated = _narrowed.Count > 0;
+        FrameIsClockAlone = false;
         if (narrow && flagged)
         {
             // Every cause said what it changed, and a flag was set since the check: the frame is full after all.
@@ -339,6 +349,7 @@ public sealed class GuiFrameScheduler
         }
 
         FrameIsNarrow = true;
+        FrameIsClockAlone = clock && !movesStated;
         // A narrowed frame inside a full one's window would be counted into it: that reading is dropped.
         _costFrameAt = 0;
         return _narrowed;

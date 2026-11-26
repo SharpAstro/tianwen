@@ -439,6 +439,29 @@ namespace TianWen.UI.Gui
         }
 
         /// <summary>
+        /// Paints a frame owed to the clock's tick alone as the clock alone (<see cref="GuiWindowChrome{TSurface}.TryRepaintClockAlone"/>),
+        /// in place of <see cref="Render"/>; false, having painted nothing, when the frame must be painted whole after all.
+        /// The window's half of the rule: nothing painted after the chrome may be over the bar (the night calendar hangs
+        /// from it), and the window must not be about to change tabs. A tooltip is the host's, which asks before this.
+        /// </summary>
+        /// <param name="region">The pixels the frame repaints, as the renderer confined it.</param>
+        public bool TryRenderClockAlone(GuiAppState appState, PlannerState plannerState, ITimeProvider timeProvider, RectF32 region)
+        {
+            if (plannerState.Calendar.Popover.IsOpen
+                || (appState.NeedsAProfile && appState.ActiveTab is not GuiTab.Equipment)
+                || !_chrome.TryRepaintClockAlone(appState, plannerState, timeProvider, LocalLiveSession,
+                    _equipmentTab.State, _skyMapTab.State, region))
+            {
+                return false;
+            }
+
+            // The snapshot every frame refreshes (RenderContent), refreshed at the pace it was: what it changes is drawn by
+            // the next full frame, as it was when this frame painted everything and showed the clock alone.
+            ViewContexts.PollAll();
+            return true;
+        }
+
+        /// <summary>
         /// The night calendar, hung from the date label the status bar just painted. Closed while a session runs,
         /// like the arrows beside the date, and whenever the label is not on the bar to hang from.
         /// </summary>
