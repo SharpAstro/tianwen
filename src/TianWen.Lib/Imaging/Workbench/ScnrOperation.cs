@@ -36,7 +36,10 @@ public sealed class ScnrOperation : Operation<ScnrSettings>
             new OperationSetting("mode", "What green is taken down to: average, the mean of red and blue (the enhance's), or maximum, the larger "
                 + "of them, which takes more."),
             new OperationSetting("amount", "How much of the way green goes, from above 0 to 1."),
-        ]);
+        ])
+    {
+        Summary = "Takes the green cast out of a colour image by bringing green down towards the mean or the larger of red and blue.",
+    };
 
     /// <inheritdoc/>
     protected override JsonTypeInfo<ScnrSettings> SettingsInfo => OperationSettingsJsonContext.Default.ScnrSettings;

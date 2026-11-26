@@ -36,7 +36,10 @@ public sealed class WhiteBalanceOperation : Operation<WhiteBalanceSettings>
         [
             new OperationSetting("whiteBalance", "An SPCC white balance as three numbers (red, green, blue). Left out: the balance the master's "
                 + "own WB cards state. Only a broadband one is put into the pixels; a line-selective filter's stays a display multiplier."),
-        ]);
+        ])
+    {
+        Summary = "Puts a broadband white balance into the pixels of a colour master, so red, green and blue agree about what is neutral.",
+    };
 
     /// <inheritdoc/>
     protected override JsonTypeInfo<WhiteBalanceSettings> SettingsInfo => OperationSettingsJsonContext.Default.WhiteBalanceSettings;
