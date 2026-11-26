@@ -38,10 +38,10 @@ and what has been tried (each in section 6):
   (the Lagoon's gap is 16 stars of 84). Two seeds of one recipe have stood 3 to 20 points apart there. Tried:
   plate cells with drawn stars and the loss on the stars (R4j: 72.2 and 64.4 %), real pairs with the loss where
   the builder took a star (R4k: 67.3 and 57.6 %, and it cost 30 Doradus's faint stars and the crowded rows).
-  Neither moved both seeds past a seed's spread. **Measured on the Lagoon:** the builder itself takes a median of
-  0.00 of each planted faint star on bright nebula and leaves 82 % of them (a third taken at the faintest nebula,
-  almost none on brighter; about a third of the 84 real ones taken), so a loss counted only where it took a star
-  sees few of them. That R4k's training sessions are the same is suspected, not counted. Why the drawn-star arms
+  Neither moved both seeds past a seed's spread. **Measured on the held-out Lagoon master:** the builder itself
+  takes a median of 0.00 of each planted faint star on bright nebula and leaves 82 % of them (a third taken at the
+  faintest nebula, almost none on brighter; about a third of the 84 real ones taken), so a loss counted only where
+  it took a star would see few of them there. That R4k's training sessions are the same is suspected, not counted. Why the drawn-star arms
   leave them is not measured.
 
 Nothing above says a row cannot be reached; it says no route tried so far has reached it, what each route measured,
@@ -10724,10 +10724,11 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     Lagoon's 84 real faint stars it takes about a third (30). On dark sky it takes nine in ten. Its finder works at
     the nebula's own noise, which a star of 20 to 150 sky sigma reaches the less the brighter the nebula.
   - **What it says.**
-    - **Faint stars on bright nebula, through real pairs: on the Lagoon, R4k's kind of data shows the model few of
-      them taken.** R4k's loss counted only where the builder took a star out, and on the Lagoon's bright nebula
-      the builder's median take of a faint star is 0.00: it takes a third of the planted ones at the faintest
-      nebula and almost none on brighter nebula, and about a third of the real ones. The registration named this
+    - **Faint stars on bright nebula, through real pairs: on the Lagoon master, a mask made as R4k's were would hold
+      few of them.** R4k's loss counted only where the builder took a star out, and on the held-out Lagoon
+      master's bright nebula the builder's median take of a faint star is 0.00: it takes a third of the planted
+      ones at the faintest nebula and almost none on brighter nebula, and about a third of the real ones, so a mask
+      made there as R4k's were would hold about a third of the real ones. The registration named this
       under "what speaks against"; on the Lagoon it is now measured. R4k seed 1's gain at 20 to 40 sky sigma of
       nebula (41.0 % left against R4h seed 0's 54.2), where the builder takes the most, fits the data teaching a
       little there. That the builder does the same on the training sessions' bright nebula, so that R4k's masks
