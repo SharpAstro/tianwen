@@ -506,11 +506,11 @@ public sealed class GuiWindowChrome<TSurface> : CompositeWidget<TSurface>
             now.Date.Ticks / TimeSpan.TicksPerDay, now.Offset, plannerState.PlanningDate, plannerState.AstroDark,
             plannerState.AstroTwilight, sessionRunning, appState.StatusMessage, verdict, connectAllStatus,
             plannerState, skyMapState, timeProvider);
-        if (!_keptStatusBar.TryGet(key, barRect, Scale, FontPath, out var arrangedBar))
+        if (!_keptStatusBar.TryGet(key, barRect, Scale, FontPath, GuiTheme.PaletteGeneration, out var arrangedBar))
         {
             var bar = BuildStatusBar(appState, plannerState, timeProvider, skyMapState, now, sessionRunning, verdict,
                 connectAllStatus, barRect, out var clockNode, out _keptClockWithDay);
-            arrangedBar = _keptStatusBar.Keep(key, barRect, Scale, FontPath, ArrangeLayout(bar, barRect));
+            arrangedBar = _keptStatusBar.Keep(key, barRect, Scale, FontPath, GuiTheme.PaletteGeneration, ArrangeLayout(bar, barRect));
 
             // Where the engine put the clock: the box its text is drawn into, and for the frame that repaints the clock
             // alone that box over the rows the bar's fill paints (the fill, painted first, is clipped to the same

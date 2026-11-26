@@ -25,7 +25,7 @@ namespace TianWen.AI.Imaging.RcAstro
     /// <param name="minDenoise">Lower bound of the auto <c>--dn</c> band (cleanest input).</param>
     /// <param name="maxDenoise">Upper bound of the auto <c>--dn</c> band (noisiest input).</param>
     /// <param name="iterations">nxt <c>--it</c> denoise iterations: 1, the passes being the enhance's own
-    /// (<c>SharpenPipeline.DenoisePassesAsync</c>); 2 and 3 left the Sculptor master's residual unchanged at every scale for
+    /// (<c>NarrowbandCombination.DenoisePassesAsync</c>); 2 and 3 left the Sculptor master's residual unchanged at every scale for
     /// twice and three times the time.</param>
     public sealed class RcAstroDenoiser(
         IRcAstroCli cli,
@@ -66,7 +66,7 @@ namespace TianWen.AI.Imaging.RcAstro
             var dn = tuning?.DenoiseStrength is { } d
                 ? (double)d
                 : (autoStrength ? MapNoiseToStrength(input.EstimateNoiseProfile(), minDenoise, maxDenoise) : denoise);
-            // Never the tuning's DenoiseIterations: that is how many PASSES the enhance runs (SharpenPipeline.DenoisePassesAsync),
+            // Never the tuning's DenoiseIterations: that is how many PASSES the enhance runs (NarrowbandCombination.DenoisePassesAsync),
             // each a call here, since nxt's own --it left the Sculptor's residual unchanged at 2 and 3.
             var it = iterations;
             logger?.LogDebug("RC-Astro nxt dn={Dn:F2} (auto={Auto}) it={It}", dn, auto, it);

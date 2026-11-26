@@ -443,8 +443,11 @@ public partial class Image
     {
         ValidateSameShape(other);
         var a = Math.Clamp(amount, 0f, 1f);
+        // A blend toward an image that says it is on a unit scale (a deblur's, whose lifted stars stand above 1, #2504) is
+        // on that scale too, and says so.
+        var meta = other.ImageMeta.UnitReferred && !imageMeta.UnitReferred ? imageMeta with { UnitReferred = true } : imageMeta;
         if (a == 0f) return new Image(CopyChannelData(), BitDepth.Float32, MaxValue, MinValue, pedestal, imageMeta);
-        if (a == 1f) return new Image(other.CopyChannelData(), BitDepth.Float32, other.MaxValue, other.MinValue, pedestal, imageMeta);
+        if (a == 1f) return new Image(other.CopyChannelData(), BitDepth.Float32, other.MaxValue, other.MinValue, pedestal, meta);
 
         var dst = CreateChannelData(ChannelCount, Height, Width);
         for (var c = 0; c < ChannelCount; c++)
@@ -454,8 +457,31 @@ public partial class Image
             var output = MemoryMarshal.CreateSpan(ref dst[c][0, 0], dst[c].Length);
             TensorPrimitives.Lerp(lhs, rhs, a, output);
         }
-        return new Image(dst, BitDepth.Float32, MaxValue, MinValue, pedestal, imageMeta);
+        // Labelled with the range the blend HOLDS: a blend toward a lifted star stands above this image's peak, and a label
+        // below the data is a scale every later step reads wrong.
+        var (min, max) = ObservedRange(dst);
+        return float.IsNaN(max)
+            ? new Image(dst, BitDepth.Float32, MaxValue, MinValue, pedestal, meta)
+            : new Image(dst, BitDepth.Float32, max, min, pedestal, meta);
     }
+
+    /// <summary>
+    /// Why SCNR may not run on a colour image whose metadata is <paramref name="meta"/>, or null when it may: the one rule for
+    /// the enhance's SCNR on its stars (<c>ScnrStarsStep</c>, which skips) and <c>image scnr</c> (which refuses).
+    /// </summary>
+    /// <remarks>
+    /// ONLY ON BALANCED COLOUR. SCNR takes green down to where a NEUTRAL star would have it, and a neutral star has
+    /// R = G = B only once the colour is balanced. On a raw OSC plate green is the strongest channel of almost every star
+    /// (two green photosites, the QE peak), so SCNR stripped green from all of them and the balance the render applied
+    /// afterwards turned them magenta: a whole globular cluster on the dataset gallery's Omega Centauri, and the enhanced
+    /// half of most cards lifted in R/G by up to 0.37. A balance in the pixels (<see cref="ColourCalibration.Applied"/>, the
+    /// <c>WBAPPLD</c> card, put in by the enhance's <c>WhiteBalanceStep</c> or the stack) is what makes it safe.
+    /// </remarks>
+    public static string? ScnrRefusal(ImageMeta meta)
+        => meta.ColourCalibration is { Applied: true }
+            ? null
+            : "the colour is not balanced in its pixels, so green is not where a neutral star has it and SCNR would turn the stars "
+                + "magenta: put the white balance in first";
 
     /// <summary>
     /// Per-pixel Subtractive Chromatic Noise Reduction (SCNR) on the green
@@ -480,6 +506,7 @@ public partial class Image
     /// uses <c>(R + B) / 2</c>; <see cref="ScnrMode.Maximum"/> uses
     /// <c>max(R, B)</c> (more aggressive green removal).</param>
     /// <param name="amount">Strength in [0, 1]. Clamped.</param>
+    /// <seealso cref="ScnrRefusal"/>
     public Image SubtractiveChromaticNoise(ScnrMode mode, float amount = 1.0f)
     {
         if (mode is ScnrMode.None || ChannelCount < 3)

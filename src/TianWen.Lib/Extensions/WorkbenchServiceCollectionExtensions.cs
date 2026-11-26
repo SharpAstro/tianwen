@@ -38,6 +38,8 @@ public static class WorkbenchServiceCollectionExtensions
         services.AddSingleton<IOperation, LrgbOperation>();
         services.AddSingleton<IOperation, AddStarsOperation>();
         services.AddSingleton<IOperation, FillDigsOperation>();
+        services.AddSingleton<IOperation, ScnrOperation>();
+        services.AddSingleton<IOperation, WhiteBalanceOperation>();
         // The embedded catalogue answers for the stars inside a protected core where the host registered it, and a host
         // without it still protects cores (those stars then stay with them): the constructor's own default.
         services.AddSingleton<IOperation, ProtectCoresOperation>();

@@ -7,6 +7,7 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using TianWen.Lib.Imaging.StarRemoval;
 
 namespace TianWen.Lib.Imaging.Enhancement;
 
@@ -243,7 +244,7 @@ public sealed class SharpenPipeline(
     /// <para>The mean fallback stays for what both leave: an interior hole wider than the fill
     /// reaches.</para>
     /// </remarks>
-    /// <summary>The most denoise passes the gate runs (<see cref="DenoisePassesAsync"/>).</summary>
+    /// <summary>The most denoise passes the gate runs (<see cref="NarrowbandCombination.DenoisePassesAsync"/>).</summary>
     internal const int MaxDenoisePasses = 3;
 
     /// <summary>
@@ -253,58 +254,6 @@ public sealed class SharpenPipeline(
     /// value from one master, to be checked on more (#1805).
     /// </summary>
     internal const float MinCoarseReduction = 0.35f;
-
-    /// <summary>
-    /// The starless plate denoised in passes run HERE, each one denoiser call on the last one's output (NoiseXTerminator at
-    /// <c>--it 1</c>, never its own iterations, which left the Sculptor's residual unchanged at 2 and 3 for twice and three times
-    /// the time). Pass 1 always runs. A further pass is kept only while it takes at least <see cref="MinCoarseReduction"/> off the
-    /// coarse sky noise, measured on the same sky pixels before and after; the first that does not is discarded and ends the
-    /// run, up to <see cref="MaxDenoisePasses"/>. A stated <see cref="EnhanceTuning.DenoiseIterations"/> is that many passes,
-    /// ungated. A single-pixel noise estimate cannot gate this: one pass on the Sculptor took 70 % off at 1 px and only 37 % at
-    /// 32 px, so the blotches a second pass removes are invisible to it.
-    /// </summary>
-    /// <param name="holdRing">The run's canvas ring put back on each pass's output (ProcessAsync's <c>HoldRing</c>).</param>
-    private async Task<Image> DenoisePassesAsync(Image input, DenoiseVariant variant, EnhanceOptions options, IProgress<float>? progress,
-        Func<Image, Image, Image> holdRing, CancellationToken cancellationToken)
-    {
-        var den = Require(denoiser);
-        var current = holdRing(await den.EnhanceAsync(input, variant, options, progress, cancellationToken), input);
-        var stated = options.Tuning?.DenoiseIterations;
-        var passes = Math.Clamp(stated ?? MaxDenoisePasses, 1, MaxDenoisePasses);
-        var before = stated is null ? MultiScaleNoise.Measure(current) : null;
-        for (var pass = 2; pass <= passes; pass++)
-        {
-            if (stated is null && before is null)
-            {
-                break;
-            }
-            var next = holdRing(await den.EnhanceAsync(current, variant, options, progress, cancellationToken), current);
-            if (ReferenceEquals(next, current))
-            {
-                // A denoiser that hands its input back changed nothing, and a further pass would change nothing either.
-                break;
-            }
-            if (stated is null && before is { } measured)
-            {
-                var after = MultiScaleNoise.Measure(next, onSkyOf: measured);
-                var reduction = after is null ? 0f : 1f - (after.Coarse / measured.Coarse);
-                logger?.LogInformation("SharpenPipeline: denoise pass {Pass} took {Reduction:P0} off the coarse sky noise ({Before:E2} to {After:E2}); {Verdict}",
-                    pass, reduction, measured.Coarse, after?.Coarse ?? float.NaN, reduction >= MinCoarseReduction ? "kept" : "discarded, the passes stop");
-                if (after is null || reduction < MinCoarseReduction)
-                {
-                    next.Release();
-                    break;
-                }
-                before = after;
-            }
-            if (!ReferenceEquals(current, input))
-            {
-                current.Release();
-            }
-            current = next;
-        }
-        return current;
-    }
 
     internal static Image SanitiseForEnhance(Image source, ILogger? logger)
     {
@@ -540,12 +489,19 @@ public sealed class SharpenPipeline(
                         // Full-image deconvolution (BlurX) at the head: tightens
                         // stars AND non-stellar structure on the source before any
                         // split, so downstream steps consume `deblurred ?? source`.
-                        var raw = await Require(deblurrer).EnhanceAsync(source, options, stepProgress, cancellationToken);
-                        if (ReferenceEquals(raw, source))
+                        // The one deblur, image deblur's (the owner's choice, 2026-11-26): the frame goes to the
+                        // deblurrer with headroom below its ceiling and comes back on its own scale, so a lifted star
+                        // keeps its light (above 1.0, and the result says it is on a unit scale, #2504) where a call
+                        // at the frame's own peak clipped it.
+                        var (deblurredPlanes, _, passedThrough) = await NarrowbandCombination.DeblurAsync(
+                            [source], Require(deblurrer), NarrowbandCombination.DefaultDeblurHeadroom, options, stepProgress, cancellationToken);
+                        var raw = deblurredPlanes[0];
+                        if (passedThrough)
                         {
                             // No-op passthrough (e.g. bxt present but unlicensed):
                             // leave `deblurred` null so downstream falls back to
                             // `source` and we never release the caller's image.
+                            raw.Release();
                             timings.Add(("deblur(skipped)", phaseSw.ElapsedMilliseconds, default));
                             break;
                         }
@@ -574,7 +530,10 @@ public sealed class SharpenPipeline(
                         // the source pick `gradientCorrected ?? source`
                         // so they see the cleaned plate.
                         var gradientInput = deblurred ?? source;
-                        gradientCorrected = HoldRing(await Require(gradientCorrector).EnhanceAsync(gradientInput, options, stepProgress, cancellationToken), gradientInput);
+                        // A deblurred frame keeps its lifted stars above 1.0, and a gradient model takes [0, 1]: it goes
+                        // in divided by its peak and comes back on its own scale, as the gradient step runs it (#2504).
+                        gradientCorrected = HoldRing(await gradientInput.ThroughModelRangeAsync(
+                            input => Require(gradientCorrector).EnhanceAsync(input, options, stepProgress, cancellationToken)), gradientInput);
                         timings.Add(("gradient-correction", phaseSw.ElapsedMilliseconds, gradientCorrected.EstimateNoiseProfile()));
 
                         // The background stage is the gradient AND the level: the gradient correction flattens each
@@ -603,18 +562,32 @@ public sealed class SharpenPipeline(
                         // Read from the corrected plate when GradientCorrectionStep
                         // ran upstream; falls back to the original source otherwise.
                         var starsInput = gradientCorrected ?? deblurred ?? source;
-                        starless = HoldRing(await Require(starRemover).EnhanceAsync(starsInput, options, stepProgress, cancellationToken), starsInput);
                         // Pixel split:
-                        //   Additive (default): StarsOnly = max(Source - Starless, 0).
+                        //   Additive (default): the one star removal, image remove-stars' (the owner's choice,
+                        //     2026-11-26): on one scale, each galaxy's and nebula's core kept out of the stars
+                        //     (#1658), the holes TianWen's own models dig filled (#2204), and the plate held at or
+                        //     under its input (#2433), so the stars are the input less the plate and never negative.
                         //     Physically correct in linear-light photon space.
                         //   Screen: StarsOnly = unscreen(Source, Starless).
                         //     Matches the stretched-space identity NAFNet was
                         //     trained against -- prefer when callers pass
                         //     pre-stretched data or want to round-trip through
                         //     the screen identity.
-                        starsOnly = removeStars.SplitMode == RecombineMode.Screen
-                            ? starsInput.Unscreen(starless)
-                            : starsInput.Subtract(starless);
+                        if (removeStars.SplitMode == RecombineMode.Screen)
+                        {
+                            starless = HoldRing(await starsInput.ThroughModelRangeAsync(
+                                input => Require(starRemover).EnhanceAsync(input, options, stepProgress, cancellationToken)), starsInput);
+                            starsOnly = starsInput.Unscreen(starless);
+                        }
+                        else
+                        {
+                            var split = new Workbench.RemoveStarsSettings();
+                            var (plates, stars, _, _) = await NarrowbandCombination.SplitStarsAsync([starsInput], Require(starRemover),
+                                split.ProtectCores ? ExtendedCoreMask.Options.Default : null, split.FillDigs, catalogStars: null,
+                                holdAtOrUnderPlane: !split.KeepOvershoot, options, stepProgress, cancellationToken);
+                            starless = HoldRing(plates[0], starsInput);
+                            starsOnly = HoldRing(stars[0], starsInput);
+                        }
                         linearStarlessNoise = starless.EstimateNoiseProfile();
                         timings.Add(("remove-stars+split", phaseSw.ElapsedMilliseconds, linearStarlessNoise));
                         // gradientCorrected's only consumer was the star
@@ -689,7 +662,10 @@ public sealed class SharpenPipeline(
                         // output if a DeconvolveStarlessStep ran earlier,
                         // otherwise the raw starless plate.
                         var inputPlate = deconvolvedStarless ?? Require(starless);
-                        var raw = await DenoisePassesAsync(inputPlate, denoiseStep.Variant, options, stepProgress, HoldRing, cancellationToken);
+                        // The one denoise, image denoise's (the owner's choice, 2026-11-26): the gated passes, on the
+                        // plate's own scale (a deblurred plate keeps its lifted light above 1.0).
+                        var raw = HoldRing((await NarrowbandCombination.DenoisePassesAsync([inputPlate], Require(denoiser), denoiseStep.Variant,
+                            options, stepProgress, logger, cancellationToken))[0], inputPlate);
                         if (denoiseStep.Blend < 1f)
                         {
                             denoisedStarless = inputPlate.Lerp(raw, denoiseStep.Blend);
@@ -725,7 +701,10 @@ public sealed class SharpenPipeline(
                         // the most-processed WHOLE frame goes in and what comes out is the result, so it
                         // is `final` directly, with nothing to recombine.
                         var inputPlate = gradientCorrected ?? deblurred ?? source;
-                        var raw = HoldRing(await Require(denoiser).EnhanceAsync(inputPlate, denoiseFrame.Variant, options, stepProgress, cancellationToken), inputPlate);
+                        // The one denoise, image denoise's gated passes, as the split program's starless denoise runs them,
+                        // each pass on the frame's own scale (a deblurred frame keeps its lifted stars above 1.0, #2504).
+                        var raw = HoldRing((await NarrowbandCombination.DenoisePassesAsync([inputPlate], Require(denoiser), denoiseFrame.Variant,
+                            options, stepProgress, logger, cancellationToken))[0], inputPlate);
                         if (denoiseFrame.Blend < 1f)
                         {
                             final = inputPlate.Lerp(raw, denoiseFrame.Blend);
@@ -789,18 +768,13 @@ public sealed class SharpenPipeline(
                         // Mutates the most-processed stars plate in-place
                         // (sharpened if present, else raw starsOnly).
                         var inputPlate = sharpenedStars ?? Require(starsOnly);
-                        // ONLY ON BALANCED COLOUR. SCNR takes green down to where a NEUTRAL star would have it, and
-                        // a neutral star has R = G = B only once the colour is balanced. On a raw OSC plate green is
-                        // the strongest channel of almost every star (two green photosites, the QE peak), so SCNR
-                        // stripped green from all of them and the balance the render applied afterwards turned them
-                        // magenta: a whole globular cluster on the dataset gallery's Omega Centauri, and the enhanced
-                        // half of most cards lifted in R/G by up to 0.37. A host that has a balance puts it in first
-                        // (WhiteBalanceStep, or an input already WBAPPLD); without one this step is skipped and says
-                        // so. A plate already stretched for display is the caller's (--dual-stretch).
-                        var colourBalanced = source.ImageMeta.ColourCalibration is { Applied: true };
-                        if (inputPlate.ChannelCount >= 3 && !colourBalanced && !starsStretched)
+                        // ONLY ON BALANCED COLOUR, the one rule image scnr refuses by (Image.ScnrRefusal, where the
+                        // reason is written). A host that has a balance puts it in first (WhiteBalanceStep, or an input
+                        // already WBAPPLD); without one this step is skipped and says so. A plate already stretched for
+                        // display is the caller's (--dual-stretch).
+                        if (inputPlate.ChannelCount >= 3 && !starsStretched && Image.ScnrRefusal(source.ImageMeta) is { } notBalanced)
                         {
-                            logger?.LogInformation("SharpenPipeline: SCNR skipped: the colour is not balanced, so green is not where a neutral star has it; put the white balance in first (WhiteBalanceStep) to run it.");
+                            logger?.LogInformation("SharpenPipeline: SCNR skipped: {Why} (WhiteBalanceStep) to run it.", notBalanced);
                             timings.Add(("scnr-stars (skipped: colour not balanced)", phaseSw.ElapsedMilliseconds, default));
                             break;
                         }
@@ -933,7 +907,9 @@ public sealed class SharpenPipeline(
                         //   fg = sharpened > raw starsOnly
                         var bg = denoisedStarless ?? deconvolvedStarless ?? Require(starless);
                         var fg = sharpenedStars ?? Require(starsOnly);
-                        final = recombineStep.Mode == RecombineMode.Screen ? bg.Screen(fg) : bg.Add(fg);
+                        // Additive is image add-stars' routine (NarrowbandCombination.WithStars), so a chain's add-stars and
+                        // the enhance's recombine are one sum.
+                        final = recombineStep.Mode == RecombineMode.Screen ? bg.Screen(fg) : NarrowbandCombination.WithStars(bg, fg);
                         timings.Add(("recombine", phaseSw.ElapsedMilliseconds, final.EstimateNoiseProfile()));
                         // Recombine may be followed by a post-recombine stretch
                         // step (MtfStretchFinalStep / GhsStretchFinalStep); the

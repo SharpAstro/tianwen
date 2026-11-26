@@ -143,10 +143,11 @@ public sealed class CoreStarsWiringTests(ITestOutputHelper output) : IDisposable
         }
 
         (await RunAsync("rs_held", "remove-stars", inputPath, "--no-protect-cores", "--no-fill-digs")).ShouldBe(level, 1e-4f, "remove-stars holds the plate at the input by default");
-        // remove-stars: the split divides the plane by ONE divisor (its peak, 0.4), so the remover sees 1.0 and adds its
-        // lift of 0.2 on that unit scale; the plate comes back as 1.2 * 0.4 = 0.48. Nothing in the writer rescales it.
-        const float keptRemoveStars = 1.2f * level;
-        (await RunAsync("rs_kept", "remove-stars", inputPath, "--no-protect-cores", "--no-fill-digs", "--keep-overshoot")).ShouldBe(keptRemoveStars, 1e-4f, "--keep-overshoot leaves the remover's plate over the input: a lift of 0.2 on the split's unit scale (divisor = peak 0.4) comes back as 1.2 * 0.4");
+        // remove-stars: the split hands a plane that fits [0, 1] to the remover as it is (one divisor for every plane, 1 here
+        // as the peak 0.4 fits), so the remover sees 0.4 and adds its lift of 0.2; the plate comes back as 0.6, the lifted
+        // level. Nothing in the writer rescales it.
+        const float keptRemoveStars = lifted;
+        (await RunAsync("rs_kept", "remove-stars", inputPath, "--no-protect-cores", "--no-fill-digs", "--keep-overshoot")).ShouldBe(keptRemoveStars, 1e-4f, "--keep-overshoot leaves the remover's plate over the input: a lift of 0.2 on the plane as it is (it fits [0, 1], so it goes in undivided) comes back as 0.6");
         (await RunAsync("fd_held", "fill-digs", "--input", inputPath, "--starless", overPath)).ShouldBe(level, 1e-4f, "fill-digs holds the plate at the input by default");
         // fill-digs: the plate is 0.6 in the file; the input is under it, so DigFill.Apply finds no star taken and returns it as it is.
         (await RunAsync("fd_kept", "fill-digs", "--input", inputPath, "--starless", overPath, "--keep-overshoot")).ShouldBe(lifted, 1e-4f, "--keep-overshoot leaves the file's plate (0.6) over the input as it is: DigFill.Apply finds no star taken and changes nothing");

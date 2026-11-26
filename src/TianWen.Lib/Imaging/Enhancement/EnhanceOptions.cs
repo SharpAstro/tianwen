@@ -70,7 +70,7 @@ public enum GradientBackend
 /// <param name="DenoiseStrength">Denoise strength in [0, 1]. RC maps it to <c>nxt --dn</c>
 /// (overriding the noise-adaptive auto value); the N2N backend maps it to its blend dial.</param>
 /// <param name="DenoiseIterations">How many denoise passes the enhance runs on the starless plate, each a denoiser call on the
-/// last one's output, ungated; null lets the gate decide (<c>SharpenPipeline.DenoisePassesAsync</c>: up to 3, each further pass
+/// last one's output, ungated; null lets the gate decide (<c>NarrowbandCombination.DenoisePassesAsync</c>: up to 3, each further pass
 /// kept only while it takes enough off the coarse sky noise). Never NoiseXTerminator's own <c>--it</c>.</param>
 /// <param name="Deconvolution">The blur TianWen's own deconvolver is asked to remove (<see cref="DeconvolutionKernel"/>):
 /// it takes its kernel as an input and serves only a run that states one, since nothing yet finds a kernel in a single

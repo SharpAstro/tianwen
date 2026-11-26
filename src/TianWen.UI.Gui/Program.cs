@@ -392,6 +392,9 @@ SdlEventLoop? eventLoop = null;
 var loop = new SdlEventLoop(sdlWindow, renderer)
 {
     BackgroundColor = canvasBackground,
+    // The loop asks it after every presented frame, right after OnPostFrame: where a collection that is nearly due
+    // costs no frame anything (BetweenFramesCollector, the renderer's since 7.115, its threshold learned since 7.116).
+    BetweenFrames = betweenFrames,
 
     OnResize = (rw, rh) =>
     {
@@ -913,10 +916,6 @@ loop.OnPostFrame = () =>
     {
         appState.NeedsRedraw = true;
     }
-
-    // The frame is on its way to the screen and the next is most of an interval off: where a collection that is nearly
-    // due costs no frame anything (BetweenFramesCollector).
-    betweenFrames.AfterFrame();
 
     // During shutdown, stop the loop once all tasks (Finalise) have completed
     if (appState.ShutdownComplete)

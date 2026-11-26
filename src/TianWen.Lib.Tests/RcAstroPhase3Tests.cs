@@ -81,7 +81,7 @@ public class RcAstroPhase3Tests : IDisposable
     [Fact]
     public async Task Tuning_MapsDenoiseStrengthToNxtAndItsPassesAreNeverNxtsIterations()
     {
-        // The tuning's DenoiseIterations is how many passes the ENHANCE runs (SharpenPipeline.DenoisePassesAsync), each one
+        // The tuning's DenoiseIterations is how many passes the ENHANCE and image denoise run (NarrowbandCombination.DenoisePassesAsync), each one
         // call here: nxt's own --it stays at 1, since 2 and 3 left the Sculptor's residual unchanged for twice the time.
         var cli = new FakeRcAstroCli();
         var nxt = new RcAstroDenoiser(cli);

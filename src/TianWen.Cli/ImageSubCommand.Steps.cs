@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.CommandLine;
 using System.Globalization;
 using System.IO;
@@ -329,6 +330,86 @@ internal sealed partial class ImageSubCommand
             return await RunStepAsync("fill-digs", fillDigs, new FillDigsSettings { KeepOvershoot = parseResult.GetValue(keepOvershootOpt) },
                 [starlessPath, parseResult.Required(inputOpt)],
                 StepOutput(starlessPath, "_filled", parseResult.GetValue(outputOpt), 1), ct);
+        });
+        return cmd;
+    }
+
+    // -------- tianwen image scnr ---------------------------------------
+
+    private Command BuildScnrCommand()
+    {
+        var inputArg = new Argument<string>("stars") { Description = "The stars plate (image remove-stars --stars-output), its colour balanced." };
+        var outputOpt = new Option<string?>("--output", "-o") { Description = "Output FITS. Default: <stars>_scnr.fits." };
+        var modeOpt = new Option<string>("--mode")
+        {
+            Description = "What green is taken down to: average, the mean of red and blue (the enhance's), or maximum, the larger of them, "
+                + "which takes more.",
+            DefaultValueFactory = static _ => "average",
+        };
+        var amountOpt = new Option<float>("--amount")
+        {
+            Description = "How much of the way green goes, from above 0 to 1.",
+            DefaultValueFactory = static _ => 1f,
+        };
+        var cmd = new Command("scnr", "The step the enhance runs on its stars before they go back, alone (SCNR, Image.SubtractiveChromaticNoise): "
+            + "green taken down to where a neutral star has it. Balanced colour only: on a plate whose colour is not balanced in its pixels "
+            + "green is not where a neutral star has it, and the step refuses it.")
+        {
+            Arguments = { inputArg },
+            Options = { outputOpt, modeOpt, amountOpt },
+        };
+        var scnr = new ScnrOperation();
+        cmd.SetAction(async (parseResult, ct) =>
+        {
+            // The enum is the one list of modes; the step's own refusal says what a mode of none is.
+            if (!Enum.TryParse<ScnrMode>(parseResult.GetValue(modeOpt), ignoreCase: true, out var chosen))
+            {
+                consoleHost.WriteError($"[scnr] --mode is average or maximum, not '{parseResult.GetValue(modeOpt)}'.");
+                return 1;
+            }
+
+            var input = parseResult.Required(inputArg);
+            return await RunStepAsync("scnr", scnr, new ScnrSettings { Mode = chosen, Amount = parseResult.GetValue(amountOpt) },
+                [input], StepOutput(input, "_scnr", parseResult.GetValue(outputOpt), 1), ct);
+        });
+        return cmd;
+    }
+
+    // -------- tianwen image white-balance ------------------------------
+
+    private Command BuildWhiteBalanceCommand()
+    {
+        var inputArg = new Argument<string>("master") { Description = "A colour master." };
+        var outputOpt = new Option<string?>("--output", "-o") { Description = "Output FITS. Default: <master>_wb.fits." };
+        var whiteBalanceOpt = new Option<string?>("--white-balance")
+        {
+            Description = "An SPCC white balance as 'R,G,B' (the triple image render prints with '(SPCC)'). Left out: the balance the master's "
+                + "own WB cards state. Only a broadband one is put into the pixels, as image sharpen and stack --enhance put theirs.",
+        };
+        var cmd = new Command("white-balance", "The step the enhance runs first, alone: a broadband SPCC white balance multiplied into the "
+            + "master's linear pixels, the one the master states or the one given, so its stars are neutral before SCNR. A master with no "
+            + "broadband balance to apply is refused.")
+        {
+            Arguments = { inputArg },
+            Options = { outputOpt, whiteBalanceOpt },
+        };
+        var whiteBalance = new WhiteBalanceOperation();
+        cmd.SetAction(async (parseResult, ct) =>
+        {
+            ImmutableArray<float> stated = [];
+            if (parseResult.GetValue(whiteBalanceOpt) is { Length: > 0 } text)
+            {
+                if (!TryParseWhiteBalance(text, out var given))
+                {
+                    consoleHost.WriteError($"[white-balance] --white-balance must be three positive finite numbers 'R,G,B'; got '{text}'.");
+                    return 1;
+                }
+                stated = [given.R, given.G, given.B];
+            }
+
+            var input = parseResult.Required(inputArg);
+            return await RunStepAsync("white-balance", whiteBalance, new WhiteBalanceSettings { WhiteBalance = stated },
+                [input], StepOutput(input, "_wb", parseResult.GetValue(outputOpt), 1), ct);
         });
         return cmd;
     }

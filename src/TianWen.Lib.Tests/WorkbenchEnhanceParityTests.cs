@@ -38,7 +38,7 @@ public sealed class WorkbenchEnhanceParityTests(ITestOutputHelper output) : IDis
     public void Dispose() => _folders.Dispose();
 
     /// <summary>An enhancer that scales what it is handed: the same answer for the same input.</summary>
-    private sealed class Scaling(string name, float factor) : IStarRemover, IDenoiseEnhancer, IImageDeblurrer, INonStellarDeconvolver
+    internal sealed class Scaling(string name, float factor) : IStarRemover, IDenoiseEnhancer, IImageDeblurrer, INonStellarDeconvolver
     {
         public string Name => name;
 
@@ -492,7 +492,9 @@ public sealed class WorkbenchEnhanceParityTests(ITestOutputHelper output) : IDis
     public async Task TheDefaultProgramIsPinnedSoAChangeToItIsANewVersionOfTheOperation()
     {
         const string why = "the default program changed: raise EnhanceOperation's Version with it (docs/architecture/workbench-operations.md)";
-        new EnhanceOperation(new SharpenPipeline()).Description.Version.ShouldBe(1, "this test pins version 1's program: pin the new one with the new number");
+        // Version 2 has version 1's program, step for step; what changed is the routine behind three of its steps (the one
+        // deblur with headroom, the guarded star split, the gated denoise on the plate's own scale), which changes pixels.
+        new EnhanceOperation(new SharpenPipeline()).Description.Version.ShouldBe(2, "this test pins version 2's program: pin the new one with the new number");
 
         (await ProgramAsync(EnhanceCapabilities.AllRoles(deblur: false), new EnhanceSettings())).Program.ToSteps().ToArray().ShouldBe(
         [
@@ -512,6 +514,15 @@ public sealed class WorkbenchEnhanceParityTests(ITestOutputHelper output) : IDis
             new ScnrStarsStep(Mode: ScnrMode.Average, Amount: 1f),
             new RecombineStep(Mode: RecombineMode.Additive),
         ], why);
+
+        // The enhance's star split is image remove-stars' with its defaults (RemoveStarsStep reads a new
+        // RemoveStarsSettings), so a changed default is other enhance pixels as well as other remove-stars pixels: it needs
+        // a new Version of both operations. The catalogue is not pinned: the enhance asks no catalogue.
+        const string splitWhy = "remove-stars' defaults changed: raise the Version of EnhanceOperation and of RemoveStarsOperation with them";
+        var split = new RemoveStarsSettings();
+        split.ProtectCores.ShouldBeTrue(splitWhy);
+        split.FillDigs.ShouldBeTrue(splitWhy);
+        split.KeepOvershoot.ShouldBeFalse(splitWhy);
     }
 
     [Fact]

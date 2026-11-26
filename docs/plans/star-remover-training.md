@@ -26,7 +26,9 @@ and what has been tried (each in section 6):
   on bright nebula: one cell of 4,066 stars (99 or more catalogued stars within 16 px), which StarXTerminator
   removes 99.2 % of and R4h 82.7 and 87.5 %, holds 59 % of the bin's gap on R4h's seed 0, and a drawn star stands
   that crowded 0.14 % of the time. Tried: cluster scenes and a second pass (R4a), nothing; stars drawn under the
-  catalogue's limit (R4c), which closed 60 % of BP's gap and 30 % of the crowded flat's on one seed; for the
+  catalogue's limit (R4c), which closed 60 % of BP's gap and 30 % of the crowded flat's on one seed; targets drawn
+  from plates with the crowded grain smoothed out by a rule (R4f, killed twice; the rule also smooths faint nebula,
+  "The input-grain check" in section 6); for the
   plates, a deblend fitted at Gaia's companions, which gained at most 0.2 over the same fit at mirrored points in
   the crowded cells and took more from the nebula cell than from them, so the plates' recipe stays without it
   (2026-11-25); real pairs (R4k), which read worse (87.4 and 87.5). **The training target itself** (the builder's
@@ -42,16 +44,20 @@ and what has been tried (each in section 6):
   takes a median of 0.00 of each planted faint star on bright nebula and leaves 82 % of them (a third taken at the
   faintest nebula, about a tenth at 40 to 80 sky sigma of nebula and a fiftieth above that; about a third of the 84
   real ones taken), so a loss counted only where
-  it took a star would see a minority of them there (the net of its mask's own rule uncounted). That R4k's training sessions are the same is suspected, not counted. Why the drawn-star arms
-  leave them is not measured.
+  it took a star would see a minority of them there (the net of its mask's own rule uncounted). **R4k's own training
+  sessions are counted (2026-11-26) and are not the same:** there the builder took 69 % of such stars and R4k's
+  masks covered 64 % of them, some 41,700 stars inside the rim its loss reads, so R4k's loss saw most of them taken; the Lagoon master, where the
+  builder takes a tenth to a third, is the harder case, and what the training showed did not carry over to it. Why
+  not, and why the drawn-star arms leave them, is not measured.
 
-Nothing above says a row cannot be reached; it says no route tried so far has reached it, what each route measured,
-and (the builder's own scorecard) what the routes tried so far share: real stars against the builder's plates show
-the model a minority of the faint stars on bright nebula taken, and every drawn-star arm drew on plates that keep two in five of a
-crowded field's faint stars. Both are measured on the held-out masters (the Lagoon, the Tarantula's plate) and
-inferred, not counted, for the arms' training plates. A target with those stars taken out has not been
-tried, since nothing made so far makes one. What comes next is the owner's. The status of 2026-11-11 and the one
-of 2026-10-03 below are kept as the record.
+Nothing above says a row cannot be reached; it says no route tried so far has reached it and what each route
+measured. For the crowded rows, the builder's plate keeps two in five of a crowded field's faint stars on the
+Tarantula's (measured on that held-out master; for the drawn-star arms' own plates inferred, not counted), and
+targets with those stars taken out were tried twice: R4a's cluster scenes, which bought nothing, and R4f's smoothed
+plates, killed twice. The catalogue cannot make such a target (2026-11-25), and training on StarXTerminator's
+output is ruled out (the owner, 2026-11-26). For the faint stars on bright nebula, real pairs did show the model
+most of them taken on its training sessions (counted) and it still did not take them on the Lagoon. What comes next
+is the owner's. The status of 2026-11-11 and the one of 2026-10-03 below are kept as the record.
 
 **Status, 2026-11-11: rounds 1 to 3 run (R2a to R3s, section 6), and NO model ships.** R2p was chosen on
 2026-10-20 ([Shipping R2p](#shipping-r2p-tianwens-own-star-remover-2026-10-20), #1702, still open) and held
@@ -10738,8 +10744,8 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
       measured. R4k seed 1's gain at 20 to 40 sky sigma of
       nebula (41.0 % left against R4h seed 0's 54.2), where the builder takes the most, fits the data teaching a
       little there. That the builder does the same on the training sessions' bright nebula, so that R4k's masks
-      held a minority of such stars, follows from the finder's rule and is SUSPECTED: R4k's masks were not counted against
-      the catalogue's faint stars on those sessions.
+      held a minority of such stars, was SUSPECTED here from the finder's rule, and is WRONG: counted the same day
+      ("R4k's masks counted" below), they covered two thirds of such stars on R4k's training sessions.
     - **The crowded rows, through the stored plates: the target is the farthest from StarXTerminator, and the
       models already stand over it.** R4h as trained takes 26 to 28 points more of the crowded flat than the
       builder, 29 more of BP 17-19 and 39 to 43 more of its most crowded cell; through the chain 2 to 5 more. The
@@ -10752,9 +10758,68 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     - **So no row is shown unreachable, and what the routes tried so far share is measured on the held-out masters and
       inferred for the arms' training plates, not counted:** on the Lagoon master the builder takes about a third
       of the real faint stars on bright nebula, and on the Tarantula's plate it keeps two in five of the crowded
-      field's; that real pairs showed the model a minority of such stars, and that every drawn-star arm drew on plates keeping
-      two in five, follows from the finder's rule and is inferred. A target with those stars taken out has not been tried, because nothing in the store or measured
-      so far makes one; whether it would close the rows is not known.
+      field's; that real pairs showed the model a minority of such stars (counted the same day, and wrong: see
+      below), and that every drawn-star arm drew on plates keeping two in five, follows from the finder's rule and
+      is inferred. A target with those stars taken out has not been tried, because nothing in the store or measured
+      so far makes one; whether it would close the rows is not known. (Corrected the same day: such targets were
+      tried, R4a's cluster scenes and R4f's smoothed plates; see the head status.)
+  - **Nothing is adopted;** what follows is the owner's.
+- **R4k's masks counted against the catalogue's faint stars on bright nebula, 2026-11-26 (a measurement; the owner's
+  "2"): on R4k's own training sessions they covered two thirds of them, so the suspicion above that they held a
+  minority is wrong.**
+  - **In plain words.** R4k learned only where its mask said the builder had taken a star out. The question was
+    whether, on R4k's own training sessions, the faint stars on bright nebula were inside that mask. Most were: the
+    builder took about seven in ten of them there, and the mask covered about two in three. So R4k's training saw
+    tens of thousands of such stars taken, and the model still did not learn to take them on the Lagoon, where the
+    builder itself takes only a tenth to a third.
+  - **How.** Each of R4k's 105 training sessions (its cache's training list) solved once for its catalogue
+    (`tianwen solve --export-gaia` on `bh-bin15`, the installed ASTAP database; the Uranus-C eta Carinae master of
+    2023-02-24 does not solve and is left out). `realpair_mask_coverage.py` selects the stars as
+    `nebula_stars_row.py` does (20 to 150 sky sigma of light in a 2 px disc, no brighter catalogued star within 6 px,
+    the magnitude check at a factor 2; bright nebula a 32 px block 20 sky sigma or more over the frame's sky, dark
+    sky under 5), keeps those inside an exported cell and 3 px clear of its edge, and reads per star whether the
+    cell's `<tile>.keep.f16` covers its 2 px disc (a mean of a half or more) and the share of its light the stored
+    plate took (taken: half or more). The tiles sit where their records say: a cell of the Running Chicken master
+    of 2023-03-17 against the master at its recorded place reads a rank correlation of 0.76, and a search over 240 px
+    finds no better place.
+
+    | faint stars, 20 to 150 sky sigma | stars | taken by the builder | covered by R4k's mask |
+    |---|---|---|---|
+    | on bright nebula, the 95 sessions whose magnitude check ran | 79,458 | 68.8 % | 64.5 % |
+    | of them at 20 to 40 sky sigma of nebula | 29,648 | 71.4 % | 66.5 % |
+    | at 40 to 80 | 42,254 | 72.6 % | 68.8 % |
+    | at 80 and over | 7,556 | 37.9 % | 32.9 % |
+    | on dark sky (the control) | 354,324 | 84.5 % | 77.7 % |
+    | on bright nebula, all 104 sessions read | 131,485 | 70.2 % | 66.6 % |
+
+    In the 95 checked sessions, of the stars on bright nebula the builder took, the mask covers 93.2 %; of those it left,
+    1.3 % (the all-104 read: 94.4 % and 1.0 %). On the held-out
+    Lagoon master the builder takes 33.7 % of the PLANTED faint stars at 20 to 40 sky sigma of nebula, 10.7 % at 40
+    to 80 and 2.1 % at 80 and over, and 35.7 % of the 84 real ones.
+  - **Limits.** The catalogue is the installed database, cut at its density cap (magnitude 17.8 on the Running
+    Chicken field), so only catalogued stars are counted, as on the scorecard's row. On 9 sessions (one LMC piece,
+    a Vela SNR and a Helix piece, and six pieces of narrowband fields round HD and HIP stars) under 50 dark-sky stars
+    leave the magnitude check off, so every catalogued
+    position counts there, a bump of the nebula among them; the "all 104 sessions" line holds them and the others do
+    not. "Bright nebula" is the level rule of the scorecard's row, so on the training sessions it takes in the
+    star-cloud backgrounds of the Magellanic Clouds as well as nebula.
+  - **What it says.** R4k's loss saw some 41,700 such stars taken. The table counts a star 3 px inside its cell
+    (`--edge 3`), while the trainer's loss skips a 16 px rim (`BORDER` in `n2n_smoke.py`); counted again with
+    `--edge 16` (2026-11-26, the same script and inputs), the 95 checked sessions hold 64,793 such stars, of which the
+    builder took 68.8 % and the mask covers 64.4 % (24,256 / 34,410 / 6,127 at 20 to 40 / 40 to 80 / 80 and over,
+    covered 66.3 / 68.8 / 32.7 %; dark sky 289,396 stars, covered 77.8 %), so the shares given here move by 0.2
+    points or less and the count is 41,700 where the table's reading gives 51,000. The pool is star-weighted: by the scratch
+    coverage.txt only 39 of the 95 sessions carry 5 or more such stars, 15 of those cover under 50 % (13 % of the stars),
+    the median session covers 56 % and the range is 15 to 93 %. Most of them at 20 to 80 sky
+    sigma of nebula, where the builder takes seven in ten on these sessions against a tenth to a third on the Lagoon
+    master. The cause the builder's scorecard SUSPECTED for R4k's miss, that its data held few such stars, is wrong.
+    What is left: at the same level of nebula the builder takes far fewer of the Lagoon master's faint stars than of
+    the training sessions' (a third against seven in ten at 20 to 40 sky sigma, a tenth against seven in ten at 40
+    to 80; planted stars against real ones, the one real-against-real figure being 35.7 % of 84 against 70.2 %, with no
+    level split), so those stars are harder there for the builder's finder too, or a planted star stands in poorly for a
+    real one on bright nebula (neither is measured), and what the training showed did not
+    carry over to them; what makes them harder, and why it did not carry over, is not measured. R4k seed 1's gain
+    at 20 to 40 sky sigma fits a little of it carrying over.
   - **Nothing is adopted;** what follows is the owner's.
 
 #### The dig floor inside bright nebula: floor4, and what it leaves (2026-11-20)

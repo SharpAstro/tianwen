@@ -156,9 +156,11 @@ own either way, and passes only what it sets:
 `3` left the starless plate's residual the same at every scale, for 12.9, 22.1 and 31.3 s. Feeding the output back in, as
 people do by hand, does what `--it` does not: each pass took about 80 % off the 1 px noise, but the coarse (16 and 32 px)
 sky noise fell 47 % on pass 2 and only 22 % on pass 3, which by eye only blotched the sky. So
-`SharpenPipeline.DenoisePassesAsync` runs pass 1, keeps each further pass while it takes at least 35 % off the coarse sky
-noise (`MultiScaleNoise`, a trous bands on the same sky pixels before and after), discards the first that does not, and
-stops at 3; a stated `DenoiseIterations` is that many passes, ungated. The 35 % is provisional, from one master.
+`NarrowbandCombination.DenoisePassesAsync` runs pass 1, keeps each further pass while it takes at least 35 % off the coarse
+sky noise (`MultiScaleNoise`, a trous bands on the same sky pixels before and after), discards the first that does not, and
+stops at 3; a stated `DenoiseIterations` is that many passes, ungated. The 35 % is provisional, from one master. Since the
+enhance retrofit (2026-11-26) it is the one denoise: the enhance's starless plate and `image denoise` both run it, each pass
+on the plate's own scale.
 
 **Noise-adaptive denoise** (matches the "heavier denoise on short integration"
 workflow): the denoiser measures the input it is handed
