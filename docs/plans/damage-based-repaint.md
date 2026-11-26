@@ -329,3 +329,66 @@ an object's panel open):
 
 Two probes print the same figures without a window, for a change to be read in seconds: `GuiFrameAllocationProbe`
 (CPU surface, by part) and `SkyMapPanCostProbe` (GPU, by layer). Both run only with `TIANWEN_FRAME_PROBE=1`.
+
+## A clock tick paints the clock (found 2026-11-26, fixed)
+
+An idle window draws a frame a second for its clock, and since "The frames were cheap and the schedule was not" the
+renderer confines that frame to the clock's rectangle. The processor still painted the whole window for it: every tab,
+the sidebar and the bar, built or taken from their kept trees and emitted in full, for the GPU to drop everything
+outside the scissor. A frame owed to the clock's tick alone (`GuiFrameScheduler.FrameIsClockAlone`) now paints the
+bar's fill over the clock's pixels and the time drawn into its box (`GuiWindowChrome.TryRepaintClockAlone`), which is
+every pixel a full frame paints there.
+
+What it rests on, each asked rather than assumed:
+
+- **Nothing else paints in the clock's pixels.** The bar's fill is opaque, and no other node of the bar has a
+  background, a border or content where the clock is (`NothingElsePaintsIn`, asked of the bar as built, so a later
+  change to its layout turns the path off instead of leaving a stale pixel). What the window paints over the bar
+  after the chrome, the night calendar and a tooltip, makes the frame a full one.
+- **The region is the renderer's, not the frame's damage.** A swapchain image holds the frame of two or three frames
+  ago, so it is repainted in everything damaged since it was last painted (`VulkanContext.LastFrameRegion`): a hover's
+  rectangle a frame before is in it, and then the frame is painted whole.
+- **The bar is the one on screen.** Its kept key must still hold: the day turning, a status message, the planned
+  night, Connect All or a session builds the bar again, and that is a full frame.
+- **No region moves.** Such a frame registers nothing and leaves `Ui.FrameId` where it was, so every region the last
+  full frame registered still answers, which is right: that frame is what is on screen everywhere but the clock. It
+  needed no change to DIR.Lib's regions, which is what this was expected to need.
+
+`GuiWindowChromeTests.TheClockRepaintedAloneIsWhatAFullFrameWouldPaint` paints a full frame and then the clock alone a
+second later on a CPU surface that keeps its pixels, as a loaded swapchain image does, and holds every pixel to a full
+frame of that second, at two widths and at 1, 1.15 and 1.5. Without the fill under the time it fails at the clock's
+first changed pixel.
+
+Measured on the laptop, the Sky Map idle in its opening view, about a hundred clock frames each, against the same
+build with the path switched off:
+
+| a clock frame | paint median | 90th percentile | mean |
+|---|---|---|---|
+| painting the window | 0.70 ms | 1.30 ms | 0.80 ms |
+| painting the clock alone | 0.20 ms | 0.50 ms | 0.27 ms |
+
+Less than the 3 to 4 ms a second this was expected to save: by the time it was done, a partial frame already drew the
+atlas's sky as it was (`SkyMapTab.HoldViewingTime`) and the renderer dropped text outside the region before shaping it,
+so the window's paint under a clock frame had come down to under a millisecond. What an idle window spends now is in
+its full frames, one to four every five seconds at 1.5 to 2.2 ms each: a time-driven frame for the sky's drift, a
+redraw flag the app raises about every 25 s on an idle window, not yet traced to what raises it, and the two clock frames after either,
+which land on swapchain images that missed it and are painted whole.
+
+The same on lavapipe, in WSL on the same laptop (`docs/architecture/running-on-wsl.md`, "On the x64 laptop"), share of
+one core over 120 s of the idle Sky Map: 3.52 % with every clock frame painting the window, 3.32 % with the clock
+alone. Small there too, for the same reason: the frame's scissor already made the rest of a clock frame cheap.
+
+What the full frames cost is what is left, and the two clock frames after each are the renderer's to remove. Its
+retained frame (`SDLVK_RETAINED_FRAME`) paints into one image and copies each swapchain image only what it is missing,
+so a full frame no longer makes the next two full. On by default on a software rasteriser, where it is most of the idle
+load: 7.80 % of a core with the swapchain, 3.32 % with it. On the Iris Xe, where it is off by default, turning it on cut
+the idle Sky Map's full frames from 2.24 to 0.86 every five seconds, the frames' processor time from 5.5 to 2.7 ms and
+their GPU time from 7.66 to 5.12 ms, for 0.8 ms of GPU added to every full frame (a copy of the whole surface, a pan's
+frames included). Whether to make it the GUI's default on a GPU is open.
+
+And the present: SdlVulkan.Renderer 7.119 names the rectangle that changed since the last present
+(`VK_KHR_incremental_present`), so a clock frame's present names the clock. Without it Mesa's X11 present for a software
+rasteriser without MIT-SHM sends the whole image down the X socket every frame. In WSL, whose Xwayland takes MIT-SHM
+pixmaps and whose compositor sends only changed tiles, it made no difference that could be measured (the app, Xwayland
+and weston together, 5.66 % of a core against 5.78 %); a native X server with no compositor, a Raspberry Pi's, is
+unmeasured.

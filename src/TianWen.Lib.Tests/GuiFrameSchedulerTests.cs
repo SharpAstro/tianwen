@@ -83,6 +83,22 @@ public class GuiFrameSchedulerTests
 
         damage.ShouldBe([Clock]);
         frames.FrameIsNarrow.ShouldBeTrue("so the host clears no redraw flag after it");
+        frames.FrameIsClockAlone.ShouldBeTrue("so the host may paint the clock and nothing else");
+    }
+
+    [Fact]
+    public void AFullFrameAfterAClockFrameIsNotTheClockAlone()
+    {
+        var frames = Drawn();
+        Run(frames, 10, 1_500, GuiTab.Home);
+        frames.Check(2_100, Idle()).ShouldBeTrue();
+        frames.BeginFrame(flagged: false, shuttingDown: false, GuiTab.Home, Clock);
+        frames.FrameIsClockAlone.ShouldBeTrue();
+
+        frames.Check(2_200, Idle() with { Changed = true }).ShouldBeTrue();
+        frames.BeginFrame(flagged: false, shuttingDown: false, GuiTab.Home, Clock).ShouldBeEmpty();
+
+        frames.FrameIsClockAlone.ShouldBeFalse("a full frame paints the window");
     }
 
     // A change is drawn at once, in full, and that is all of it.
@@ -314,6 +330,7 @@ public class GuiFrameSchedulerTests
         var move = Idle(GuiTab.Planner) with { RedrawPending = true, PendingForPointerMoveAlone = true, PointerMoveChanged = Crosshair };
         frames.Check(2_100, move).ShouldBeTrue();
         frames.BeginFrame(flagged: false, shuttingDown: false, GuiTab.Planner, Clock).ShouldBe([Crosshair, Clock]);
+        frames.FrameIsClockAlone.ShouldBeFalse("the move's rectangle is painted too, by the tab under it");
     }
 
     // The three ways a move's frame is not the move's alone: the widget did not say, the loop owes more than moves, or

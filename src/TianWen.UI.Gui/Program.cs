@@ -319,6 +319,9 @@ var frames = new GuiFrameScheduler(timeProvider.GetTimestamp(), timeProvider.Tim
 // capture can tell them apart: the DEBUG inspector's state reports both.
 long fullFrames = 0;
 long partialFrames = 0;
+// Of the partial frames, those that painted the clock alone (GuiWindowChrome.TryRepaintClockAlone).
+long clockAloneFrames = 0;
+long _lastLoggedClockAlone = 0;
 // TIANWEN_FRAME_LOG=1 writes those counts, the tab on show and each cause's count to the log every five seconds: the
 // evidence for a measurement on a machine no inspector reaches (a software renderer in WSL, a Raspberry Pi).
 // TIANWEN_FRAME_LOG=2 adds a line for EVERY frame: when it began, how long the paint took and how long the whole frame
@@ -569,8 +572,8 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
                 : "object";
             var processCpu = Environment.CpuUsage.TotalTime;
             logger.LogInformation(
-                "Frames in 5 s on {ActiveTab}: {Full} full, {Partial} partial; causes changed={Changed} loop={Loop} move={Move} time={Time} settling={Settling} clock={Clock} flagged={Flagged}; frames with flag app={App} planner={Planner} sky={Sky} contexts={Contexts}, owed by the loop {LoopOwed} (for moves alone {MovesAlone}); atlas hover resolves={HoverResolves} asked for a frame={HoverRequests}; redraw checks={Checks}; cost: checks {CheckMs:F1} ms, frames {FrameMs:F1} ms, process {ProcessMs:F0} ms of CPU; collections gen0 {Gen0} (between frames {BetweenFrames}) gen2 {Gen2} paused {PauseMs:F1} ms, allocated {AllocatedMb:F1} MB; paints: median {PaintMedianMs:F1} ms, 90% under {PaintP90Ms:F1} ms, longest {PaintMostMs:F1} ms, {PaintsOver} over 8 ms; render thread allocated {FrameKb:F0} KB a frame, {PaintMostKb:F0} KB in its largest paint; atlas info panel={InfoPanel} fov={Fov:F1} mode={Mode}",
-                appState.ActiveTab, fullFrames - _lastLoggedFull, partialFrames - _lastLoggedPartial,
+                "Frames in 5 s on {ActiveTab}: {Full} full, {Partial} partial ({ClockAlone} of them the clock alone); causes changed={Changed} loop={Loop} move={Move} time={Time} settling={Settling} clock={Clock} flagged={Flagged}; frames with flag app={App} planner={Planner} sky={Sky} contexts={Contexts}, owed by the loop {LoopOwed} (for moves alone {MovesAlone}); atlas hover resolves={HoverResolves} asked for a frame={HoverRequests}; redraw checks={Checks}; cost: checks {CheckMs:F1} ms, frames {FrameMs:F1} ms, process {ProcessMs:F0} ms of CPU; collections gen0 {Gen0} (between frames {BetweenFrames}) gen2 {Gen2} paused {PauseMs:F1} ms, allocated {AllocatedMb:F1} MB; paints: median {PaintMedianMs:F1} ms, 90% under {PaintP90Ms:F1} ms, longest {PaintMostMs:F1} ms, {PaintsOver} over 8 ms; render thread allocated {FrameKb:F0} KB a frame, {PaintMostKb:F0} KB in its largest paint; atlas info panel={InfoPanel} fov={Fov:F1} mode={Mode}",
+                appState.ActiveTab, fullFrames - _lastLoggedFull, partialFrames - _lastLoggedPartial, clockAloneFrames - _lastLoggedClockAlone,
                 causes.Changed, causes.Loop, causes.PointerMove, causes.Time, causes.Settling, causes.Clock, causes.Flagged,
                 flagApp, flagPlanner, flagSky, flagContexts, framesLoopOwed, framesLoopOwedForMoves,
                 guiRenderer.SkyMapHoverCounts.Resolves - _lastHoverResolves, guiRenderer.SkyMapHoverCounts.FrameRequests - _lastHoverRequests,
@@ -602,6 +605,7 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
             _lastLoggedProcessCpu = processCpu;
             _lastLoggedFull = fullFrames;
             _lastLoggedPartial = partialFrames;
+            _lastLoggedClockAlone = clockAloneFrames;
         }
 
         var now = timeProvider.GetTimestamp();
@@ -720,16 +724,6 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
 
     OnRender = () =>
     {
-        // Count the frame BEFORE painting it. DIR.Lib gates "are this widget's registered regions current"
-        // on Ui.FrameId, and a host that never moves it leaves that test always true, so a widget the host
-        // has stopped drawing goes on answering with whatever it last painted. That is not theoretical
-        // here: the chrome's children are ALL the tabs, not just the active one, so with the counter
-        // parked the Tab ring spanned every tab that had ever been on screen and the keyboard could land
-        // in a field on a tab nobody can see. Counting is the opt-in DIR.Lib documents for exactly this,
-        // and it is one line rather than a rule the tab ring would otherwise have to special-case.
-        guiRenderer.Ui.FrameId++;
-        if (renderer.LastFrameWasPartial) { partialFrames++; } else { fullFrames++; }
-
         var renderStart = System.Diagnostics.Stopwatch.GetTimestamp();
         _frameBeginMs = System.Diagnostics.Stopwatch.GetElapsedTime(_frameBegan, renderStart).TotalMilliseconds;
         // Traced: what the atlas and the collector stood at before the paint, so a slow frame can say where it went.
@@ -741,28 +735,59 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         var gen0Before = frameLog ? GC.CollectionCount(0) : 0;
         var gen2Before = frameLog ? GC.CollectionCount(2) : 0;
         var allocatedBefore = frameLog ? GC.GetAllocatedBytesForCurrentThread() : 0;
-        guiRenderer.Render(appState, plannerState, viewerState, timeProvider);
-        // Last, over everything: the one tooltip the router has due, whichever region declared it (#1446).
-        guiRenderer.RenderTooltip(handlers.Tooltip);
+
+        // A frame owed to the clock's tick alone, which the renderer confined to the clock's pixels, paints the clock and
+        // nothing else (GuiWindowChrome.TryRepaintClockAlone): the window's tabs and chrome were built and painted whole
+        // for it, a few milliseconds of processor a second on an idle window, to change one run of text. Not with a
+        // tooltip up, which is painted last over everything and may be over the clock.
+        var region = renderer.Context.LastFrameRegion;
+        var clockAlone = frames.FrameIsClockAlone && renderer.LastFrameWasPartial && handlers.Tooltip is null
+            && guiRenderer.TryRenderClockAlone(appState, plannerState, timeProvider,
+                new RectF32(region.offset.x, region.offset.y, region.extent.width, region.extent.height));
+        if (clockAlone)
+        {
+            // No frame is counted: the clock registers nothing, and every region the last full frame registered is still
+            // what is on screen, so it goes on answering.
+            clockAloneFrames++;
+        }
+        else
+        {
+            // Count the frame BEFORE painting it. DIR.Lib gates "are this widget's registered regions current"
+            // on Ui.FrameId, and a host that never moves it leaves that test always true, so a widget the host
+            // has stopped drawing goes on answering with whatever it last painted. That is not theoretical
+            // here: the chrome's children are ALL the tabs, not just the active one, so with the counter
+            // parked the Tab ring spanned every tab that had ever been on screen and the keyboard could land
+            // in a field on a tab nobody can see. Counting is the opt-in DIR.Lib documents for exactly this,
+            // and it is one line rather than a rule the tab ring would otherwise have to special-case.
+            guiRenderer.Ui.FrameId++;
+            guiRenderer.Render(appState, plannerState, viewerState, timeProvider);
+            // Last, over everything: the one tooltip the router has due, whichever region declared it (#1446).
+            guiRenderer.RenderTooltip(handlers.Tooltip);
+        }
+        if (renderer.LastFrameWasPartial) { partialFrames++; } else { fullFrames++; }
         var renderElapsed = System.Diagnostics.Stopwatch.GetElapsedTime(renderStart);
         _frameRenderMs = renderElapsed.TotalMilliseconds;
 
-        // Everything that can only be decided once the frame exists: a field that stopped being drawn
-        // loses the keyboard (scroll one out of a culled list, or switch tabs away from it, and typing
-        // would go on editing a box nobody can see), a field that asked for the keyboard as it appeared
-        // gets it, and a tooltip whose region has gone expires. Asked AFTER the paint, of everything the
-        // frame actually painted -- doing it before, or of one surface when the frame draws two, does the
-        // opposite of what it is for. Only reached on a frame that rendered (CheckNeedsRedraw gates this).
-        handlers.AfterPaint();
-
-        // Tell the platform where the caret is, so an input method puts its candidate window beside the text
-        // rather than over it. SDL does not track our caret and has no other way to find out, so without this
-        // a CJK IME has nothing to anchor to. Sent after the paint, from the rect the caret was actually drawn
-        // at (the BlurIfUnpainted above guarantees a focused field was painted this frame), and only while a
-        // field is focused -- there is no area to report otherwise, and text input is stopped anyway.
-        if (appState.TextInputFocus.Current is not null && guiRenderer.FocusedCaretRect is { Width: > 0 } caret)
+        if (!clockAlone)
         {
-            sdlWindow.SetTextInputArea(caret.UpperLeft.X, caret.UpperLeft.Y, (int)caret.Width, (int)caret.Height, 0);
+            // Everything that can only be decided once the frame exists: a field that stopped being drawn
+            // loses the keyboard (scroll one out of a culled list, or switch tabs away from it, and typing
+            // would go on editing a box nobody can see), a field that asked for the keyboard as it appeared
+            // gets it, and a tooltip whose region has gone expires. Asked AFTER the paint, of everything the
+            // frame actually painted -- doing it before, or of one surface when the frame draws two, does the
+            // opposite of what it is for. Only reached on a frame that rendered (CheckNeedsRedraw gates this),
+            // and not on one that painted the clock alone, which painted nothing it could judge.
+            handlers.AfterPaint();
+
+            // Tell the platform where the caret is, so an input method puts its candidate window beside the text
+            // rather than over it. SDL does not track our caret and has no other way to find out, so without this
+            // a CJK IME has nothing to anchor to. Sent after the paint, from the rect the caret was actually drawn
+            // at (the BlurIfUnpainted above guarantees a focused field was painted this frame), and only while a
+            // field is focused -- there is no area to report otherwise, and text input is stopped anyway.
+            if (appState.TextInputFocus.Current is not null && guiRenderer.FocusedCaretRect is { Width: > 0 } caret)
+            {
+                sdlWindow.SetTextInputArea(caret.UpperLeft.X, caret.UpperLeft.Y, (int)caret.Width, (int)caret.Height, 0);
+            }
         }
 
         // Only log frames that take meaningfully long, and rate-limit to once per
@@ -1051,6 +1076,7 @@ using var debugInspector = DebugInspector.Attach(loop, new DebugInspectorOptions
         s.Set("activeTab", appState.ActiveTab.ToString());
         s.Set("fullFrames", fullFrames);
         s.Set("partialFrames", partialFrames);
+        s.Set("clockAloneFrames", clockAloneFrames);
         // Which context the tabs are rendering, and whether this node's own session is running
         // underneath it -- the two facts an agent needs to interpret every field below.
         s.Set("viewContext", contexts.Active.DisplayName);

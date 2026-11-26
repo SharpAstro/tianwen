@@ -34,10 +34,10 @@ Each of these cost time to find, and each fails in a way that does not name itse
 | Need | Why it is not optional |
 |---|---|
 | **.NET SDK at or above the floor** (10.0.403, the CVE-2026-111497 Brotli fix) | An older SDK's Roslyn silently DROPS the source generator. Ubuntu's `dotnet` is 10.0.110, whose compiler is 5.0, and `TianWen.Lib.SourceGenerators` references 5.9. **`global.json` now declares the floor**, so this states itself ("A compatible .NET SDK was not found. Requested SDK version: 10.0.403") instead of producing one `CS9057` warning followed by 146 errors about partial members that never mention the generator, which is what it cost to find. Install with `dotnet-install.sh --version 10.0.403 --install-dir "$HOME/.dotnet"` and put it first on `PATH` with `DOTNET_ROOT` set. Do **not** "fix" it by pinning `Microsoft.CodeAnalysis.*` down. |
-| **`pwsh`** | `TianWen.Lib.csproj`'s `ExpandTycho2` target shells out to `tools/expand-tycho2.ps1`. Without it the build dies with `MSB3073 ... exited with code 127`. `dotnet tool install --global PowerShell` is enough (7.6.6 here), no Microsoft apt repo needed. |
+| **`pwsh` 7.6 or later, from the release tarball** | `TianWen.Lib.csproj`'s `ExpandTycho2` target shells out to `tools/expand-tycho2.ps1`. Without it the build dies with `MSB3073 ... exited with code 127`. It must run on .NET 10 or later: the script `Add-Type`s `Lzip.Lib`, which targets `net10.0`, and 7.5 runs on .NET 9, so the build dies with `MSB3073` again and the script's own line is `Unable to find type [SharpAstro.Lzip.LzipDecoder]`. The global tool no longer works for this either (2026-11-26): the newest `PowerShell` tool package has no `DotnetToolSettings.xml` and fails to install, and 7.5's needs the .NET 9 runtime. Unpack the self-contained `powershell-<version>-linux-x64.tar.gz` (or `-arm64`) from the PowerShell releases into `~/.pwsh` and link `~/.pwsh/pwsh` onto `PATH`; no Microsoft apt repo needed. |
 | ~~`LD_PRELOAD=/lib/aarch64-linux-gnu/libudev.so.1`~~, **fixed at the source in ZWOptical.SDK 4.4** | `libEFW1.7.so` and `libEAFFocuser1.6.so` call fifteen udev functions each and declare no dependency on libudev, so the first call into either one killed the PROCESS with `undefined symbol: udev_new` before a frame was drawn. The SDK now loads libudev with `RTLD_GLOBAL` from those two classes' static constructors, which is the only way the symbols reach a library the runtime loads afterwards. **Until this repo's pin moves from `4.3.*` to `4.4`, a GUI build still needs the preload.** `tianwen-fits` never did: it references no vendor drivers. |
 | **`libicu`**, or `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1` | A stock WSL image ships none and the app `FailFast`s inside logger construction, before its first frame. Present on this box already. |
-| **`xdotool`** | The input driver, above. Needs an X11 or XWayland session, which WSLg provides. |
+| **`xdotool`**, and **`SDL_VIDEO_DRIVER=x11`** for the app | The input driver, above. Needs an X11 or XWayland session, which WSLg provides, AND the app's window on it: WSLg offers Wayland as well, SDL3 takes Wayland when it is there, and a Wayland window is one `xdotool search` never finds (2026-11-26). Without sudo, `apt-get download xdotool libxdo3` and `dpkg -x` each into a folder, then run its `usr/bin/xdotool` with `LD_LIBRARY_PATH` at its `usr/lib/<arch>-linux-gnu`. |
 | **`vulkan-validationlayers`** | The whole point. Turn it on with `SDLVK_VALIDATION=1 SDLVK_SYNC_VALIDATION=1`. |
 
 ## Which app to run
@@ -139,6 +139,40 @@ TIANWEN_DATA_ROOT=$HOME/twd DISPLAY=:0 ./tianwen-gui
 - Measured on renderer 7.98 from NuGet with both in (2026-11-17, 1200x800, 4 processors): every tab idles at 1.5 to
   3 %, the atlas at 3.2 %; a pan is held to half the machine's processors (194 % of a core) at 30 frames a second
   with no gap over 90 ms in a dozen pans; atlas hover 15 %, wheel zoom 29 %, planner chart hover 16 %.
+
+## On the x64 laptop (Iris Xe), and with the siblings' sources
+
+Set up 2026-11-26: WSL 2 Ubuntu 24.04 x86_64, 4 processors, Mesa 25.2.8 from Ubuntu's packages. There is no `dzn` in the
+guest, so only `llvmpipe` (`/usr/share/vulkan/icd.d/lvp_icd.json`) runs, which is what a computer with no GPU driver
+has. `vulkan-validationlayers` and `xdotool` from apt.
+
+- **A sibling change in the guest is all the siblings, copied beside the tree** (`~/tw` and `~/DIR.Lib`,
+  `~/SdlVulkan.Renderer` and the rest of `src/Directory.Build.props`' list, `rsync` without `bin/`, `obj/` and `.git/`);
+  `UseLocalSiblings` then answers true by itself.
+- **SdlVulkan.Renderer also builds for Android when no runtime identifier is given**, and the guest has no Android
+  workload (`NETSDK1147`). Drop its `net10.0-android` `TargetFrameworks` line in the guest's copy. Do not build with
+  `-r linux-x64` instead: `tianwen-server` is placed beside the GUI only in the plain output, so a `-r` build's GUI finds
+  no node ("tianwen-server is not beside this program"), never gets its profile, and holds itself on the Equipment tab.
+- **The window title says when it is ready**: `Sky Map - <profile>` once the node has answered; a bare `Equipment` is a
+  GUI with no profile, which no click moves off that tab.
+- **What the X server and the compositor spend is measurable too.** WSLg runs `Xwayland` and `weston` (its RDP
+  compositor) in its own system distro, which `wsl --system -d <distro> -- sh -s < script` reaches, with the same
+  `/proc/uptime` as the guest: sample their `utime + stime` there across the same window as the app's.
+
+Measured on the Sky Map left idle, 120 s after 150 s of settling, share of one core (`docs/plans/damage-based-repaint.md`,
+"A clock tick paints the clock"):
+
+| | app | Xwayland | weston |
+|---|---|---|---|
+| retained frame (the default on a software rasteriser), the clock alone | 3.32 % | | |
+| the swapchain instead (`SDLVK_RETAINED_FRAME=0`) | 7.80 % | | |
+| retained, every clock frame painting the window | 3.52 % | | |
+| retained, the clock alone, incremental present (SdlVulkan.Renderer 7.119) | 3.31 % | 1.91 % | 0.45 % |
+| the same, incremental present refused (`SDLVK_INCREMENTAL_PRESENT=0`) | 3.47 % | 1.86 % | 0.45 % |
+
+Under `SDLVK_VALIDATION=1 SDLVK_SYNC_VALIDATION=1` (set `VK_LOADER_DEBUG=layer` to see the loader insert the layer,
+which otherwise says nothing), through idle clock frames, a pan, hover moves and two tab switches, in both frame modes
+and with incremental present: no validation messages.
 
 ## Two things that will waste your time
 
