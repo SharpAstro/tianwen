@@ -36,6 +36,10 @@ and what has been tried (each in section 6):
   in that crowded cell, where R4h as trained reads 88.0 / 85.7, 89.8 / 90.0 and 79.0 / 83.3: the faint stars the
   builder leaves are in input and target alike on every crowded tile, so nothing in the data asks the model to take
   them. How much more our models take than the builder is measured; that the drawn stars taught it is inferred.
+  **Where the answer is clean, the models still leave them** (2026-11-26, "Route A's check"): on synthetic crowded
+  scenes whose answer holds no faint star, R4a, trained on those scenes, leaves 1.7 to 2.8 times the answer's
+  grain in a cluster's core, and the grain the old answer kept was small (0.4 of a 9 px mean's noise). So on the
+  crowded rows the binding limit is the model's own removal of crowded faint stars, not only what its targets hold.
 - **The faint stars on bright nebula** are read with planted stars, since the real ones are too few to carry a bar
   (the Lagoon's gap is 16 stars of 84). Two seeds of one recipe have stood 3 to 20 points apart there. Tried:
   plate cells with drawn stars and the loss on the stars (R4j: 72.2 and 64.4 %), real pairs with the loss where
@@ -3893,7 +3897,9 @@ any sky rotation of one sky. It writes the composite, the stars truth, the starl
 composite's own noise draw, the faint stars the starless light stands for, and the resolved stars' list.
 
 **The starless truth holds nothing the eye reads as a star** (the owner, 2026-10-20): the faint population's smooth
-expected light with its own grain from 16 px up, never its points; a compact cluster (half-light radius under 16 px) is
+expected light with its own grain from 16 px up, never its points (**the grain part reversed by the owner on 2026-11-26:**
+the truth now holds the smooth expected light alone, `--faint-grain-in-truth` keeps the old one, and what that changes is
+"Route A's check" in section 6); a compact cluster (half-light radius under 16 px) is
 all stars; the nebula is the background generator driven by the plate's scales from 64 px up, its texture's strength per
 scale read off the plate at the same place, with no floor. Both the grain and the nebula's drawn texture stop at 16 px:
 round texture finer than 16 px makes quasi-stars, and knots carry the fine detail (the owner, 2026-10-20). With
@@ -10821,6 +10827,46 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     carry over to them; what makes them harder, and why it did not carry over, is not measured. R4k seed 1's gain
     at 20 to 40 sky sigma fits a little of it carrying over.
   - **Nothing is adopted;** what follows is the owner's.
+- **Route A's check, 2026-11-26 (a measurement, no training): the cluster scenes' truth without the faint stars' grain.
+  The grain the old truth kept is small, and models trained on these very scenes leave far more than either truth, so
+  the truth's grain is not what holds the crowded rows.** The owner, choosing a new route for them: "Okay let's reverse
+  that rule" (the 2026-10-20 rule above, "Synthetic crowded clusters").
+  - **In plain words.** R4a trained on synthetic crowded scenes whose answer kept the faint stars' grain from 16 px up,
+    and it moved nothing on the real crowded field. Taking that grain out of the answer was meant to show the model a
+    crowded field taken flat. Measured on the scenes themselves, the grain was small: about 0.4 of the noise of a 9 px
+    mean, against which removing it moves the answer by 0.04 to 0.07. And R4a, which trained on these scenes, leaves
+    1.7 to 2.8 times the answer's band in a cluster's core, whichever answer it is.
+  - **The code.** `SyntheticClusterSpec.FaintGrainInTruth` (off by default now, `--faint-grain-in-truth` for the old
+    truth, R4a's): the starless plane is the sky, the smooth expected light and the nebula, and the grain then lies in
+    the stars truth, since that is the composite less the starless (`SyntheticClusterScene.StarlessPlane`, tested). The
+    noise-free composite is the same to float rounding (1.2e-7 at most); the noisy one moves by 0.007 sky sigma rms,
+    because the master's noise is split between the truth and the stars by their levels.
+  - **How.** F6's recipe (`clusters-export-master.sh`: the ASI585 Tarantula master, window 2553,678, 1,024 px, the LMC's
+    measured numbers) rendered as scenes both ways from seeds 7 and 11, with and without the nebula, measured optics, no
+    rotation; on each, `band.py`'s statistic (9 to 41 px, through a 7 px median, in the noise of a 9 px mean, the new
+    noisy truth's) per 300 px cell, eight field cells and the cluster's core (`cluster_truth_band.py`,
+    `cluster_models_band.py`). R4a (`r4a_synth25c_s0`, trained with these
+    scenes) and R4h (`r4h_synth32_s0`, never) run on the old composites as trained (`bh-bin14`, no core protection, no
+    dig fill). For scale, on the real Tarantula master StarXTerminator's plate reads 1.49 on the flat crowded cells and
+    R4h through the chain 3.25 (the two-sided crowded row above).
+
+    | scene | old truth, field / core | new truth, field / core | the grain alone, field / core | R4a, field / core | R4h, field / core |
+    |---|---|---|---|---|---|
+    | seed 7, no nebula | 1.39 / 2.63 | 1.33 / 2.37 | 0.43 / 0.90 | 2.00 / 5.14 | 2.51 / 6.31 |
+    | seed 7, nebula | 2.14 / 2.94 | 2.11 / 2.73 | 0.43 / 0.90 | 2.52 / 4.99 | 2.62 / 5.87 |
+    | seed 11, no nebula | 1.40 / 2.88 | 1.35 / 2.68 | 0.41 / 0.91 | 1.91 / 8.15 | 2.42 / 9.00 |
+    | seed 11, nebula | 2.20 / 3.37 | 2.18 / 3.18 | 0.40 / 0.90 | 2.41 / 6.15 | 2.58 / 9.66 |
+
+    (Field: the median of the eight cells off the core. The grain alone is the old noise-free truth less the new.)
+  - **What it says.** The old truth already reads about like StarXTerminator's flat cells (1.4 against 1.49 on the
+    real field), so the scenes were not teaching the model to keep a strong mottle. What separates the models from
+    either truth is far larger: over the old truth, 0.2 to 0.6 in the field and 2.0 to 5.3 in a cluster's core for R4a
+    (0.4 to 1.1 and 2.9 to 6.3 for R4h), where the scene's answer is clean and the model still leaves its crowded
+    faint stars. R4a, which trained on these scenes, leaves less than R4h on them (1.9 to 2.5 against 2.4 to 2.6 in
+    the field, 5.0 to 8.2 against 5.9 to 9.7 in the core) and still 1.7 to 2.8 times the truth's band in the core. So on the crowded rows the binding limit is the model's own removal of crowded faint
+    stars, with a clean answer before it, not the grain in that answer, and an arm that changes only the truth's grain
+    is predicted to move the crowded rows by little more than a seed's spread. Not registered; the owner's.
+  - **Nothing is adopted;** the code's default follows the owner's rule, and what follows is the owner's.
 
 #### The dig floor inside bright nebula: floor4, and what it leaves (2026-11-20)
 

@@ -142,6 +142,30 @@ public sealed class SyntheticClusterSceneTests
         corr.ShouldBe(0.0, 0.01, "drawn apart from the truth's own noise");
     }
 
+    /// <summary>The starless truth's channel is the sky, the smooth expected light and the nebula, and the faint populations'
+    /// grain only where it is kept: without it, what the grain held is left to the stars truth (the composite less this).</summary>
+    [Fact]
+    public void TheStarlessPlaneHoldsTheGrainOnlyWhereItIsKept()
+    {
+        float[] surface = [0.10f, 0.20f, 0.30f];
+        float[] grain = [0.01f, -0.02f, 0.03f];
+        float[] nebula = [0.5f, 0.0f, 0.25f];
+
+        var without = SyntheticClusterScene.StarlessPlane(1.0, surface, grain: default, nebula);
+        var with = SyntheticClusterScene.StarlessPlane(1.0, surface, grain, nebula);
+
+        without.ShouldBe([1.6f, 1.2f, 1.55f], 1e-6f);
+        with.ShouldBe([1.61f, 1.18f, 1.58f], 1e-6f);
+        SyntheticClusterScene.StarlessPlane(1.0, surface, grain: default, nebula: null).ShouldBe([1.1f, 1.2f, 1.3f], 1e-6f);
+    }
+
+    /// <summary>The owner reversed the rule of 2026-10-20 on 2026-11-26: a scene's starless truth keeps no faint grain unless
+    /// asked to.</summary>
+    [Fact]
+    public void ASceneKeepsNoFaintGrainInItsTruthByDefault()
+        => new SyntheticClusterSpec(1024, 0, 0, 0.0, 1500, 40.0, 400.0, 0.006, 6, 0.25, 1.12, 0.0, 0, 0, ClusterOptics.Plain, [], 1)
+            .FaintGrainInTruth.ShouldBeFalse();
+
     [Theory]
     [InlineData(2.0, 0.343)]
     [InlineData(3.0, 0.296)]

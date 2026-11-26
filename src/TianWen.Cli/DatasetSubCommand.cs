@@ -1442,6 +1442,12 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "than its builder separates blend into one brighter star. 0 for none.",
             DefaultValueFactory = _ => 0.0,
         };
+        var faintGrainInTruthOpt = new Option<bool>("--faint-grain-in-truth")
+        {
+            Description = "Keep the faint populations' own grain from 16 px up in the starless truth (the rule of 2026-10-20 and every " +
+                          "cluster export before 2026-11-26). Without it the truth holds their smooth expected light alone and the grain " +
+                          "is in the stars truth.",
+        };
         var poolMarginOpt = new Option<int>("--pool-margin")
         {
             Description = "Draw the stars from the catalogue inside the scene's window grown by this many pixels (its own part of the field's " +
@@ -1482,15 +1488,15 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             "Render synthetic crowded-cluster scenes from one master's own stars (brightness and colour from its starless plate's catalogue), " +
             "profiles, noise and nebula: a King-profile cluster over a field, the stars too faint to find, optionally a nebula (the background " +
             "generator driven by the plate's scales from 64 px up), in several optics and sky rotations of one sky. Each scene is written as " +
-            "<name>.fits (with the master's noise), <name>_starless.fits (noise-free: sky, nebula and the broad faint populations' light, " +
-            "their grain from 16 px up), <name>_starless_noisy.fits (the same with the composite's own noise draw), <name>_stars.fits (the " +
+            "<name>.fits (with the master's noise), <name>_starless.fits (noise-free: sky, nebula and the broad faint populations' smooth " +
+            "light; their grain from 16 px up too with --faint-grain-in-truth), <name>_starless_noisy.fits (the same with the composite's own noise draw), <name>_stars.fits (the " +
             "composite less the starless, noise-free and signed: every star, a compact cluster's whole), <name>_unresolved.fits (the faint " +
             "stars the starless light stands for) and <name>_truth.csv.")
         {
             Options = { masterOpt, plateOpt, outOpt, atOpt, sizeOpt, seedOpt, rotationsOpt, opticsOpt, nebulaOpt, nebulaAtOpt, clusterStarsOpt, coreOpt, tidalOpt,
                 fieldDensityOpt, saturatedOpt, glowShareOpt, glowSlopeOpt, lateralOpt, groupsOpt, groupHalfLightOpt, groupStarsOpt, groupGlowOpt,
                 poolMarginOpt, minSeparationOpt, nebulaPlateOpt, nebulaTextureFromOpt, nebulaLogNormalOpt, nebulaKnotsOpt, exportSkiesOpt,
-                nebulaShareOpt, concurrencyOpt, clusterStretchOpt },
+                nebulaShareOpt, concurrencyOpt, clusterStretchOpt, faintGrainInTruthOpt },
         };
         command.SetAction(async (parseResult, ct) =>
         {
@@ -1559,7 +1565,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 parseResult.GetValue(saturatedOpt), parseResult.GetValue(glowShareOpt), parseResult.GetValue(glowSlopeOpt),
                 0.0, nebulaAt.Item1, nebulaAt.Item2, ClusterOptics.Plain, lateral, parseResult.GetValue(seedOpt),
                 parseResult.GetValue(groupsOpt), halfLightMin, halfLightMax, (int)groupStarsMin, (int)groupStarsMax, groupGlowMin, groupGlowMax,
-                parseResult.GetValue(minSeparationOpt), parseResult.GetValue(nebulaKnotsOpt));
+                parseResult.GetValue(minSeparationOpt), parseResult.GetValue(nebulaKnotsOpt), parseResult.GetValue(faintGrainInTruthOpt));
             var run = new SyntheticClusterRun(parseResult.Required(masterOpt), parseResult.Required(plateOpt), parseResult.Required(outOpt), spec,
                 optics.ToImmutable(), nebulae, rotations, parseResult.GetValue(poolMarginOpt), parseResult.GetValue(nebulaPlateOpt),
                 (int)Math.Round(Math.Log2(Math.Clamp(parseResult.GetValue(nebulaTextureFromOpt), 1, 32))), parseResult.GetValue(nebulaLogNormalOpt));

@@ -68,6 +68,11 @@ public enum ClusterOptics
 /// <param name="NebulaKnots">Whether the nebula carries the background generator's own knots (its nebula knots, a compact one
 /// held faint, <see cref="SyntheticBackground.KnotsPerCell"/> per <see cref="SyntheticBackground.KnotCellPx"/> px cell by
 /// area), listed per scene as <see cref="SyntheticClusterRender.Knots"/>.</param>
+/// <param name="FaintGrainInTruth">Whether the starless truth keeps the smooth populations' own grain from
+/// <see cref="SyntheticClusterScene.GrainFromScale"/> up (the rule of 2026-10-20, every cluster export before 2026-11-26,
+/// R4a's among them). Off by default since the owner reversed that rule on 2026-11-26: the truth then holds their smooth
+/// expected light alone and the grain is in the stars truth, since the 16 to 100 px lumps a crowded field's faint stars
+/// leave are what the scorecard's crowded rows count.</param>
 public sealed record SyntheticClusterSpec(
     int Size, int FrameX, int FrameY, double RotationDeg,
     int ClusterStars, double CoreRadiusPx, double TidalRadiusPx, double FieldDensity, int SaturatedStars,
@@ -76,7 +81,7 @@ public sealed record SyntheticClusterSpec(
     ClusterOptics Optics, ImmutableArray<double> LateralPpm, int Seed,
     int SubClusters = 0, double SubClusterHalfLightMinPx = 4.1, double SubClusterHalfLightMaxPx = 11.8,
     int SubClusterStarsMin = 2, int SubClusterStarsMax = 12, double SubClusterGlowMin = 0.1, double SubClusterGlowMax = 0.8,
-    double MinSeparationPx = 0.0, bool NebulaKnots = false);
+    double MinSeparationPx = 0.0, bool NebulaKnots = false, bool FaintGrainInTruth = false);
 
 /// <summary>One of a scene's compact groups, as rendered: its centre in scene pixels, its half-light radius, its resolved
 /// stars, its unresolved light (green, the master's units) and whether the starless truth holds that light as smooth light
@@ -631,14 +636,10 @@ public static class SyntheticClusterScene
             }
             // The smooth populations' own grain at the scales no star is read at: their draw's departure from its
             // expectation, smoothed through the starlet's first GrainFromScale scales (what is left varies over 2^GrainFromScale
-            // px and up). A mottled haze, as the real glow is; the finer grain stays in the stars truth.
-            var grain = ATrousWaveletTransform.Decompose(deviation, size, size, GrainFromScale).Residual;
-            var plane = new float[n];
-            for (var i = 0; i < n; i++)
-            {
-                plane[i] = (float)(source.Sky[c] + surface[i] + grain[i] + (nebula?[c][i] ?? 0f));
-            }
-            starless[c] = plane;
+            // px and up). Kept in the starless truth only with FaintGrainInTruth (the 2026-10-20 rule); otherwise it is in the
+            // stars truth with the finer grain, since the stars truth is the composite less this plane.
+            var grain = spec.FaintGrainInTruth ? ATrousWaveletTransform.Decompose(deviation, size, size, GrainFromScale).Residual : default;
+            starless[c] = StarlessPlane(source.Sky[c], surface, grain, nebula?[c]);
         }
         var groupsRendered = ImmutableArray.CreateRange(Enumerable.Range(0, groups.Length).Select(k =>
         {
@@ -1042,11 +1043,27 @@ public static class SyntheticClusterScene
     public const double SmoothMinHalfLightPx = 16.0;
 
     /// <summary>
-    /// The starless truth keeps the smooth populations' own grain from 2^this px up (16 px): their draw's departure from its
-    /// expectation, smoothed past the scales a star is read at, so the glow is a mottled haze, as a real one is, and never an
-    /// airbrushed disc (the owner, 2026-10-20). The finer grain is in the stars truth.
+    /// With <see cref="SyntheticClusterSpec.FaintGrainInTruth"/>, the starless truth keeps the smooth populations' own grain
+    /// from 2^this px up (16 px): their draw's departure from its expectation, smoothed past the scales a star is read at, so
+    /// the glow is a mottled haze and never an airbrushed disc (the owner, 2026-10-20). That rule was reversed on 2026-11-26
+    /// (the option is off by default): the truth's glow is then the smooth expected light, and all its grain is in the stars
+    /// truth.
     /// </summary>
     public const int GrainFromScale = 4;
+
+    /// <summary>
+    /// One channel of the starless truth: the sky, the smooth populations' expected light, their grain where it is kept
+    /// (<paramref name="grain"/>, empty when it is not) and the nebula (null for none).
+    /// </summary>
+    internal static float[] StarlessPlane(double sky, float[] surface, ReadOnlySpan<float> grain, float[]? nebula)
+    {
+        var plane = new float[surface.Length];
+        for (var i = 0; i < plane.Length; i++)
+        {
+            plane[i] = (float)(sky + surface[i] + (grain.IsEmpty ? 0f : grain[i]) + (nebula?[i] ?? 0f));
+        }
+        return plane;
+    }
 
     /// <summary>The nebula generator's first kept starlet scale (2^6 = 64 px): the plate's structure from there up
     /// (<see cref="SyntheticBackground.LargeScale"/>). The Tarantula plate's local RMS is flat at 0.3 noise from 8 to 32 px,
