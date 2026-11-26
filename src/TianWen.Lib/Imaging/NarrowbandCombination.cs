@@ -24,15 +24,17 @@ namespace TianWen.Lib.Imaging;
 /// the line it is meant to keep (it read 1.01 on LDN 1622's starless pair).</para>
 /// <para><b>One scale for every plane through the star remover.</b> A remover takes values in <c>[0, 1]</c>, and dividing each
 /// plane by its own maximum puts each on its own scale, so a scale measured between two masters no longer holds between
-/// their starless plates (1.8 percent apart on LDN 1622). <see cref="StarlessAsync"/> divides every plane by ONE divisor
-/// and multiplies it back.</para>
+/// their starless plates (1.8 percent apart on LDN 1622). <see cref="StarlessAsync"/> hands a set of planes that fits
+/// <c>[0, 1]</c> over as it is, and divides a set above 1 by ONE divisor, the largest value among them, and multiplies it
+/// back.</para>
 /// </remarks>
 public static class NarrowbandCombination
 {
     /// <summary>
-    /// Every plane with its stars removed by <paramref name="remover"/>, each back on its own scale: all divided by one
-    /// divisor (the largest finite value among them), absent pixels filled with the plane's median for the remover and
-    /// absent again after.
+    /// Every plane with its stars removed by <paramref name="remover"/>, each back on its own scale, absent pixels filled with
+    /// the plane's median for the remover and absent again after. A set of planes that fits <c>[0, 1]</c> goes to the remover
+    /// as it is, as the enhance has always handed its remover a plate; only a set above 1 (a deblurred one, a master in
+    /// counts) is divided, all by one divisor, the largest finite value among them.
     /// </summary>
     public static Task<Image[]> StarlessAsync(IReadOnlyList<Image> planes, IStarRemover remover, CancellationToken cancellationToken = default)
         => StarlessAsync(planes, remover, EnhanceOptions.Default, progress: null, cancellationToken);

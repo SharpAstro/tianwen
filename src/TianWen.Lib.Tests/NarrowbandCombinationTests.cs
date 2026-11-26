@@ -39,8 +39,9 @@ public class NarrowbandCombinationTests
     }
 
     /// <summary>
-    /// Every plane reaches the remover divided by ONE divisor, the largest value among them, so their linear relation
-    /// holds through it; an absent pixel is handed over filled and comes back absent; each plane returns on its own scale.
+    /// Every plane of a set above 1 (masters in counts, as here) reaches the remover divided by ONE divisor, the largest value
+    /// among them, so their linear relation holds through it; an absent pixel is handed over filled and comes back absent;
+    /// each plane returns on its own scale.
     /// </summary>
     [Fact]
     public async Task EveryPlaneGoesThroughTheRemoverOnOneScale()
@@ -62,6 +63,26 @@ public class NarrowbandCombinationTests
         var stars = NarrowbandCombination.Stars(a, starless[0]);
         var back = NarrowbandCombination.WithStars(starless[0], stars);
         back[0, 0, 7].ShouldBe(a[0, 0, 7], 1e-3f);
+    }
+
+    /// <summary>
+    /// A set of planes that fits <c>[0, 1]</c> reaches the remover as it is, as the enhance has always handed its remover a
+    /// plate: dividing it up to a peak of 1 would hand a model that reads its input's absolute noise (NoiseXTerminator's
+    /// automatic strength) a noisier-looking plate than the one it was given.
+    /// </summary>
+    [Fact]
+    public async Task APlaneSetThatFitsTheModelsRangeGoesInAsItIs()
+    {
+        var a = Plane(0.4f, nanAt: -1);
+        var b = Plane(0.2f, nanAt: -1);
+        var remover = new HalvingRemover();
+
+        var starless = await NarrowbandCombination.StarlessAsync([a, b], remover, TestContext.Current.CancellationToken);
+
+        remover.Inputs[0].Max().ShouldBe(0.4f, 1e-6f, "not divided up to 1.0");
+        remover.Inputs[1].Max().ShouldBe(0.2f, 1e-6f, "one scale still: neither is divided");
+        starless[0][0, 0, 9].ShouldBe(0.2f, 1e-6f);
+        starless[1][0, 0, 9].ShouldBe(0.1f, 1e-6f);
     }
 
     /// <summary>A remover that lifts the left half of its input and lowers the right half.</summary>

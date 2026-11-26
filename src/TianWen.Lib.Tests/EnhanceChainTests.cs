@@ -214,11 +214,7 @@ public sealed class EnhanceChainTests(ITestOutputHelper output) : IDisposable
         await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(
             WorkbenchFixtures.Picture("enhanced", masterPath, WorkbenchFixtures.Edit(EnhanceOperation.Id)),
             WorkbenchFixtures.Picture("cropped", masterPath, WorkbenchFixtures.Edit(CropOperation.Id, new JsonObject { ["width"] = 64, ["height"] = 64 }))), ct);
-        var said = new List<string>();
-        var host = Substitute.For<IConsoleHost>();
-        host.When(h => h.WriteScrollable(Arg.Any<string>(), Arg.Any<bool>())).Do(call => said.Add(call.Arg<string>()));
-        host.When(h => h.WriteError(Arg.Any<string>())).Do(call => said.Add("error: " + call.Arg<string>()));
-        var command = new WorkbenchSubCommand(host, catalog, new WorkbenchRunner(catalog)).Build();
+        var (command, said) = WorkbenchVerb(catalog);
 
         (await command.Parse(["chain", folder, "enhanced"]).InvokeAsync(cancellationToken: ct)).ShouldBe(0, string.Join("\n", said));
         var laidOut = (await WorkbenchProjectFile.ReadAsync(folder, ct)).Project.ShouldNotBeNull();
@@ -233,6 +229,69 @@ public sealed class EnhanceChainTests(ITestOutputHelper output) : IDisposable
         said.Clear();
         (await command.Parse(["chain", folder, "nothing"]).InvokeAsync(cancellationToken: ct)).ShouldBe(1);
         said.ShouldContain(line => line.Contains("has no image named nothing"));
+    }
+
+    /// <summary>
+    /// <c>tianwen workbench chain</c> on an image that starts from another: from an image with no edits the chain starts from
+    /// that image's file; from one whose step has not run it is refused until the project is run, and then starts where the
+    /// enhance did; from another image's extra result it is refused; and <c>--name</c> names the chain.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task TheChainVerbStartsWhereTheEnhanceStartsAndTakesAName()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("enhance-chain-from-").FullName;
+        var masterPath = Path.Combine(folder, "master.fits");
+        WorkbenchFixtures.Master(seed: 1).WriteToFitsFile(masterPath);
+        var (remover, denoiser) = (new Scaling("Test/Remover", 0.5f), new Scaling("Test/Denoiser", 0.8f));
+        var catalog = new OperationCatalog(
+        [
+            new EnhanceOperation(new SharpenPipeline(starRemover: remover, denoiser: denoiser)),
+            new RemoveStarsOperation(remover), new DenoiseOperation(denoiser), new AddStarsOperation(),
+        ]);
+        var enhance = WorkbenchFixtures.Edit(EnhanceOperation.Id);
+        await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("plain", masterPath),
+            WorkbenchFixtures.Picture("denoised", masterPath, WorkbenchFixtures.Edit(DenoiseOperation.Id)),
+            WorkbenchFixtures.Picture("split", masterPath, WorkbenchFixtures.Edit(RemoveStarsOperation.Id)),
+            new ProjectImage { Name = "on-plain", From = "plain", Edits = [enhance] },
+            new ProjectImage { Name = "on-denoised", From = "denoised", Edits = [enhance] },
+            new ProjectImage { Name = "on-stars", From = "split", Result = RemoveStarsOperation.Stars, Edits = [enhance] }), ct);
+        var (command, said) = WorkbenchVerb(catalog);
+
+        // From an image with no edits: its own file, and --name names the chain.
+        (await command.Parse(["chain", folder, "on-plain", "--name", "first"]).InvokeAsync(cancellationToken: ct)).ShouldBe(0, string.Join("\n", said));
+        var laidOut = (await WorkbenchProjectFile.ReadAsync(folder, ct)).Project.ShouldNotBeNull();
+        laidOut.Images.Select(static image => image.Name).ShouldContain("first");
+        laidOut.Images.Single(static image => image.Name == "first-starless").From.ShouldBe("plain", "the chain starts where the enhance does");
+
+        // From an image whose step has not run: nothing to read yet.
+        said.Clear();
+        (await command.Parse(["chain", folder, "on-denoised"]).InvokeAsync(cancellationToken: ct)).ShouldBe(1);
+        said.ShouldContain(line => line.Contains("has no file to read yet"), "the chain is read off the enhance's program for the image it starts from");
+
+        // Once it has run, from its kept result.
+        var report = await new WorkbenchRunner(catalog).RunAsync(folder, new WorkbenchRunOptions { Image = "denoised", Say = output.WriteLine }, ct);
+        report.Succeeded.ShouldBeTrue(report.Refusal);
+        said.Clear();
+        (await command.Parse(["chain", folder, "on-denoised"]).InvokeAsync(cancellationToken: ct)).ShouldBe(0, string.Join("\n", said));
+        laidOut = (await WorkbenchProjectFile.ReadAsync(folder, ct)).Project.ShouldNotBeNull();
+        laidOut.Images.Single(static image => image.Name == "on-denoised-chain-starless").From.ShouldBe("denoised");
+
+        // From another image's extra result: refused.
+        said.Clear();
+        (await command.Parse(["chain", folder, "on-stars"]).InvokeAsync(cancellationToken: ct)).ShouldBe(1);
+        said.ShouldContain(line => line.Contains("extra result"));
+    }
+
+    // `tianwen workbench` over the catalog, with what it says and every error collected.
+    private static (Command Command, List<string> Said) WorkbenchVerb(OperationCatalog catalog)
+    {
+        var said = new List<string>();
+        var host = Substitute.For<IConsoleHost>();
+        host.When(h => h.WriteScrollable(Arg.Any<string>(), Arg.Any<bool>())).Do(call => said.Add(call.Arg<string>()));
+        host.When(h => h.WriteError(Arg.Any<string>())).Do(call => said.Add("error: " + call.Arg<string>()));
+        return (new WorkbenchSubCommand(host, catalog, new WorkbenchRunner(catalog)).Build(), said);
     }
 
     // The file the last step of the named image wrote, relative to the project's folder.
