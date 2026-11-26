@@ -145,7 +145,7 @@ public sealed class WorkbenchE2ETests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
         var (folder, _) = await ProjectAsync("panel", refusedStep: false);
-        await using var e2e = WorkbenchE2E.Start(dpi, Runner(), Catalog());
+        await using var e2e = WorkbenchE2E.Start(dpi, Runner(), Catalog(), height: 1500);
         await e2e.OpenProjectAsync(folder, ct);
         var report = Image(await Runner().StatusAsync(folder, "m", ct));
 
@@ -187,7 +187,7 @@ public sealed class WorkbenchE2ETests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
         var (folder, _) = await ProjectAsync("copy", refusedStep: false);
-        await using var e2e = WorkbenchE2E.Start(dpi, Runner(), Catalog());
+        await using var e2e = WorkbenchE2E.Start(dpi, Runner(), Catalog(), height: 1500);
         await e2e.OpenProjectAsync(folder, ct);
         var report = Image(await Runner().StatusAsync(folder, "m", ct));
         e2e.Click(e2e.StepCells()[1]);
@@ -430,11 +430,11 @@ public sealed class WorkbenchE2ETests : IDisposable
         await e2e.PumpUntilAsync(() => e2e.Controller.Document is not null, "the original", ct);
         await SelectAsync(e2e, 1, ct);
 
-        e2e.ClickText("Result");
+        e2e.Click(e2e.Region("View:Result"));
         await e2e.PumpUntilAsync(() => SameFile(e2e.Controller.Document?.FilePath, steps[1].Output), "step 2's result to open", ct);
         e2e.Viewer.Split.IsOn.ShouldBeFalse();
 
-        e2e.ClickText("Comparison");
+        e2e.Click(e2e.Region("View:Comparison"));
         await e2e.PumpUntilAsync(() => e2e.Viewer.Split.IsOn && SameFile(e2e.Controller.Document?.FilePath, steps[1].Output), "the comparison", ct);
         e2e.Viewer.Split.Mode.ShouldBe(SplitCompare.BeforePixels, "the input's pixels were retained, so the split compares pixels");
         e2e.Viewer.Retentions.ShouldBe(1);
@@ -442,7 +442,7 @@ public sealed class WorkbenchE2ETests : IDisposable
         e2e.Viewer.Split.PixelsGeneration.ShouldBe(e2e.ViewerState.SourceGeneration, "the before pixels belong to what is on show");
 
         // Step 1's input is the original file; step 2's is step 1's stored result.
-        e2e.ClickText("Original");
+        e2e.Click(e2e.Region("View:Original"));
         await e2e.PumpUntilAsync(() => SameFile(e2e.Controller.Document?.FilePath, master) && !e2e.Viewer.Split.IsOn, "the original again", ct);
         e2e.Viewer.HasBeforeImageTextures.ShouldBeFalse("leaving the comparison frees the retained pixels");
     }
