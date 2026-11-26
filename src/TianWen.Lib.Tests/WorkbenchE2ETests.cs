@@ -533,7 +533,7 @@ public sealed class WorkbenchE2ETests : IDisposable
         await SettleAsync(e2e, ct);
 
         e2e.State.View.ShouldNotBeNull().ImageName.ShouldBe("m", "the run's own image stays on show");
-        var answer = Image(await Runner().StatusAsync(folder, "m", ct)).Steps;
+        var answer = (await Runner().StatusAsync(folder, "m", ct)).Images.Single(static i => i.Name == "m").Steps;
         e2e.TextsIn(e2e.StepCells()[1]).ShouldContain(answer[1].Words, "and is read afresh after the run");
         e2e.Click(e2e.Region(WorkbenchScreen<RgbaImage>.ImageChoiceHit));
         e2e.MenuRows().Length.ShouldBe(2, "once the run ended the choice is open again");
