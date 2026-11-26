@@ -333,7 +333,7 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
             var end = Math.Min(argument.Length, start + LongestPiece);
             if (end < argument.Length)
             {
-                var cut = argument.LastIndexOfAny(['\', '/', '-', '_', '.'], end - 1, end - start);
+                var cut = argument.LastIndexOfAny(['\\', '/', '-', '_', '.'], end - 1, end - start);
                 if (cut > start)
                 {
                     end = cut + 1;
