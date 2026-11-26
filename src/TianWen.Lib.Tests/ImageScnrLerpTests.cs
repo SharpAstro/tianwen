@@ -169,6 +169,27 @@ public class ImageScnrLerpTests
     }
 
     [Fact]
+    public void Lerp_TowardALiftedUnitReferredImageSaysItAndIsLabelledWithWhatItHolds()
+    {
+        // A blended deblur: the plate on its own unit scale, the deblur's lifted stars at 3.0 on it, and the result says so
+        // (#2504), so the step after it divides the blend into its model's range and not a plate it takes for counts.
+        var a = Rgb(0.2f, 0.3f, 0.4f);
+        var lifted = Rgb(3.0f, 2.0f, 1.0f);
+        lifted = new Image([lifted.GetChannelArray(0), lifted.GetChannelArray(1), lifted.GetChannelArray(2)], BitDepth.Float32, 3.0f, 1.0f, 0f,
+            lifted.ImageMeta with { UnitReferred = true });
+
+        var half = a.Lerp(lifted, 0.5f);
+
+        half[0, 0, 0].ShouldBe(1.6f, 1e-6f);
+        half.MaxValue.ShouldBe(1.6f, 1e-6f, "labelled with the peak the blend holds, not a's 1.0");
+        half.MinValue.ShouldBe(0.7f, 1e-6f, "and with its floor, blue's 0.4 halfway to 1.0");
+        half.ImageMeta.UnitReferred.ShouldBeTrue("a blend toward a unit-referred image is on that scale");
+        half.IsUnitReferred.ShouldBeTrue();
+        a.Lerp(lifted, 1f).ImageMeta.UnitReferred.ShouldBeTrue("the whole of it too");
+        a.Lerp(lifted, 0f).ImageMeta.UnitReferred.ShouldBeFalse("none of it is a itself");
+    }
+
+    [Fact]
     public void Lerp_RejectsShapeMismatch()
     {
         var a = Rgb(0.5f, 0.5f, 0.5f);

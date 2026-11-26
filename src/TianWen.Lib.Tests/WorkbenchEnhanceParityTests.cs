@@ -514,6 +514,15 @@ public sealed class WorkbenchEnhanceParityTests(ITestOutputHelper output) : IDis
             new ScnrStarsStep(Mode: ScnrMode.Average, Amount: 1f),
             new RecombineStep(Mode: RecombineMode.Additive),
         ], why);
+
+        // The enhance's star split is image remove-stars' with its defaults (RemoveStarsStep reads a new
+        // RemoveStarsSettings), so a changed default is other enhance pixels as well as other remove-stars pixels: it needs
+        // a new Version of both operations. The catalogue is not pinned: the enhance asks no catalogue.
+        const string splitWhy = "remove-stars' defaults changed: raise the Version of EnhanceOperation and of RemoveStarsOperation with them";
+        var split = new RemoveStarsSettings();
+        split.ProtectCores.ShouldBeTrue(splitWhy);
+        split.FillDigs.ShouldBeTrue(splitWhy);
+        split.KeepOvershoot.ShouldBeFalse(splitWhy);
     }
 
     [Fact]

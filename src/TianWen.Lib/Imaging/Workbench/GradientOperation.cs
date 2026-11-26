@@ -238,7 +238,20 @@ public sealed class GradientOperation(
             return corrected;
         }
 
+        // The level is added to every pixel, so the canvas ring is put back after it, as the enhance holds it (#1399): a ring
+        // that took the offsets would no longer be absence to the steps after this one, nor to the crop.
+        var ring = corrected.AbsentPixels();
         var (levelled, offsets) = corrected.WithBackgroundNeutralised();
+        if (ring is { } held)
+        {
+            var restored = levelled.WithRingFrom(corrected, held);
+            if (!ReferenceEquals(restored, levelled))
+            {
+                levelled.Release();
+            }
+            levelled = restored;
+        }
+
         // A corrector that passed its input through handed back the caller's image, which is not ours to release.
         if (!ReferenceEquals(corrected, input))
         {

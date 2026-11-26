@@ -377,7 +377,12 @@ public static class NarrowbandCombination
                 }
             }
         }
-        var divisor = peak > 0f ? peak * headroom : 1f;
+        // The deblur goes in with headroom below its model's ceiling, since a sharpened star lifts above its input's peak. The
+        // others (star removal, denoise) go in as they are where they fit the model's [0, 1], as the enhance has always handed
+        // its models a plate: NoiseXTerminator sets its automatic strength from the absolute noise it is handed, so a plate
+        // divided up to a peak of 1 would be denoised as if it were that much noisier. Only a plate that does not fit (a
+        // deblurred one, above 1; a master in counts) is divided, by its peak, still one divisor for every plane.
+        var divisor = peak <= 0f ? 1f : headroom > 1f ? peak * headroom : MathF.Max(peak, 1f);
 
         var result = new Image[planes.Count];
         long atCeiling = 0;
@@ -558,7 +563,12 @@ public static class NarrowbandCombination
             }
             planes[c] = plane;
         }
-        return new Image(planes, BitDepth.Float32, a.MaxValue, a.MinValue, a.Pedestal, a.ImageMeta);
+        // Labelled with the range the result HOLDS, not a's: the stars put back on a plate stand above the plate's peak (a
+        // deblur's lifted ones near 3, #2504), and a label below the data is a scale every later step reads wrong.
+        var (min, max) = Image.ObservedRange(planes);
+        return float.IsNaN(max)
+            ? new Image(planes, BitDepth.Float32, a.MaxValue, a.MinValue, a.Pedestal, a.ImageMeta)
+            : new Image(planes, BitDepth.Float32, max, min, a.Pedestal, a.ImageMeta);
     }
 
     private static float FiniteMedian(ReadOnlySpan<float> values)

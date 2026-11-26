@@ -40,6 +40,35 @@ public sealed class EnhanceOneRoutinePerStepTests(ITestOutputHelper output) : ID
         final.IsUnitReferred.ShouldBeTrue("and the result says it is on the frame's unit scale");
     }
 
+    [Theory]
+    [InlineData(RecombineMode.Additive)]
+    [InlineData(RecombineMode.Screen)]
+    public async Task EveryModelAfterTheLiftedDeblurTakesTheFrameOnItsRange(RecombineMode split)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        // The deblur lifts the star past 2.0; the gradient model, the star remover (the guarded split or the screen split's
+        // own call) and the denoiser after it each carry the guard GraXpert's and TianWen's ONNX models have (they refuse a
+        // peak above 1.5), so a step that handed one the frame as it stands would throw here.
+        var pipeline = new SharpenPipeline(starRemover: new GuardedRemover(), denoiser: new GuardedDenoiser(),
+            gradientCorrector: new GuardedCorrector(), deblurrer: new LiftingDeblurrer(3.5f));
+
+        var result = await pipeline.ProcessAsync(new SharpenRequest(Frame(0.855f),
+        [
+            new DeblurStep(),
+            new GradientCorrectionStep(),
+            new RemoveStarsStep(SplitMode: split),
+            new DenoiseStarlessStep(),
+            new RecombineStep(Mode: split),
+        ]), EnhanceOptions.Default, cancellationToken: ct);
+
+        var final = result.Final.ShouldNotBeNull("no model was handed a frame above its range");
+        output.WriteLine($"{split}: final peak {final.MaxValue}");
+        if (split is RecombineMode.Additive)
+        {
+            final.MaxValue.ShouldBeGreaterThan(2f, "and the lifted star is back on the frame's scale, labelled with the peak it holds");
+        }
+    }
+
     [Fact]
     public async Task TheEnhancesStarRemovalIsTheGuardedSplit()
     {

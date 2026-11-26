@@ -61,6 +61,16 @@ internal static class UnitScaleFakes
         public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default) => GuardedCopy(input);
     }
 
+    /// <summary>A star remover with TianWen's ONNX remover's guard (<see cref="GuardedCopy"/>): it keeps half of what it is
+    /// handed as the starless plate.</summary>
+    public sealed class GuardedRemover : IStarRemover
+    {
+        public string Name => "Test/Guarded remover";
+
+        public async Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
+            => (await GuardedCopy(input)).Multiply(0.5f);
+    }
+
     /// <summary>A gradient model with GraXpert's guard (<see cref="GuardedCopy"/>); its name says GraXpert, so the gradient
     /// step's GraXpert backend takes it.</summary>
     public sealed class GuardedCorrector : IGradientCorrector

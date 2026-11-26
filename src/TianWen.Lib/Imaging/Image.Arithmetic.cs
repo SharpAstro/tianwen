@@ -443,8 +443,11 @@ public partial class Image
     {
         ValidateSameShape(other);
         var a = Math.Clamp(amount, 0f, 1f);
+        // A blend toward an image that says it is on a unit scale (a deblur's, whose lifted stars stand above 1, #2504) is
+        // on that scale too, and says so.
+        var meta = other.ImageMeta.UnitReferred && !imageMeta.UnitReferred ? imageMeta with { UnitReferred = true } : imageMeta;
         if (a == 0f) return new Image(CopyChannelData(), BitDepth.Float32, MaxValue, MinValue, pedestal, imageMeta);
-        if (a == 1f) return new Image(other.CopyChannelData(), BitDepth.Float32, other.MaxValue, other.MinValue, pedestal, imageMeta);
+        if (a == 1f) return new Image(other.CopyChannelData(), BitDepth.Float32, other.MaxValue, other.MinValue, pedestal, meta);
 
         var dst = CreateChannelData(ChannelCount, Height, Width);
         for (var c = 0; c < ChannelCount; c++)
@@ -454,7 +457,12 @@ public partial class Image
             var output = MemoryMarshal.CreateSpan(ref dst[c][0, 0], dst[c].Length);
             TensorPrimitives.Lerp(lhs, rhs, a, output);
         }
-        return new Image(dst, BitDepth.Float32, MaxValue, MinValue, pedestal, imageMeta);
+        // Labelled with the range the blend HOLDS: a blend toward a lifted star stands above this image's peak, and a label
+        // below the data is a scale every later step reads wrong.
+        var (min, max) = ObservedRange(dst);
+        return float.IsNaN(max)
+            ? new Image(dst, BitDepth.Float32, MaxValue, MinValue, pedestal, meta)
+            : new Image(dst, BitDepth.Float32, max, min, pedestal, meta);
     }
 
     /// <summary>
