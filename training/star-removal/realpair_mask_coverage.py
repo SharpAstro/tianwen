@@ -12,7 +12,7 @@ This reads, for every session named in <sessions file> (one session id a line, a
   selected exactly as nebula_stars_row.py selects them (no brighter catalogued star within 6 px; 20 to 150 sky sigma
   of light in a 2 px disc over its 5 to 9 px annulus; the magnitude check at --match; bright nebula is a 32 px block's
   median 20 sky sigma or more over the frame's 5th percentile block, dark sky under 5);
-- per star inside an exported cell (3 px clear of its edge): whether the mask covers it (the mean of the keep plane over
+- per star inside an exported cell (--edge px clear of its edge, default 3; the trainer's loss skips a 16 px rim, --edge 16): whether the mask covers it (the mean of the keep plane over
   its 2 px disc is a half or more), and the share of its light the stored plate took (nebula_stars_row.py's "taken").
 
 Printed per session with five or more such stars on bright nebula, and summed over all sessions read ("all") and over
@@ -38,7 +38,6 @@ from scipy.spatial import cKDTree
 
 BRIGHT, DARK, B = 20.0, 5.0, 32
 FIT_LIGHT, FIT_MIN = (30.0, 1500.0), 50
-TILE, EDGE = 256, 3
 
 p = argparse.ArgumentParser()
 p.add_argument("export")
@@ -46,7 +45,9 @@ p.add_argument("bake")
 p.add_argument("gaia_dir")
 p.add_argument("sessions")
 p.add_argument("--match", type=float, default=2.0)
+p.add_argument("--edge", type=int, default=3, help="px a star must stand clear of its cell's edge (the trainer's loss skips a 16 px rim: --edge 16)")
 a = p.parse_args()
+EDGE = a.edge
 root, bake, gdir = Path(a.export), Path(a.bake), Path(a.gaia_dir)
 wanted = {line.strip() for line in open(a.sessions, encoding="utf-8") if line.strip()}
 
@@ -55,7 +56,7 @@ for line in open(root / "degradations.jsonl", encoding="utf-8"):
     r = json.loads(line)
     if r["SessionId"] in wanted and r["Draw"] == 0:
         tile = root / r["Tile"]
-        cells[r["SessionId"]].append((tile.parent.name, r["CellX"], r["CellY"], tile.with_name(tile.stem + ".keep.f16")))
+        cells[r["SessionId"]].append((tile.parent.name, r["CellX"], r["CellY"], r.get("TileSize", 256), tile.with_name(tile.stem + ".keep.f16")))
 
 
 def lum(path):
@@ -91,10 +92,15 @@ def session(stem, its_cells):
     cat = np.array([(float(r["x"]), float(r["y"]), float(r["mag"])) for r in rows])
     tree = cKDTree(cat[:, :2])
     keep = {}
-    for _, cx, cy, kp in its_cells:
-        if kp.exists():
-            k = np.frombuffer(kp.read_bytes(), np.float16).astype(np.float32)
-            keep[(cx, cy)] = k[: TILE * TILE].reshape(TILE, TILE)
+    for _, cx, cy, size, kp in its_cells:
+        if not kp.exists():
+            print(f"{stem}: no {kp.name} for the cell at {cx}, {cy}; its stars are not counted", file=sys.stderr)
+            continue
+        k = np.frombuffer(kp.read_bytes(), np.float16).astype(np.float32)
+        if k.size != size * size:
+            print(f"{stem}: {kp.name} holds {k.size} values, not {size} x {size}; skipped", file=sys.stderr)
+            continue
+        keep[(cx, cy)] = (size, k.reshape(size, size))
     stars_layer = m - pl
     out = []   # (mag, light, level, taken, covered or None)
     for fx, fy, mag in cat:
@@ -109,8 +115,8 @@ def session(stem, its_cells):
             continue
         taken = float((ps[7:12, 7:12] - np.median(ps[ring]))[disc].sum()) / light
         covered = None
-        for (cx, cy), k in keep.items():
-            if cx + EDGE <= x < cx + TILE - EDGE and cy + EDGE <= y < cy + TILE - EDGE:
+        for (cx, cy), (size, k) in keep.items():
+            if cx + EDGE <= x < cx + size - EDGE and cy + EDGE <= y < cy + size - EDGE:
                 covered = float(k[y - cy - 2:y - cy + 3, x - cx - 2:x - cx + 3][disc].mean()) >= 0.5
                 break
         out.append((mag, light / noise, float(lvl[y // B, x // B]), taken, covered))

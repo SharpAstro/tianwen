@@ -10792,8 +10792,9 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     | on dark sky (the control) | 354,324 | 84.5 % | 77.7 % |
     | on bright nebula, all 104 sessions read | 131,485 | 70.2 % | 66.6 % |
 
-    Of the stars on bright nebula the builder took, the mask covers 93.2 %; of those it left, 1.3 %. On the held-out
-    Lagoon master the builder takes 33.7 % of the planted faint stars at 20 to 40 sky sigma of nebula, 10.7 % at 40
+    In the 95 checked sessions, of the stars on bright nebula the builder took, the mask covers 93.2 %; of those it left,
+    1.3 % (the all-104 read: 94.4 % and 1.0 %). On the held-out
+    Lagoon master the builder takes 33.7 % of the PLANTED faint stars at 20 to 40 sky sigma of nebula, 10.7 % at 40
     to 80 and 2.1 % at 80 and over, and 35.7 % of the 84 real ones.
   - **Limits.** The catalogue is the installed database, cut at its density cap (magnitude 17.8 on the Running
     Chicken field), so only catalogued stars are counted, as on the scorecard's row. On 9 sessions (one LMC piece,
@@ -10802,12 +10803,18 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     position counts there, a bump of the nebula among them; the "all 104 sessions" line holds them and the others do
     not. "Bright nebula" is the level rule of the scorecard's row, so on the training sessions it takes in the
     star-cloud backgrounds of the Magellanic Clouds as well as nebula.
-  - **What it says.** R4k's loss saw some 51,000 such stars taken (64.5 % of 79,458), most of them at 20 to 80 sky
+  - **What it says.** R4k's loss saw some 51,000 such stars taken (64.5 % of 79,458; the script counts a star 3 px inside its cell,
+    `--edge 3`, while the trainer's loss skips a 16 px rim (`BORDER` in `n2n_smoke.py`), so counted by `--edge 16` it is about 41,000
+    if the stars lie evenly over the cell, not re-run; the conclusion stands). The pool is star-weighted: by the scratch
+    coverage.txt only 39 of the 95 sessions carry 5 or more such stars, 15 of those cover under 50 % (13 % of the stars),
+    the median session covers 56 % and the range is 15 to 93 %. Most of them at 20 to 80 sky
     sigma of nebula, where the builder takes seven in ten on these sessions against a tenth to a third on the Lagoon
     master. The cause the builder's scorecard SUSPECTED for R4k's miss, that its data held few such stars, is wrong.
     What is left: at the same level of nebula the builder takes far fewer of the Lagoon master's faint stars than of
     the training sessions' (a third against seven in ten at 20 to 40 sky sigma, a tenth against seven in ten at 40
-    to 80), so those stars are harder there for the builder's finder too, and what the training showed did not
+    to 80; planted stars against real ones, the one real-against-real figure being 35.7 % of 84 against 70.2 %, with no
+    level split), so those stars are harder there for the builder's finder too, or a planted star stands in poorly for a
+    real one on bright nebula (neither is measured), and what the training showed did not
     carry over to them; what makes them harder, and why it did not carry over, is not measured. R4k seed 1's gain
     at 20 to 40 sky sigma fits a little of it carrying over.
   - **Nothing is adopted;** what follows is the owner's.
