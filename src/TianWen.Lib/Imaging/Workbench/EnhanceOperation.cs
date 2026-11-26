@@ -441,8 +441,10 @@ public sealed class EnhanceOperation(SharpenPipeline pipeline, ILogger<EnhanceOp
     /// runs here, at the first enhance, never when the services are built.</summary>
     public EnhanceStart Start(Image source, EnhanceOptions options)
     {
-        // The enhancers need [0, 1]. A no-op for an image that is there already; the source is unchanged.
-        var normalised = source.ScaleFloatValuesToUnit();
+        // The enhancers need [0, 1]. A no-op for an image that is there already; the source is unchanged. A deblurred
+        // master that says it is on a unit scale with a star above 1.0 is divided by its peak, as it was before it said
+        // so (#2504): GraXpert's model and TianWen's ONNX models refuse a peak above 1.5.
+        var normalised = source.ScaleFloatValuesIntoModelRange();
         return new EnhanceStart(normalised, options, pipeline.CapabilitiesFor(normalised, options));
     }
 

@@ -338,11 +338,14 @@ public record struct ImageMeta(
     /// 10P/Tempel 2's brightest star about 3.5 times, so a master peaking at 0.855 came back peaking at 2.995. Judged by
     /// its peak that file was ADU, so its histogram, its background and its star list came out empty, and every step after
     /// it in a chain divided the frame by 2.995. The peak cannot tell a lifted star from ADU; only the producer knows.</para>
-    /// <para><b>Who says it.</b> The routine that can lift a highlight past 2.0 on its input's unit scale says it of its
-    /// result (<c>NarrowbandCombination</c>'s one-scale routine, which the deblur runs through). Every step after it reads the
-    /// card into this and carries its input's metadata onto its result, so the result says it too. An image the routine
-    /// never touched says nothing, and its peak decides. A rescale clears it (<see cref="Rescale"/>): after one, 1.0 is no
-    /// longer the full scale, and the peak decides again.</para>
+    /// <para><b>Who says it.</b> The deblur, the one routine that can lift a highlight past 2.0 on its input's unit scale,
+    /// says it of its result (<c>NarrowbandCombination.DeblurAsync</c>). Every step after it reads the card into this and
+    /// carries its input's metadata onto its result, so the result says it too. An image the deblur never touched says
+    /// nothing, and its peak decides. A rescale clears it (<see cref="Rescale"/>): after one, 1.0 is no longer the full
+    /// scale, and the peak decides again.</para>
+    /// <para><b>A model still takes <c>[0, 1]</c>.</b> GraXpert's and TianWen's ONNX models refuse a peak above 1.5, so a
+    /// declared image above 1.0 reaches one divided by its peak (<see cref="Image.ModelRangeDivisor"/>): the gradient step
+    /// multiplies the result back, the enhance runs on the divided image as it did before (#2504).</para>
     /// <para><b>Not <c>SATURATE</c>.</b> That card says where saturation is, and a lifted star above 1.0 is not saturated:
     /// a reader that leaves out stars above <c>SATURATE</c> would leave out exactly the stars a deblur kept.</para>
     /// </remarks>

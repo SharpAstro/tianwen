@@ -84,6 +84,11 @@ public static class EnhanceActions
             wcs = wcs?.CroppedTo(region.X, region.Y);
         }
 
+        // The enhancers take [0, 1], as the enhance step hands them its input (EnhanceOperation.Start): a deblurred master
+        // that says it is on a unit scale with a star above 1.0 is divided by its peak, which the document no longer does
+        // when it opens one (#2504).
+        input = input.ScaleFloatValuesIntoModelRange();
+
         // The canonical program for what serves THIS input, the same one MasterPostProcessor, the
         // CLI and the enhance endpoint run (SharpenPipeline.CanonicalProgram): BlurX-first where a
         // deblurrer serves, whole-frame where no star remover does. Linear in / linear out: the viewer

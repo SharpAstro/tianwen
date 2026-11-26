@@ -198,7 +198,7 @@ public static class NarrowbandCombination
     /// </remarks>
     public static Task<(Image[] Planes, long AtCeiling)> DeblurAsync(
         IReadOnlyList<Image> planes, IImageDeblurrer deblurrer, float headroom = DefaultDeblurHeadroom, CancellationToken cancellationToken = default)
-        => ThroughOneScaleAsync(planes, deblurrer, headroom, EnhanceOptions.Default, cancellationToken);
+        => ThroughOneScaleAsync(planes, deblurrer, headroom, EnhanceOptions.Default, cancellationToken, declaresUnitScale: true);
 
     /// <summary>
     /// Every plane denoised by <paramref name="denoiser"/> (RC-Astro NoiseXTerminator where licensed) under
@@ -240,9 +240,12 @@ public static class NarrowbandCombination
     }
 
     // Every plane through one enhancer on ONE scale: a scale measured between two planes then still holds between their
-    // results, which a divisor per plane breaks (1.8 percent on LDN 1622's starless pair).
+    // results, which a divisor per plane breaks (1.8 percent on LDN 1622's starless pair). `declaresUnitScale` is for the
+    // routine that can lift a highlight past 2.0 (the deblur): its result says it is on its input's unit scale (#2504). The
+    // others carry what their input says and nothing more, so a file nothing lifted keeps its bytes.
     private static async Task<(Image[] Planes, long AtCeiling)> ThroughOneScaleAsync(
-        IReadOnlyList<Image> planes, IImageEnhancer enhancer, float headroom, EnhanceOptions options, CancellationToken cancellationToken)
+        IReadOnlyList<Image> planes, IImageEnhancer enhancer, float headroom, EnhanceOptions options, CancellationToken cancellationToken,
+        bool declaresUnitScale = false)
     {
         var peak = 0f;
         foreach (var plane in planes)
@@ -317,10 +320,12 @@ public static class NarrowbandCombination
                 back[c] = dst;
             }
             output.Release();
-            // On the input's scale, so on a unit scale when the input was, and saying so: a deblurred star stands above
-            // 2.0, where the peak alone would call the result ADU (#2504). Said here, and not only by the file read a
-            // workbench step takes, so an in-memory caller (the viewer, image sharpen) gets it too.
-            var meta = plane.IsUnitReferred && !plane.ImageMeta.UnitReferred ? plane.ImageMeta with { UnitReferred = true } : plane.ImageMeta;
+            // On the input's scale, so on a unit scale when the input was, and the deblur says so: a deblurred star stands
+            // above 2.0, where the peak alone would call the result ADU (#2504). Said in memory, so the viewer and image
+            // sharpen get it as well as a written file.
+            var meta = declaresUnitScale && plane.IsUnitReferred && !plane.ImageMeta.UnitReferred
+                ? plane.ImageMeta with { UnitReferred = true }
+                : plane.ImageMeta;
             var stepped = float.IsFinite(max)
                 ? new Image(back, BitDepth.Float32, max, min, plane.Pedestal, meta)
                 : new Image(back, BitDepth.Float32, plane.MaxValue, plane.MinValue, plane.Pedestal, meta);

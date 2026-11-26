@@ -1274,6 +1274,45 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
     }
 
     /// <summary>
+    /// The factor a model that takes <c>[0, 1]</c> needs this image divided by: its peak when it says it is on a unit
+    /// scale and its highlights stand above 1.0 (a deblurred star, #2504), otherwise 1. GraXpert's background model and
+    /// TianWen's ONNX denoiser, deconvolvers and star remover refuse a peak above 1.5.
+    /// </summary>
+    /// <remarks>
+    /// A step that must write on its input's scale divides by this into the model and multiplies the model's result
+    /// back by it (<see cref="MultipliedBy"/>), as <c>NarrowbandCombination</c>'s one-scale routine does for the deblur.
+    /// A program that only needs its input in range (the enhance) takes <see cref="ScaleFloatValuesIntoModelRange"/>.
+    /// </remarks>
+    internal float ModelRangeDivisor => imageMeta.UnitReferred && float.IsFinite(MaxValue) && MaxValue > 1f ? MaxValue : 1f;
+
+    /// <summary>
+    /// <see cref="ScaleFloatValuesToUnit"/>, and an image that says it is on a unit scale whose highlights stand above
+    /// 1.0 divided by its peak as well (<see cref="ModelRangeDivisor"/>), for a model that takes <c>[0, 1]</c>. That is
+    /// what such an image got before it could say its scale (#2504), so the programs that hand one to their models (the
+    /// enhance, the viewer's enhance) are as they were; the result is on <c>[0, 1]</c>, not on the input's scale.
+    /// </summary>
+    internal Image ScaleFloatValuesIntoModelRange() => ModelRangeDivisor > 1f ? ScaledByUnitScaleDivisor() : ScaleFloatValuesToUnit();
+
+    /// <summary>
+    /// A new image, every sample multiplied by <paramref name="factor"/> (positive), labelled with <paramref name="meta"/>:
+    /// how a model's result comes back onto the scale its input was divided from (<see cref="ModelRangeDivisor"/>).
+    /// </summary>
+    internal Image MultipliedBy(float factor, ImageMeta meta)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(factor);
+        var (channelCount, width, height) = Shape;
+        var scaled = CreateChannelData(channelCount, height, width);
+        for (var c = 0; c < channelCount; c++)
+        {
+            var src = GetChannelSpan(c);
+            var dst = MemoryMarshal.CreateSpan(ref scaled[c][0, 0], scaled[c].Length);
+            MultiplyScalar(src, factor, dst);
+        }
+
+        return new Image(scaled, BitDepth.Float32, MaxValue * factor, MinValue * factor, pedestal * factor, meta, SamplesAreUnitReferred);
+    }
+
+    /// <summary>
     /// <see cref="ScaleFloatValuesToUnit"/> for a producer that promises no sample above 1.0: it divides
     /// by the same <see cref="UnitScaleDivisor"/> whenever the peak EXCEEDS 1.0, including the band up to
     /// 2.0 that <see cref="HasUnitScalePeak"/> counts as unit-referred, and returns this image untouched

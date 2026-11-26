@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.BackgroundExtraction;
 using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Imaging.Workbench;
 using Xunit;
@@ -62,25 +63,83 @@ public sealed class UnitReferredCardTests(ITestOutputHelper output) : IDisposabl
     }
 
     [Fact]
-    public void AStepAfterADeblurCarriesTheCardOntoItsResult()
+    public async Task TheDeblurStepWritesTheCardAndIsVersionTwo()
     {
-        var folder = _folders.Create("unitref-step-").FullName;
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("unitref-deblur-").FullName;
+        var master = Path.Combine(folder, "master.fits");
+        var result = Path.Combine(folder, "deblurred.fits");
+        StarField(0.855f, Meta()).WriteToFitsFile(master);
+        var deblur = new DeblurOperation(new LiftingDeblurrer(3.5f));
+
+        var outcome = await deblur.RunJointAsync(new DeblurSettings(), [OperationInput.FromFile(master)], [new StepOutputs(result)], output.WriteLine, ct);
+
+        outcome.Failure.ShouldBe(OperationFailure.None, outcome.Message);
+        deblur.Description.Version.ShouldBe(2, "a version 1 result, which every reader took for ADU, runs again");
+        Image.TryReadFitsFile(result, out var read).ShouldBeTrue();
+        read.ShouldNotBeNull();
+        read.MaxValue.ShouldBeGreaterThan(2f, "premise: the lifted star stands above where the peak alone says unit scale");
+        read.ImageMeta.UnitReferred.ShouldBeTrue("the file the step wrote carries UNITREF");
+        SkyOf(read).ShouldBe(Sky, Sky * 0.05f, "the deblur leaves the sky on its input's scale");
+    }
+
+    [Theory]
+    [InlineData(GradientBackend.Classical)]
+    [InlineData(GradientBackend.Graxpert)]
+    public async Task TheGradientStepOnADeblurredFileKeepsItsScaleAndTheCard(GradientBackend backend)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("unitref-flatten-").FullName;
         var deblurred = Path.Combine(folder, "deblurred.fits");
         var result = Path.Combine(folder, "flattened.fits");
         StarField(LiftedPeak, Meta() with { UnitReferred = true }).WriteToFitsFile(deblurred);
+        // A model that refuses a peak above 1.5, as GraXpert's background model and TianWen's ONNX models do.
+        var flatten = new GradientOperation(new ClassicalBackgroundExtractor(), new GuardedCorrector());
 
-        OperationInput.FromFile(deblurred).TryRead(out var input, out var wcs, out var refusal).ShouldBeTrue(refusal);
-        input.ShouldNotBeNull();
-        input.ImageMeta.UnitReferred.ShouldBeTrue("the card is read into the input's metadata");
+        var outcome = await flatten.RunAsync(new GradientSettings { Backend = backend }, [OperationInput.FromFile(deblurred)], result, output.WriteLine, ct);
 
-        // What the step after a deblur does: the same scale, its input's metadata carried onto its result.
-        var stepped = StarField(LiftedPeak, input.ImageMeta, sky: Sky * 0.5f);
-        OperationOutput.Write(stepped, result, wcs);
-
+        outcome.Failure.ShouldBe(OperationFailure.None, outcome.Message);
         Image.TryReadFitsFile(result, out var read).ShouldBeTrue();
         read.ShouldNotBeNull();
-        read.MaxValue.ShouldBeGreaterThan(2f, "premise: the result's peak alone would say ADU");
-        read.IsUnitReferred.ShouldBeTrue("the step's result says it is on its input's scale, so the chain says it to its end");
+        output.WriteLine($"{backend}: peak {read.MaxValue}, sky {SkyOf(read)}, UNITREF {read.ImageMeta.UnitReferred}");
+        read.ImageMeta.UnitReferred.ShouldBeTrue("the step carries its input's card onto its result");
+        read.MaxValue.ShouldBeGreaterThan(2f, "the lifted star is still on the input's scale");
+        SkyOf(read).ShouldBe(Sky, Sky * 0.25f, $"the sky stays at {Sky}, not {Sky / LiftedPeak} as when the step divided the frame by its lifted star");
+    }
+
+    [Fact]
+    public async Task ACropOfADeblurredFileKeepsTheCard()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("unitref-crop-").FullName;
+        var deblurred = Path.Combine(folder, "deblurred.fits");
+        var result = Path.Combine(folder, "cropped.fits");
+        StarField(LiftedPeak, Meta() with { UnitReferred = true }).WriteToFitsFile(deblurred);
+
+        var outcome = await new CropOperation().RunAsync(new CropSettings { X = 32, Y = 32, Width = 448, Height = 448 },
+            [OperationInput.FromFile(deblurred)], result, output.WriteLine, ct);
+
+        outcome.Failure.ShouldBe(OperationFailure.None, outcome.Message);
+        Image.TryReadFitsFile(result, out var read).ShouldBeTrue();
+        read.ShouldNotBeNull();
+        read.Width.ShouldBe(448);
+        read.MaxValue.ShouldBeGreaterThan(2f, "premise: the lifted star is inside the crop");
+        read.IsUnitReferred.ShouldBeTrue("the crop carries the card");
+    }
+
+    [Fact]
+    public void AnEnhanceTakesADeclaredImageIntoItsModelsRangeAndLeavesAnyOtherAsItIs()
+    {
+        var declared = StarField(LiftedPeak, Meta() with { UnitReferred = true });
+        var plain = StarField(0.855f, Meta());
+
+        var into = declared.ScaleFloatValuesIntoModelRange();
+
+        declared.ModelRangeDivisor.ShouldBe(declared.MaxValue);
+        into.MaxValue.ShouldBeLessThanOrEqualTo(1f + 1e-6f, "a model refusing a peak above 1.5 takes it");
+        into.ImageMeta.UnitReferred.ShouldBeFalse("divided by its peak, 1.0 is no longer its full scale");
+        plain.ModelRangeDivisor.ShouldBe(1f);
+        plain.ScaleFloatValuesIntoModelRange().ShouldBeSameAs(plain, "an image the deblur never touched reaches the models as before");
     }
 
     [Fact]
@@ -190,7 +249,32 @@ public sealed class UnitReferredCardTests(ITestOutputHelper output) : IDisposabl
         return new Image([plane], BitDepth.Float32, max, min, 0f, meta);
     }
 
-    /// <summary>Lifts every value by a gain, as sharpening lifts a star's peak, and stops at <c>[0, 1]</c>'s ceiling as BlurX does.</summary>
+    // The sky: the median of the frame, which is all sky but for the planted stars.
+    private static float SkyOf(Image image)
+    {
+        var samples = image.GetChannelSpan(0).ToArray();
+        Array.Sort(samples);
+        return samples[samples.Length / 2];
+    }
+
+    /// <summary>A gradient model with GraXpert's guard: it refuses a peak above 1.5, and otherwise hands back a copy.</summary>
+    private sealed class GuardedCorrector : IGradientCorrector
+    {
+        public string Name => "Test GraXpert";
+
+        public Task<Image> EnhanceAsync(Image input, System.Threading.CancellationToken cancellationToken = default)
+        {
+            if (input.MaxValue > 1.5f)
+            {
+                throw new ArgumentException($"requires input normalised to ~[0, 1], got MaxValue={input.MaxValue}");
+            }
+
+            return Task.FromResult(input.Clone());
+        }
+    }
+
+    /// <summary>Lifts every value's height above the sky by a gain, as sharpening lifts a star's peak and leaves the sky, and
+    /// stops at <c>[0, 1]</c>'s ceiling as BlurX does.</summary>
     private sealed class LiftingDeblurrer(float gain) : IImageDeblurrer
     {
         public string Name => "Test/Lifting";
@@ -198,17 +282,21 @@ public sealed class UnitReferredCardTests(ITestOutputHelper output) : IDisposabl
         public Task<Image> EnhanceAsync(Image input, System.Threading.CancellationToken cancellationToken = default)
         {
             var src = input.GetChannelSpan(0);
+            var sky = SkyOf(input);
             var plane = new float[input.Height, input.Width];
             var max = 0f;
+            var min = float.PositiveInfinity;
             for (var y = 0; y < input.Height; y++)
             {
                 for (var x = 0; x < input.Width; x++)
                 {
-                    plane[y, x] = MathF.Min(1f, gain * src[(y * input.Width) + x]);
+                    var v = src[(y * input.Width) + x];
+                    plane[y, x] = MathF.Min(1f, sky + (gain * (v - sky)));
                     max = MathF.Max(max, plane[y, x]);
+                    min = MathF.Min(min, plane[y, x]);
                 }
             }
-            return Task.FromResult(new Image([plane], BitDepth.Float32, max, 0f, 0f, input.ImageMeta));
+            return Task.FromResult(new Image([plane], BitDepth.Float32, max, min, 0f, input.ImageMeta));
         }
     }
 
