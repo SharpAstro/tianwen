@@ -1,5 +1,44 @@
 # Star-remover training (P4): the inject-and-remove bootstrap
 
+**Status, 2026-11-26: rounds 1 to 4 run (R2a to R4k), and NO model ships.** `image remove-stars --model` runs
+weights a caller names, none are in `src/TianWen.AI.Imaging/models/`, and RC-Astro stays the registered
+`IStarRemover`. What did reach the product is the chain round our models: catalogue-aware core protection and the
+dig fill (floor5). The baseline every arm is now held against is R4h, trained twice; R4i, R4j and R4k were killed
+by their registrations. Against StarXTerminator on the held-out whole masters, through the chain:
+
+| row | StarXTerminator | R4h seed 0 / 1 | where it stands |
+|---|---|---|---|
+| Andromeda dark flat / dug | 98.6 / 1.4 | 98.6, 0.5 / 98.2, 0.9 | level; ours digs less |
+| Tarantula dark flat | 96.6 | 95.9 / 95.5 | about a point behind |
+| purity | 3.1 | 0.9 / 0.9 | ours lower |
+| Sagittarius crowded flat | 99.6 | 97.4 / 96.8 | 2 to 3 points behind |
+| Tarantula crowded flat | 96.1 | 91.9 / 90.5 | 4 to 6 points behind |
+| Gaia BP 17-19 removed, level set aside | 96.6 | 91.4 / 91.9 | about 5 points behind |
+| faint stars planted on the Lagoon's bright nebula, left (as trained) | 42.4 % | 67.8 / 70.7 % | 25 to 28 points behind |
+| the Lagoon's 84 real faint stars, left (as trained) | 15.5 % | 34.5 / 33.3 % | about 18 points behind |
+
+So the rows behind are the crowded fields and the faint stars on bright nebula. What has been measured about why,
+and what has been tried (each in section 6):
+
+- **The crowded rows sit where the plate builder's own finder misses stars** (#2203). The Tarantula's crowded flat
+  is lumps of 15 to 100 px, not the judge's level. Gaia BP 17-19's gap sits in the densest part of the field, not
+  on bright nebula: one cell of 4,066 stars (99 or more catalogued stars within 16 px), which StarXTerminator
+  removes 99.2 % of and R4h 82.7 and 87.5 %, holds 59 % of the bin's gap, and a drawn star stands that crowded
+  0.14 % of the time. Tried: cluster scenes and a second pass (R4a), nothing; stars drawn under the catalogue's
+  limit (R4c), which closed 60 % of BP's gap and 30 % of the crowded flat's on one seed; a catalogue-forced
+  deblend for the plates, a mirrored null that takes nebula (closed 2026-11-25); real pairs (R4k), which read
+  worse (87.4 and 87.5).
+- **The faint stars on bright nebula** are read with planted stars, since the real ones are too few to carry a bar
+  (the Lagoon's gap is 16 stars of 84). Two seeds of one recipe have stood 3 to 20 points apart there. Tried:
+  plate cells with drawn stars and the loss on the stars (R4j: 72.2 and 64.4 %), real pairs with the loss where
+  the builder took a star (R4k: 67.3 and 57.6 %, and it cost 30 Doradus's faint stars and the crowded rows).
+  Neither moved both seeds past a seed's spread. Why the model leaves them is not measured; R4k's registration
+  records that a target which is the builder's plate cannot teach the model to do better than the builder.
+
+Nothing above says a row cannot be reached; it says no route tried so far has reached it, and what each route
+measured. What comes next is the owner's. The status of 2026-11-11 and the one of 2026-10-03 below are kept as the
+record.
+
 **Status, 2026-11-11: rounds 1 to 3 run (R2a to R3s, section 6), and NO model ships.** R2p was chosen on
 2026-10-20 ([Shipping R2p](#shipping-r2p-tianwens-own-star-remover-2026-10-20), #1702, still open) and held
 before shipping by the dig it leaves under bright stars on a smooth background, which is what round 2 and round 3
@@ -10525,7 +10564,9 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
       soft smear there, lavender on seed 1 and pinkish green on seed 0, a colour the input does not have. Small
       specks are left over the nebula beside it on both.
     - **Seed 0 flattens bright cores as trained**: 30 Doradus's centre is a whitish haze, the Lagoon's Hourglass is
-      lower in contrast, M31's nucleus is dimmer, wider and a little pink. Seed 1 and R4h keep all three; through
+      lower in contrast, M31's nucleus is dimmer, wider and a little pink. At sheet scale seed 1 and R4d keep all
+      three crisp (the step's sheets set R4k beside R4d, not R4h); by the numbers seed 1 still takes 20 to 28 % of
+      the nucleus's central light as trained (below), so "crisp" is the look and not a nucleus kept whole. Through
       the chain the three read like R4d's on both seeds.
     - **The Lagoon's crops** are R4h's on both seeds: the nebula stands and nothing is torn. Points of light kept
       that StarXTerminator took, in the 140 px crop: R4h 4 and 3, R4k 9 (two on the dark lane) and 2. On the
@@ -10582,8 +10623,9 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     On 30 Doradus the stars left are not only the faintest: at 10 to 30 times the local noise seed 0 leaves 14 %
     of 330 and seed 1 17 %, where R4d leaves 1 %. The two rows the registration named as this arm's own risk, the
     builder being the teacher, held: through the chain Andromeda's dark flat is dug 0.6 and 0.7 %, and as trained
-    the arm digs it less than its parent does (9.5 and 2.2 %, R4h 24.7 and 13.0 %); the dark plants are left less
-    (4.9 and 5.4 %).
+    the arm digs it less than its parent does (9.5 and 2.2 %, R4h 24.7 and 13.0 %; R4h seed 1's 13.0 % is the as-trained
+    row of its whole-master scoring, `w-r4h_synth32_s1/row.txt`, which its read did not quote); the dark plants are
+    left less (4.9 and 5.4 %).
   - **Against the prediction.** "Both seeds leave 55 to 65 % of the bright plants": seed 1 (57.6), not seed 0
     (67.3, over the range). "The dark plants and the crowded rows within two points of R4h": the dark plants, yes
     (1.9 points better on both); the Tarantula's crowded flat, no (3.0 to 4.5 points under). "The guards hold":
@@ -10608,9 +10650,12 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     - **M31's nucleus as trained**, the share of its central light taken in red, green and blue: -2.1 / 4.7 / 5.2 %
       and 46.1 / 53.1 / 54.5 % for R4h; 48.4 / 47.6 / 48.3 % and 20.2 / 27.6 / 26.1 % for R4k. Both R4k seeds take
       part of it; the chain hands it back whole on both.
-    - **The two-sided crowded row** (#2404, through the chain): the Tarantula's two flat cells 3.63 and 3.02 (R4h
-      3.25), its structure cells 1.12 and 1.10 of the judge's, 52 and 55 % inside the window (R4h 45 %);
-      Sagittarius's flat cells 1.51 and 1.53 (R4h 1.56, the judge 1.14), 45.8 % of them under 1.5 on all three.
+    - **The two-sided crowded row** (#2404, through the chain), R4h seed 0 / 1 then R4k seed 0 / 1: the
+      Tarantula's two flat cells 3.25 / 3.24 / 3.63 / 3.02; its structure cells 1.07 / 1.04 / 1.12 / 1.10 of the
+      judge's, 45.2 / 51.6 / 51.6 / 54.8 % inside the window. Sagittarius's flat cells 1.56 / 1.56 / 1.51 / 1.53
+      (the judge 1.14), 45.8 / 43.8 / 45.8 / 45.8 % of them under 1.5; its structure cells 0.98 / 1.00 / 0.96 /
+      0.97. Beside R4h's seed 1 the share inside the window is no gain, and R4k's Tarantula structure cells stand
+      further over the judge's than both parent seeds.
     - **The extra cache's held-out objective at each seed's best step** is 5.53e-5 and 4.99e-5, over its lowest of
       the run (4.94e-5 at step 228,500 and 4.81e-5 at 212,000). The training objective per cache cannot be set
       beside it: the trainer logs one loss for the whole batch.
