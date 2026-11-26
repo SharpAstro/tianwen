@@ -701,9 +701,10 @@ public sealed class SharpenPipeline(
                         // the most-processed WHOLE frame goes in and what comes out is the result, so it
                         // is `final` directly, with nothing to recombine.
                         var inputPlate = gradientCorrected ?? deblurred ?? source;
-                        // On the frame's own scale: a deblurred frame keeps its lifted stars above 1.0, and a denoiser takes [0, 1] (#2504).
-                        var raw = HoldRing(await inputPlate.ThroughModelRangeAsync(
-                            input => Require(denoiser).EnhanceAsync(input, denoiseFrame.Variant, options, stepProgress, cancellationToken)), inputPlate);
+                        // The one denoise, image denoise's gated passes, as the split program's starless denoise runs them,
+                        // each pass on the frame's own scale (a deblurred frame keeps its lifted stars above 1.0, #2504).
+                        var raw = HoldRing((await NarrowbandCombination.DenoisePassesAsync([inputPlate], Require(denoiser), denoiseFrame.Variant,
+                            options, stepProgress, logger, cancellationToken))[0], inputPlate);
                         if (denoiseFrame.Blend < 1f)
                         {
                             final = inputPlate.Lerp(raw, denoiseFrame.Blend);

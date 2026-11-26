@@ -659,9 +659,18 @@ back on the frame's scale. Two more steps of the enhance had no single step that
 rule: the **white balance** the enhance puts in first (`white-balance`, `image white-balance`, on the enhance's own
 `EnhanceOperation.WhiteBalanceToApplyAsync`; without it the chain's stars were never balanced, and SCNR refuses unbalanced
 colour), and the **sky levelled** after the gradient (`gradient` version 2, `Image.WithBackgroundNeutralised` as the enhance
-calls it). The recombine is `add-stars`' sum (`NarrowbandCombination.WithStars`). The 2026-11-24 measure's green share of star
-light (0.58 in the chain, 0.64 in the enhance) is the balance the chain did not put in. What is left for W9 proper: the enhance written as a workflow of those steps, kept step by step,
-and the chain measured against the one-step enhance again on the 10P master.
+calls it). The recombine is `add-stars`' sum (`NarrowbandCombination.WithStars`), and the whole-frame program's denoise is the
+same gated passes. The 2026-11-24 measure's green share of star light (0.58 in the chain, 0.64 in the enhance) is the balance
+the chain did not put in.
+
+**The enhance laid out as its chain** (`EnhanceChain`, `tianwen workbench chain <project> <image>`): an image whose one edit is
+an enhance gets the chain beside it, read off the enhance's own program for that image (no second list of steps):
+`<name>-starless` (white-balance, deblur, gradient, remove-stars, denoise), `<name>-stars` (SCNR on the stars it took out,
+where the enhance runs it) and `<name>` (add-stars). Each step is then kept in the store on its own, so changing the
+denoise runs the denoise and the add-stars, not the whole enhance. A program or a setting no single step can follow (the
+stellar sharpen, the starless deconvolution, the screen split, a blend under one, a stated backend, the deblurrer's own
+sharpening) is refused in words. `EnhanceChainTests` runs both through one project on stand-in enhancers and holds the
+chain's result to the enhance's, pixel for pixel. What is left for W9 proper is the general workflow file with gates.
 
 ### W10 The missing operation verbs
 

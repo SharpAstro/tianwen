@@ -38,7 +38,7 @@ public sealed class WorkbenchEnhanceParityTests(ITestOutputHelper output) : IDis
     public void Dispose() => _folders.Dispose();
 
     /// <summary>An enhancer that scales what it is handed: the same answer for the same input.</summary>
-    private sealed class Scaling(string name, float factor) : IStarRemover, IDenoiseEnhancer, IImageDeblurrer, INonStellarDeconvolver
+    internal sealed class Scaling(string name, float factor) : IStarRemover, IDenoiseEnhancer, IImageDeblurrer, INonStellarDeconvolver
     {
         public string Name => name;
 
