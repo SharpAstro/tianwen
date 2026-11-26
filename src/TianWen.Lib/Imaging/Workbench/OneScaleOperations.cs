@@ -202,8 +202,11 @@ public sealed class DenoiseOperation(IDenoiseEnhancer? denoiser = null) : JointO
     public const string Id = "denoise";
 
     /// <inheritdoc/>
+    /// <remarks>Version 2 (2026-11-26, the enhance retrofit): the one denoise, the enhance's gated passes
+    /// (<see cref="NarrowbandCombination.DenoisePassesAsync"/>, up to three, each kept while it takes enough off the coarse sky
+    /// noise) where it ran one pass, so the same settings give other pixels.</remarks>
     public override OperationDescription Description { get; } = new(
-        Id, Version: 1, Title: "Denoise", Verb: "image denoise", OperationOutputKind.Stored, ExtraInputs: [],
+        Id, Version: 2, Title: "Denoise", Verb: "image denoise", OperationOutputKind.Stored, ExtraInputs: [],
         Settings:
         [
             new OperationSetting("strength", "Strength in 0 to 1. Left out: the denoiser's own (NoiseXTerminator's is set from each plate's noise)."),
@@ -309,8 +312,9 @@ public sealed class DenoiseColourOperation(IDenoiseEnhancer? denoiser = null) : 
     public const string Blue = "blue";
 
     /// <inheritdoc/>
+    /// <remarks>Version 2 (2026-11-26, the enhance retrofit): the gated passes, as the single denoise.</remarks>
     public override OperationDescription Description { get; } = new(
-        Id, Version: 1, Title: "Denoise as colour", Verb: "image denoise --colour", OperationOutputKind.Stored,
+        Id, Version: 2, Title: "Denoise as colour", Verb: "image denoise --colour", OperationOutputKind.Stored,
         ExtraInputs:
         [
             new OperationInputRole("green", "The green plane."),
@@ -443,8 +447,12 @@ public sealed class RemoveStarsOperation(IStarRemover? starRemover = null, ICele
     public const string Stars = "stars";
 
     /// <inheritdoc/>
+    /// <remarks>Version 2 (2026-11-26, the enhance retrofit): masters that fit <c>[0, 1]</c> go to the remover as they are,
+    /// as the enhance has always handed its remover a plate, where they were divided up to a peak of 1; one divisor for
+    /// every master still, and one that does not fit (a deblurred master, above 1) is still divided by its peak. The same
+    /// settings give other pixels.</remarks>
     public override OperationDescription Description { get; } = new(
-        Id, Version: 1, Title: "Remove stars", Verb: "image remove-stars", OperationOutputKind.Stored, ExtraInputs: [],
+        Id, Version: 2, Title: "Remove stars", Verb: "image remove-stars", OperationOutputKind.Stored, ExtraInputs: [],
         Settings:
         [
             new OperationSetting("protectCores", "Keep the brightest part of each galaxy or nebula out of the stars, whichever remover runs: a nucleus "

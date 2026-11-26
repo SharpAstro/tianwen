@@ -92,6 +92,8 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
         new AddStarsOperation(),
         new FillDigsOperation(),
         new ProtectCoresOperation(),
+        new ScnrOperation(),
+        new WhiteBalanceOperation(),
     ]);
 
     // The real image command over the classical extractor, with what it said.
@@ -236,6 +238,19 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
         => new([SyntheticStarFieldRenderer.Render(FieldSize, FieldSize, defocusSteps: 0, exposureSeconds: 10, skyBackground: 100, readNoise: 5,
             starCount: 250, seed: 5, noiseSeed: noiseSeed)], BitDepth.Float32, 65535f, 0f, 0f, new ImageMeta());
 
+    // Three fields as one OSC colour image through a broadband filter the curves know, stating an SPCC balance that is not
+    // in its pixels yet: what a stacked master states, and what the enhance (and the white-balance step) put in.
+    private static Image StatingABalance(Image red, Image green, Image blue)
+        => new([red.GetChannelArray(0), green.GetChannelArray(0), blue.GetChannelArray(0)], BitDepth.Float32,
+            MathF.Max(red.MaxValue, MathF.Max(green.MaxValue, blue.MaxValue)), MathF.Min(red.MinValue, MathF.Min(green.MinValue, blue.MinValue)), 0f,
+            new ImageMeta
+            {
+                Instrument = "SVBONY SV605CC",
+                SensorType = SensorType.Color,
+                Filter = Filter.FromName("Optolong L-Quad Enhance"),
+                ColourCalibration = new ColourCalibration(1.52f, 1f, 1.78f, ColourCalibrationSource.Spcc),
+            });
+
     private static string WriteField(string folder, string name, Image field)
     {
         var path = Path.Combine(folder, name + ".fits");
@@ -259,6 +274,9 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
         // Another night of the same sky, turned and shifted.
         var turn = Matrix3x2.CreateRotation(3f * MathF.PI / 180f, new Vector2(FieldSize / 2f, FieldSize / 2f)) * Matrix3x2.CreateTranslation(14.5f, -9.25f);
         var moved = WriteField(folder, "moved", await Field(noiseSeed: 5).WarpToReferenceGridAsync(turn, FieldSize, FieldSize, ct));
+        // A colour plate that states a broadband SPCC balance not yet in its pixels: white-balance puts it in, and SCNR then
+        // takes the stars of the balanced colour, the only colour it runs on.
+        var stated = WriteField(folder, "stars-stated", StatingABalance(Field(noiseSeed: 6), Field(noiseSeed: 7), Field(noiseSeed: 8)));
         // An image another takes is listed before it.
         await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(
             WorkbenchFixtures.Picture("red", red),
@@ -272,7 +290,10 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
             WorkbenchFixtures.Picture("red-lrgb", red, WorkbenchFixtures.Edit(LrgbOperation.Id, new JsonObject { ["colourSigma"] = 2 }, "luminance")),
             WorkbenchFixtures.Picture("red-with-stars", red, WorkbenchFixtures.Edit(AddStarsOperation.Id, null, "blue")),
             WorkbenchFixtures.Picture("red-filled", red, WorkbenchFixtures.Edit(FillDigsOperation.Id, new JsonObject { ["keepOvershoot"] = true }, "green")),
-            WorkbenchFixtures.Picture("red-cores", red, WorkbenchFixtures.Edit(ProtectCoresOperation.Id, new JsonObject { ["catalogue"] = "none" }, "green"))), ct);
+            WorkbenchFixtures.Picture("red-cores", red, WorkbenchFixtures.Edit(ProtectCoresOperation.Id, new JsonObject { ["catalogue"] = "none" }, "green")),
+            WorkbenchFixtures.Picture("stars-scnr", stated,
+                WorkbenchFixtures.Edit(WhiteBalanceOperation.Id),
+                WorkbenchFixtures.Edit(ScnrOperation.Id, new JsonObject { ["mode"] = "maximum", ["amount"] = 0.5 }))), ct);
         var runner = new WorkbenchRunner(Catalog());
 
         var report = await runner.RunAsync(folder, new WorkbenchRunOptions { Say = output.WriteLine }, ct);
@@ -292,7 +313,7 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
         compared.ShouldBe(
         [
             AlignOperation.Id, ContinuumOperation.Id, AddLineOperation.Id, LuminanceOperation.Id, LrgbOperation.Id, AddStarsOperation.Id,
-            FillDigsOperation.Id, ProtectCoresOperation.Id,
+            FillDigsOperation.Id, ProtectCoresOperation.Id, WhiteBalanceOperation.Id, ScnrOperation.Id,
         ]);
     }
 
@@ -405,8 +426,9 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
         // The planes went through as one colour image (the stand-in saw three channels at once, not three mono planes) and
         // came back as three, each its OWN input's: the stand-in scales by 0.8, so a swapped or reused plane would show.
         // Denoiser is shared by the class's tests, so only what THIS run's workbench step handed it counts (the replay
-        // through the verbs above has called it again).
-        workbenchCalls.ShouldBe([3]);
+        // through the verbs above has called it again). Two calls: the gated passes run pass 2, measure that it takes a fifth
+        // off (under the gate's 35 %) and discard it, so the result is pass 1's.
+        workbenchCalls.ShouldBe([3, 3]);
         foreach (var (written, input) in new[]
         {
             (plane, red),
@@ -613,7 +635,7 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
         var operations = await InvokeAsync("operations");
         operations.Exit.ShouldBe(0);
         operations.Said.ShouldContain("crop (version 1)");
-        operations.Said.ShouldContain("gradient (version 1)");
+        operations.Said.ShouldContain("gradient (version 2)");
         operations.Said.ShouldContain("linear-fit (version 1)");
         operations.Said.ShouldContain("\"rejectHigh\":0.92");
 

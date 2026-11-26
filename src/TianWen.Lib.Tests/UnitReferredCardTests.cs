@@ -8,6 +8,7 @@ using TianWen.Lib.Imaging.BackgroundExtraction;
 using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Imaging.Workbench;
 using Xunit;
+using static TianWen.Lib.Tests.UnitScaleFakes;
 
 namespace TianWen.Lib.Tests;
 
@@ -143,8 +144,9 @@ public sealed class UnitReferredCardTests(ITestOutputHelper output) : IDisposabl
     }
 
     [Fact]
-    public void TheCombineIsVersionTwo()
-        => new CombineOperation().Description.Version.ShouldBe(2, "a combine with deblur keeps its masters' scale now, so a version 1 result runs again");
+    public void TheCombineIsVersionThree()
+        => new CombineOperation().Description.Version.ShouldBe(3,
+            "version 2: a combine with deblur keeps its masters' scale; version 3: its colour denoise runs the gated passes");
 
     [Fact]
     public void ScaleFloatValuesIntoModelRangeDividesADeclaredImageByItsPeakAndLeavesAnyOther()
@@ -266,73 +268,6 @@ public sealed class UnitReferredCardTests(ITestOutputHelper output) : IDisposabl
         }
 
         return new Image([plane], BitDepth.Float32, max, min, 0f, meta);
-    }
-
-    // The sky: the median of the frame, which is all sky but for the planted stars.
-    private static float SkyOf(Image image)
-    {
-        var samples = image.GetChannelSpan(0).ToArray();
-        Array.Sort(samples);
-        return samples[samples.Length / 2];
-    }
-
-    /// <summary>A denoiser with the ONNX models' guard: it refuses a peak above 1.5, and otherwise hands back a copy.</summary>
-    private sealed class GuardedDenoiser : IDenoiseEnhancer
-    {
-        public string Name => "Test/Guarded denoiser";
-
-        public Task<Image> EnhanceAsync(Image input, System.Threading.CancellationToken cancellationToken = default)
-        {
-            if (input.MaxValue > 1.5f)
-            {
-                throw new ArgumentException($"requires input normalised to ~[0, 1], got MaxValue={input.MaxValue}");
-            }
-
-            return Task.FromResult(input.Clone());
-        }
-    }
-
-    /// <summary>A gradient model with GraXpert's guard: it refuses a peak above 1.5, and otherwise hands back a copy.</summary>
-    private sealed class GuardedCorrector : IGradientCorrector
-    {
-        public string Name => "Test GraXpert";
-
-        public Task<Image> EnhanceAsync(Image input, System.Threading.CancellationToken cancellationToken = default)
-        {
-            if (input.MaxValue > 1.5f)
-            {
-                throw new ArgumentException($"requires input normalised to ~[0, 1], got MaxValue={input.MaxValue}");
-            }
-
-            return Task.FromResult(input.Clone());
-        }
-    }
-
-    /// <summary>Lifts every value's height above the sky by a gain, as sharpening lifts a star's peak and leaves the sky, and
-    /// stops at <c>[0, 1]</c>'s ceiling as BlurX does.</summary>
-    private sealed class LiftingDeblurrer(float gain) : IImageDeblurrer
-    {
-        public string Name => "Test/Lifting";
-
-        public Task<Image> EnhanceAsync(Image input, System.Threading.CancellationToken cancellationToken = default)
-        {
-            var src = input.GetChannelSpan(0);
-            var sky = SkyOf(input);
-            var plane = new float[input.Height, input.Width];
-            var max = 0f;
-            var min = float.PositiveInfinity;
-            for (var y = 0; y < input.Height; y++)
-            {
-                for (var x = 0; x < input.Width; x++)
-                {
-                    var v = src[(y * input.Width) + x];
-                    plane[y, x] = MathF.Min(1f, sky + (gain * (v - sky)));
-                    max = MathF.Max(max, plane[y, x]);
-                    min = MathF.Min(min, plane[y, x]);
-                }
-            }
-            return Task.FromResult(new Image([plane], BitDepth.Float32, max, min, 0f, input.ImageMeta));
-        }
     }
 
     private static ImageMeta Meta() => new("synth", DateTimeOffset.UnixEpoch, TimeSpan.FromSeconds(60), FrameType.Light, "",

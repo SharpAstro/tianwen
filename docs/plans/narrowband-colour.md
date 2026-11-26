@@ -494,7 +494,9 @@ to the starless planes and the broadband stars go back on top, so no star is lef
   would subtract the line it is meant to keep.
 - **Every plane goes through the remover on ONE scale.** Divided each by its own maximum (as `image remove-stars` does),
   Ha's and red's starless plates came back on scales 1.8 percent apart, so a scale measured on the masters no longer held
-  between them. `StarlessAsync` divides every plane by one divisor and multiplies it back. Part of that 1.8 percent was
+  between them. `StarlessAsync` divides every plane by one divisor and multiplies it back
+  (since #2533 only a set above 1, such as masters in counts; a set that fits `[0, 1]` goes in as it is, as the enhance
+  hands its remover a plate). Part of that 1.8 percent was
   RC-Astro's own: an aligned master rings below zero at its border, and RC-Astro rescales a plate outside `[0, 1]` onto it
   and returns its output on that scale (a starless red's sky at 0.031 where the plate's was 0.009). The wrapper
   (`RcAstroEnhancerBase`) now maps such a plate into the range itself and the output back; a plate inside keeps its bytes.
