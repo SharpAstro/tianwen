@@ -245,7 +245,7 @@ public static class CaptureDetection
             var first = setFrames[0].Meta;
             groups.Add(new DetectedGroup(DetectedGroupKind.Lights, "Lights", Join(
                 first.ObjectName, Seconds(first.ExposureDuration.TotalSeconds), FilterOf(first), GainOf(first.Gain), first.Instrument), members,
-                LightGroupKey.FromFrame(setFrames[0]).Slug()));
+                Calibration.LightGroupKey.FromFrame(setFrames[0]).Slug()));
         }
 
         AddCalibration(groups, files, FrameType.Dark, DetectedGroupKind.Darks, "Darks");
