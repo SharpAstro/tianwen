@@ -102,7 +102,7 @@ public class NotificationsTabAlertSettingTests(ITestOutputHelper output)
     [InlineData(1000, 1.5f)]
     public void TheHeaderRendersWithTheChoiceAtBothScales(int width, float dpiScale)
     {
-        using var renderer = new RgbaImageRenderer(width, 260);
+        using var renderer = new RgbaImageRenderer((uint)width, 260u);
         var app = new GuiAppState { DesktopAlerts = AlertsOn(new Sink { Refusal = "Disabled: toasts are off for this app" }) };
         var now = new DateTimeOffset(2026, 11, 27, 22, 0, 0, TimeSpan.Zero);
         app.RecordNotification(now, NotificationSeverity.Error, "Mount://ASCOMDevice/ASCOM.OnStep.Telescope refused the slew to Sharpless 2-132");
