@@ -174,7 +174,9 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
             _imageMenu.Close();
             if (view is { ImageName: { } only })
             {
-                parts.Add(Layout.Builder.Text(only, BaseFontSize, palette.BodyText, TextAlign.Far).WAuto().HStar());
+                // A long image name (a capture folder's) ends in an ellipsis with the whole name on hover; it never pushes the buttons off the bar.
+                parts.Add(Layout.Builder.Text(only, BaseFontSize, palette.BodyText, TextAlign.Far, trim: TextTrim.End)
+                    .WStar().HStar().WithTooltip(only));
             }
         }
 

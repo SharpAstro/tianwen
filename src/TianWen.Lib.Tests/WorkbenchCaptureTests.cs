@@ -323,7 +323,8 @@ public sealed class WorkbenchCaptureTests : IDisposable
                     continue; // a button's own label is the theme's pair for its fill, checked by the theme's tests
                 }
 
-                var fill = PixelAt(e2e, (int)bounds.X + 1, (int)(bounds.Y + (bounds.Height / 2f)));
+                // The pixel just left of the text, never one of its glyphs.
+                var fill = PixelAt(e2e, Math.Max(0, (int)bounds.X - 3), (int)(bounds.Y + (bounds.Height / 2f)));
                 Contrast(ink, fill).ShouldBeGreaterThanOrEqualTo(floor, $"'{text}' against the fill it is drawn on");
             }
         }
