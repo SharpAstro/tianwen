@@ -136,6 +136,32 @@ public sealed class WorkbenchActions(
     /// </summary>
     public bool OpenProject(string folder, string? image = null)
     {
+        // A press of Process this master is laying out its chain: a choice made meanwhile would be landed on by the chain's own open.
+        if (_jobs.IsRunning || state.IsProcessingMaster)
+        {
+            state.NeedsRedraw = true;
+            return false;
+        }
+
+        return OpenProjectNow(folder, image);
+    }
+
+    /// <summary>The viewer's driver says whether the comparison on show lost its before pixels; the panel then says so in words.</summary>
+    internal void NoteComparisonDeclined(bool declined)
+    {
+        if (state.ComparisonDeclined != declined)
+        {
+            state.ComparisonDeclined = declined;
+            state.NeedsRedraw = true;
+        }
+    }
+
+    /// <summary>True when the comparison on show lost its before pixels, so the panel says the result is shown alone.</summary>
+    public bool ComparisonDeclined => state.ComparisonDeclined;
+
+    // The open itself, for the press that owns IsProcessingMaster and opens its chain's result.
+    private bool OpenProjectNow(string folder, string? image)
+    {
         if (_jobs.IsRunning)
         {
             state.NeedsRedraw = true;
@@ -195,7 +221,7 @@ public sealed class WorkbenchActions(
 
             // The chain's last image is its result (the starless and stars halves come before it); it is the one shown.
             state.SelectedStep = -1;
-            if (!OpenProject(folder, added.Added[^1].Name))
+            if (!OpenProjectNow(folder, added.Added[^1].Name))
             {
                 logger.LogInformation("{Group} was processed but the new image was not opened: {Why}", group, ChoiceWaitsForTheRun);
             }
@@ -290,7 +316,7 @@ public sealed class WorkbenchActions(
     /// <summary>Shows another image of the project. Refused while a run goes, as <see cref="OpenProject"/> is.</summary>
     public void ChooseImage(string name)
     {
-        if (_jobs.IsRunning || state.View is not { } view || string.Equals(view.ImageName, name, StringComparison.Ordinal))
+        if (_jobs.IsRunning || state.IsProcessingMaster || state.View is not { } view || string.Equals(view.ImageName, name, StringComparison.Ordinal))
         {
             return;
         }

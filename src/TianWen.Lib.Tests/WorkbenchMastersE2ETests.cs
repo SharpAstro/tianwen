@@ -205,6 +205,33 @@ public sealed class WorkbenchMastersE2ETests : IDisposable
     [Theory(Timeout = 300_000)]
     [InlineData(1f)]
     [InlineData(1.5f)]
+    public async Task WhileAPressLaysOutItsChainNoOtherProjectOrImageCanBeChosen(float dpi)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (catalog, runner) = Registered();
+        var project = await StackedProjectAsync(runner, "m31_L");
+        var other = await StackedProjectAsync(runner, "m31_R");
+        await using var e2e = WorkbenchE2E.Start(dpi, runner, catalog);
+        await e2e.OpenProjectAsync(project, ct);
+        e2e.Click(Buttons(e2e).Single());
+        await e2e.PumpUntilAsync(() => e2e.State.View is { ImageName: not "night-1" } && !e2e.State.IsReading, "the chain on show", ct);
+        var shown = e2e.State.View!.ImageName!;
+
+        // The press's flag is held (as it is while the routine runs): a choice made meanwhile is refused, not landed on.
+        e2e.State.IsProcessingMaster = true;
+        e2e.Actions.OpenProject(other).ShouldBeFalse();
+        e2e.Actions.ChooseImage("night-1");
+        e2e.State.IsReading.ShouldBeFalse("nothing was asked of the runner");
+        e2e.State.View!.ImageName.ShouldBe(shown);
+        e2e.State.View.Folder.ShouldBe(Path.GetFullPath(project));
+
+        e2e.State.IsProcessingMaster = false;
+        e2e.Actions.OpenProject(other).ShouldBeTrue("offered again once the press ended");
+    }
+
+    [Theory(Timeout = 300_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
     public async Task TheButtonsAreDimmedWithTheirReasonWhileARunGoes(float dpi)
     {
         var ct = TestContext.Current.CancellationToken;

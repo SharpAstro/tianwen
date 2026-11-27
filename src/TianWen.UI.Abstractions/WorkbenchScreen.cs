@@ -143,13 +143,13 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
                     .WStar().HStar())
             .WStar().HStar();
         var rows = new List<Layout.Node> { TopBar(state, actions).WStar().HFixed(TopBarHeight) };
-        // A refused New project is said in words under the bar, whole text on hover; it is there only while there is one.
-        if (state.NewProjectRefusal is { } refusal)
-        {
-            rows.Add(Layout.Builder.HStack(
-                    Layout.Builder.Text(refusal, BaseFontSize, palette.Error, trim: TextTrim.End).WStar().HStar().WithTooltip(refusal))
-                .CrossCenter().Pad(Gap, 0f).Bg(palette.PanelBg).WStar().HFixed(TopBarHeight));
-        }
+        // A refused New project is said in words under the bar, whole text on hover. The row is always there, empty while there is
+        // no refusal, so its appearing moves nothing under the pointer.
+        var refusal = state.NewProjectRefusal;
+        rows.Add(Layout.Builder.HStack(
+                Layout.Builder.Text(refusal ?? string.Empty, BaseFontSize, palette.Error, trim: TextTrim.End).WStar().HStar()
+                    .WithTooltip(refusal ?? string.Empty))
+            .CrossCenter().Pad(Gap, 0f).Bg(palette.PanelBg).WStar().HFixed(TopBarHeight));
 
         rows.Add(StepBar(state, actions, steps).WStar().HFixed(StepBarHeight));
         rows.Add(body);
@@ -540,12 +540,19 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
     private void AddViews(List<Layout.Node> rows, WorkbenchActions actions)
     {
         var offer = actions.ViewOffer();
-        if (offer is { ResultOffered: true, ComparisonOffered: true })
+        var declined = actions.ComparisonDeclined;
+        if (offer is { ResultOffered: true, ComparisonOffered: true } && !declined)
         {
             return;
         }
 
         rows.Add(Heading("Views"));
+        if (declined)
+        {
+            rows.Add(Words("The comparison was not kept for want of memory: the result is shown alone. Close other programs, then choose Comparison again.",
+                GuiTheme.Palette.DimText));
+        }
+
         if (!offer.ResultOffered)
         {
             rows.Add(Words(offer.ResultNote ?? string.Empty, GuiTheme.Palette.DimText));

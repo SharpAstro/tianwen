@@ -171,7 +171,10 @@ internal sealed class WorkbenchE2E : IAsyncDisposable
 
         // The default reads the machine-wide GC memory load, so a run of many classes on a loaded machine declines the
         // retention and the comparison never starts; this surface always keeps, as ViewerSplitTests pins it too.
-        protected override bool ShouldSkipBeforePixelCache(long bytes) => false;
+        protected override bool ShouldSkipBeforePixelCache(long bytes) => Declines;
+
+        /// <summary>True to play a machine short of memory: the viewer then declines to keep the before pixels.</summary>
+        internal bool Declines { get; set; }
 
         public override bool TryRetainImageTexturesAsBefore()
         {

@@ -56,6 +56,12 @@ internal sealed class WorkbenchViewDriver<TSurface>(
                 viewer.Split.Toggle(hasBeforePixels: true);
                 viewerState.NeedsRedraw = true;
             }
+            else if (!viewer.HasBeforeImageTextures)
+            {
+                // The viewer declined to keep the before pixels (it does when memory is short): the person gets the result
+                // alone, so say so instead of leaving a Comparison that shows nothing to compare.
+                actions.NoteComparisonDeclined(true);
+            }
         }
     }
 
@@ -66,6 +72,7 @@ internal sealed class WorkbenchViewDriver<TSurface>(
     {
         _shown = want;
         _stage = 0;
+        actions.NoteComparisonDeclined(false);
         if (viewer.Split.IsOn)
         {
             viewer.Split.Toggle(hasBeforePixels: false);

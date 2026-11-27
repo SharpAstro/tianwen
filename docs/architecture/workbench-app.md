@@ -120,9 +120,12 @@ the run's progress and cancel, as for any step.
   runs both dialogs and the routine through the background tracker, never on the render thread, and then opens the new
   project through `OpenProject`, so the step bar shows the stack step selected and the status comes from the runner.
 - **A refusal is said in words.** The routine refuses a folder that already holds a `project.json`, a missing capture folder,
-  a capture folder equal to the project folder and one inside the step store. The words are kept in
+  a capture folder equal to the project folder, one inside the step store and a project folder inside the capture folder (the
+  stack would read `project.json` and the store among the frames). A failure the routine throws (a project folder that is a
+  file, a read-only folder, a drive that went away) is said in the same words. The words are kept in
   `WorkbenchState.NewProjectRefusal` and shown in a strip under the top bar ("No project was made: ..."), ellipsised with the
-  whole text on hover. The strip is there only while there is a refusal; the next successful open clears it.
+  whole text on hover. The strip's row is always reserved (empty while there is no refusal), so its appearing moves nothing under the pointer; the
+  next successful open clears it.
 - **While a run goes the button is dimmed** with the same reason as Open project (`WorkbenchActions.ChoiceWaitsForTheRun`),
   and `NewProject` refuses too, so no dialog opens: a run writes the store and no other project is read meanwhile.
 - **With no project open the two buttons take the accent**, the colour of an action, since they are all there is to do; with
@@ -155,11 +158,20 @@ filter group), by `WorkbenchStepPanel.Masters`.
   example a stack whose files the store has lost ("run it first"). The next open of a project clears it.
 - **The buttons are dimmed with their reason** while a run goes (`ChoiceWaitsForTheRun`), while a status is being read and
   while an earlier press is still laying out its chain (`WorkbenchState.IsProcessingMaster`); `ProcessMaster` refuses in the
-  same cases.
+  same cases. While a press runs, `OpenProject` and `ChooseImage` refuse too, so a choice made meanwhile is not landed on
+  by the chain's own open (which goes through a private path that skips that guard).
+- **The chain is added under the project file's lock**, re-reading `project.json` there, so a second press or the CLI while
+  the app is open never drops the other's images.
 - Tests: `WorkbenchMastersE2ETests` at DPI 1 and 1.5 (no masters before the stack; one row per master after it; a press adds
   the chain as the routine does and shows its result; a second press is named uniquely; a lost master is refused in words;
   the dimmed buttons). `WorkbenchCaptureTests` renders one master and several long group names at 1280x800 and 2000x1100
   in Dark and Night, and at DPI 1.5.
+
+## A comparison the viewer could not keep
+
+A Comparison keeps the step's input pixels as the before half. When the viewer declines (it does under memory pressure,
+`ShouldSkipBeforePixelCache`) the person gets the result alone, and the Views section says "The comparison was not kept for
+want of memory" (`WorkbenchState.ComparisonDeclined`, set by `WorkbenchViewDriver`, cleared when another picture is asked for).
 
 ## What W2 leaves out
 

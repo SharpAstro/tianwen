@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.IO;
 
 namespace TianWen.Lib.Imaging.Workbench;
 
@@ -51,6 +52,14 @@ public static class WorkbenchProjects
         if (string.Equals(frames, projectTrimmed, PathComparison))
         {
             return Refused($"the capture folder {frames} is the project's folder: choose a folder of its own for the project");
+        }
+
+        // The reverse: a project folder inside the capture folder would put project.json and the store among the frames
+        // the stack reads next.
+        if (projectTrimmed.StartsWith(frames + Path.DirectorySeparatorChar, PathComparison)
+            || projectTrimmed.StartsWith(frames + Path.AltDirectorySeparatorChar, PathComparison))
+        {
+            return Refused($"the project's folder {projectTrimmed} is inside the capture folder {frames}, where the stack would read its files as frames: choose a folder outside the capture");
         }
 
         var store = Path.Combine(projectTrimmed, StepStore.FolderName);
@@ -186,13 +195,27 @@ public static class WorkbenchProjects
             return RefusedChain($"{label} cannot be laid out as single steps: {notFollowed}.");
         }
 
-        if (chain.FirstOrDefault(each => project.Images.Any(other => other.Name == each.Name)) is { } taken)
-        {
-            return RefusedChain($"the project already has an image named {taken.Name}: name the chain with --name.");
-        }
+        // The project is read again under the file's lock and the chain appended to what it holds NOW: another press,
+        // or the CLI while the app is open, may have added images since the snapshot this chain was laid out from.
+        string? takenName = null;
+        var written = await SharedFile.UpdateJsonIfAsync(
+            WorkbenchProjectFile.PathIn(folder),
+            WorkbenchJsonContext.Default.WorkbenchProject,
+            current =>
+            {
+                var latest = current ?? project;
+                if (chain.FirstOrDefault(each => latest.Images.Any(other => other.Name == each.Name)) is { } taken)
+                {
+                    takenName = taken.Name;
+                    return null;
+                }
 
-        await WorkbenchProjectFile.WriteAsync(folder, project with { Images = [.. project.Images, .. chain] }, cancellationToken);
-        return new ChainAddedResult(chain, null);
+                return latest with { Images = [.. latest.Images, .. chain] };
+            },
+            cancellationToken: cancellationToken);
+        return written
+            ? new ChainAddedResult(chain, null)
+            : RefusedChain($"the project already has an image named {takenName}: name the chain with --name.");
     }
 
     // The file an image's edits start from: its own, or the last stored result of the image it starts from.

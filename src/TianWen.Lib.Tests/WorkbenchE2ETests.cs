@@ -452,6 +452,31 @@ public sealed class WorkbenchE2ETests : IDisposable
     [Theory(Timeout = 120_000)]
     [InlineData(1f)]
     [InlineData(1.5f)]
+    public async Task AComparisonTheViewerDeclinedToKeepSaysSoInWordsAndShowsTheResultAlone(float dpi)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (folder, _) = await ProjectAsync("declined", refusedStep: false);
+        (await Runner().RunAsync(folder, new WorkbenchRunOptions { Image = "m", Through = 1 }, ct)).Refusal.ShouldBeNull();
+        var steps = Image(await Runner().StatusAsync(folder, "m", ct)).Steps;
+        await using var e2e = WorkbenchE2E.Start(dpi, Runner(), Catalog());
+        e2e.Viewer.Declines = true;
+        await e2e.OpenProjectAsync(folder, ct);
+        await e2e.PumpUntilAsync(() => e2e.Controller.Document is not null, "the original", ct);
+        await SelectAsync(e2e, 1, ct);
+
+        e2e.Click(e2e.Region("View:Comparison"));
+        await e2e.PumpUntilAsync(() => e2e.Actions.ComparisonDeclined && SameFile(e2e.Controller.Document?.FilePath, steps[1].Output), "the decline", ct);
+
+        e2e.Viewer.Split.IsOn.ShouldBeFalse("no before pixels, so no split");
+        Normalise(e2e.PanelText()).ShouldContain("not kept for want of memory", Case.Sensitive, "said in words");
+
+        e2e.Click(e2e.Region("View:Original"));
+        await e2e.PumpUntilAsync(() => !e2e.Actions.ComparisonDeclined, "the note to clear with another picture", ct);
+    }
+
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
     public async Task AStepWithNoFileOfItsOwnSaysSoInWordsAndTheChoiceIsNotOffered(float dpi)
     {
         var ct = TestContext.Current.CancellationToken;
@@ -694,6 +719,30 @@ public sealed class WorkbenchE2ETests : IDisposable
         e2e.Actions.OpenProject(folder).ShouldBeTrue();
         await e2e.PumpUntilAsync(() => e2e.State.View is not null && !e2e.State.IsReading, "the project's status", ct);
         e2e.State.NewProjectRefusal.ShouldBeNull();
+    }
+
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task TheRefusalRowIsReservedSoItsAppearingMovesNothing(float dpi)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var capture = CaptureFolder();
+        var taken = _folders.Create("taken-").FullName;
+        (await WorkbenchProjects.NewAsync(taken, capture, ct)).Refusal.ShouldBeNull();
+        await using var e2e = WorkbenchE2E.Start(dpi, new WorkbenchRunner(StackCatalog()), StackCatalog());
+        e2e.Frame();
+        var before = e2e.RegionOfLabel("New project");
+        var hintTop = e2e.Texts().First(static t => t.Text.Contains("make a new one from a capture folder", StringComparison.Ordinal)).Bounds.Y;
+        e2e.FakeFolderPicks(taken, capture);
+
+        e2e.Click(before);
+        await e2e.PumpUntilAsync(() => e2e.State.NewProjectRefusal is not null, "the refusal", ct);
+
+        var after = e2e.RegionOfLabel("New project");
+        (after.X, after.Y, after.Width, after.Height).ShouldBe((before.X, before.Y, before.Width, before.Height));
+        e2e.Texts().First(static t => t.Text.Contains("make a new one from a capture folder", StringComparison.Ordinal)).Bounds.Y
+            .ShouldBe(hintTop, "nothing below the bar moved");
     }
 
     [Theory(Timeout = 120_000)]

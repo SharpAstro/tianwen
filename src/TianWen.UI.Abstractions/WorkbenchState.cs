@@ -76,6 +76,16 @@ public sealed class WorkbenchState
         set => Volatile.Write(ref _masterRefusal, value);
     }
 
+    private int _comparisonDeclined;
+
+    /// <summary>True when the viewer declined to keep the before pixels (memory pressure) so the comparison on show is the result alone;
+    /// the panel says so in words. Cleared when the screen asks for another picture.</summary>
+    public bool ComparisonDeclined
+    {
+        get => Volatile.Read(ref _comparisonDeclined) != 0;
+        set => Volatile.Write(ref _comparisonDeclined, value ? 1 : 0);
+    }
+
     private int _isProcessingMaster;
 
     /// <summary>True from a press of "Process this master" until its images are in the project: no second press is taken meanwhile.</summary>

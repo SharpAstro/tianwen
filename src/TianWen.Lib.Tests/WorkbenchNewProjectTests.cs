@@ -137,6 +137,45 @@ public sealed class WorkbenchNewProjectTests : IDisposable
     }
 
     [Fact(Timeout = 60_000)]
+    public async Task ANewProjectInsideTheCaptureFolderIsRefusedSinceTheStackWouldReadItsFilesAsFrames()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var frames = Capture("a");
+        var inside = Path.Combine(frames, "project");
+
+        var refused = await WorkbenchProjects.NewAsync(inside, frames, ct);
+
+        refused.Refusal.ShouldNotBeNull().ShouldContain("is inside the capture folder");
+        File.Exists(WorkbenchProjectFile.PathIn(inside)).ShouldBeFalse("a refusal writes nothing");
+        Directory.Exists(inside).ShouldBeFalse("a refusal makes no folder");
+    }
+
+    [Fact(Timeout = 600_000)]
+    public async Task ImageWithNoStackStepGivesNoMastersAndTwoPressesAtOnceKeepBothChains()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var project = _folders.Create("both-").FullName;
+        await WorkbenchProjects.NewAsync(project, Capture("m31_L", "m31_R"), ct);
+        var (_, runner, enhance) = Registered();
+        (await runner.RunAsync(project, cancellationToken: ct)).Succeeded.ShouldBeTrue();
+
+        // Two presses that read the same project before either wrote: neither drops the other's images.
+        var both = await Task.WhenAll(
+            WorkbenchProjects.AddMasterChainAsync(project, runner, enhance, "night-1", "m31_L", null, null, ct),
+            WorkbenchProjects.AddMasterChainAsync(project, runner, enhance, "night-1", "m31_R", null, null, ct));
+
+        both[0].Refusal.ShouldBeNull();
+        both[1].Refusal.ShouldBeNull();
+        var names = (await WorkbenchProjectFile.ReadAsync(project, ct)).Project.ShouldNotBeNull().Images.Select(static image => image.Name).ToArray();
+        names.ShouldBe(["night-1", .. both[0].Added.Select(static image => image.Name), .. both[1].Added.Select(static image => image.Name)], ignoreOrder: true);
+
+        // An image the chain made starts from a master and has no stack step of its own: it gives no masters.
+        var noStack = await WorkbenchProjects.AddMasterChainAsync(project, runner, enhance, both[0].Added[0].Name, "m31_L", null, null, ct);
+        noStack.Refusal.ShouldNotBeNull().ShouldContain("has no stack step, so it gives no masters");
+        noStack.Added.ShouldBeEmpty();
+    }
+
+    [Fact(Timeout = 60_000)]
     public async Task TheNewVerbWritesWhatTheRoutineWrites()
     {
         var ct = TestContext.Current.CancellationToken;
