@@ -62,36 +62,10 @@ namespace TianWen.UI.Abstractions
 
             RenderLayout(Layout.Builder.Spacer().Bg(ContentBg), contentRect);
 
-            // Header
-            RenderLayout(Layout.Builder.Spacer().Bg(HeaderBg), new RectF32(contentRect.X, contentRect.Y, contentRect.Width, headerH));
+            // Header: one declared row (heading | alert choice | Clear), so the engine measures and places all three.
             var feed = NotificationFeed.Of(view, appState);
             var entries = feed.Entries;
-            DrawText(feed.Header.AsSpan(), fontPath,
-                contentRect.X + pad, contentRect.Y, contentRect.Width - pad * 2f, headerH,
-                fontSize * 1.05f, HeaderText, TextAlign.Near, TextAlign.Center);
-
-            // Clear button (right edge of header): this computer's own notes only, since a rig's are its node's.
-            if (feed.IsLocal && entries.Length > 0)
-            {
-                var btnW = 70f * dpiScale;
-                var btnH = headerH - 6f * dpiScale;
-                var btnX = contentRect.X + contentRect.Width - btnW - pad;
-                var btnY = contentRect.Y + 3f * dpiScale;
-
-                // Clear button as one draw==hit Layout.Node leaf instead of separate FillRect +
-                // DrawText + RegisterClickable (which can drift). Font is a raw design unit --
-                // PaintLayout re-applies dpiScale.
-                var clearBg = new RGBAColor32(0x3a, 0x3a, 0x46, 0xff);
-                var clearBtn = Layout.Builder.Text("Clear", BaseFontSize * 0.95f, BodyText, TextAlign.Center, TextAlign.Center)
-                    .Stretch()
-                    .Bg(clearBg).BgHover(GuiTheme.Hover(clearBg))
-                    .Clickable(new HitResult.ButtonHit("NotificationsClear"), _ =>
-                    {
-                        appState.ClearNotifications();
-                        appState.NeedsRedraw = true;
-                    });
-                RenderLayout(clearBtn, new RectF32(btnX, btnY, btnW, btnH));
-            }
+            RenderLayout(BuildHeader(feed, appState, level => PostSignal(new SetDesktopAlertLevelSignal(level))), new RectF32(contentRect.X, contentRect.Y, contentRect.Width, headerH));
 
             // List area
             _listRect = new RectF32(
@@ -140,6 +114,81 @@ namespace TianWen.UI.Abstractions
             // Interactive scrollbar at the right edge (hidden when the list fits).
             _scroll.DrawScrollBar(FillRect);
         }
+
+        // Header control height, design units: the header's own 28 less its 3-unit margins, one height for the choice and Clear.
+        private const float HeaderControlHeight = 22f;
+
+        /// <summary>The words of the three alert levels, as the choice shows them.</summary>
+        internal static string LevelLabel(DesktopAlertLevel level) => level switch
+        {
+            DesktopAlertLevel.Off => "Off",
+            DesktopAlertLevel.ErrorsAndSafety => "Errors and safety",
+            _ => "All warnings"
+        };
+
+        /// <summary>What the alert choice says on hover: what the levels mean, and why Windows refused the last alert when it did.</summary>
+        internal static string AlertTooltip(DesktopAlerts alerts)
+            => "Desktop alerts on this computer. Errors and safety: errors, an aborted run and a mount limit. All warnings: every warning too."
+               + (alerts.LastRefusal is { } why ? $" Windows did not show the last alert: {why}. Check that notifications are on for this app." : "");
+
+        /// <summary>
+        /// The header as one row: [heading | alert choice | Clear]. The choice is this computer's setting, so it shows on a rig's
+        /// view too; it is left out where the host has no alerts (no <see cref="GuiAppState.DesktopAlerts"/>, or none on this OS).
+        /// Clear stays on this computer's own feed. Every size is a design unit, the engine measures the rest.
+        /// </summary>
+        internal static Layout.Node BuildHeader(NotificationFeed feed, GuiAppState appState, Action<DesktopAlertLevel> onLevel)
+        {
+            var items = new System.Collections.Generic.List<Layout.Node>
+            {
+                Layout.Builder.Spacer().WFixed(BasePadding).HStar(),
+                Layout.Builder.Text(feed.Header, BaseFontSize * 1.05f, HeaderText, TextAlign.Near, TextAlign.Center).WStar().HStar(),
+            };
+
+            if (appState.DesktopAlerts is { IsAvailable: true } alerts)
+            {
+                var segmentActive = GuiTheme.Mix(HeaderBg, GuiTheme.Palette.Accent, 0.55f);
+                var segmentInactive = GuiTheme.Palette.Separator;
+                var style = new Layout.ButtonGroupStyle(segmentActive, segmentInactive, BodyText, BodyText, GuiTheme.Hover(segmentInactive))
+                {
+                    Gap = 1f,
+                    InsetFraction = 0.7f,
+                };
+                ReadOnlySpan<Layout.ButtonGroupOption<DesktopAlertLevel>> options =
+                [
+                    new(DesktopAlertLevel.Off, LevelLabel(DesktopAlertLevel.Off)) { Hit = new HitResult.ButtonHit("DesktopAlertOff") },
+                    new(DesktopAlertLevel.ErrorsAndSafety, LevelLabel(DesktopAlertLevel.ErrorsAndSafety)) { Hit = new HitResult.ButtonHit("DesktopAlertErrors") },
+                    new(DesktopAlertLevel.AllWarnings, LevelLabel(DesktopAlertLevel.AllWarnings)) { Hit = new HitResult.ButtonHit("DesktopAlertAll") },
+                ];
+                var choice = Layout.Builder.ButtonGroup(options, alerts.Level, onLevel, style, BaseFontSize * 0.85f)
+                    .WithTooltip(AlertTooltip(alerts));
+                items.Add(Centred(choice));
+            }
+
+            // Clear: this computer's own notes only, since a rig's are its node's.
+            if (feed.IsLocal && !feed.Entries.IsEmpty)
+            {
+                var clearBg = new RGBAColor32(0x3a, 0x3a, 0x46, 0xff);
+                var clear = Layout.Builder.Text("Clear", BaseFontSize * 0.95f, BodyText, TextAlign.Center, TextAlign.Center)
+                    .Bg(clearBg).BgHover(GuiTheme.Hover(clearBg))
+                    .Clickable(new HitResult.ButtonHit("NotificationsClear"), _ =>
+                    {
+                        appState.ClearNotifications();
+                        appState.NeedsRedraw = true;
+                    });
+                items.Add(Layout.Builder.Spacer().WFixed(8f).HStar());
+                items.Add(Centred(clear.WFixed(70f)));
+            }
+
+            items.Add(Layout.Builder.Spacer().WFixed(BasePadding).HStar());
+            return Layout.Builder.HStack(items.ToArray()).Bg(HeaderBg);
+        }
+
+        // One height and one middle for the controls on the header row.
+        private static Layout.Node Centred(Layout.Node control)
+            => Layout.Builder.VStack(
+                Layout.Builder.Spacer().HStar(),
+                control.HFixed(HeaderControlHeight),
+                Layout.Builder.Spacer().HStar());
 
         // Width of the severity-mark slot, in design units: the mark's own square. Reserved for Info rows too (an empty
         // spacer), so the timestamp column never moves with a row's severity.

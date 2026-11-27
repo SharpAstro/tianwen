@@ -42,6 +42,7 @@ public sealed class DesktopAlerts
     private readonly Channel<DesktopAlert> _queue = Channel.CreateBounded<DesktopAlert>(
         new BoundedChannelOptions(64) { SingleReader = true, FullMode = BoundedChannelFullMode.DropOldest });
     private int _level = (int)DesktopAlertSettings.Default;
+    private string? _lastRefusal;
 
     /// <param name="sink">Where alerts go.</param>
     /// <param name="time">This client's clock, which times the grouping.</param>
@@ -61,6 +62,12 @@ public sealed class DesktopAlerts
         get => (DesktopAlertLevel)Volatile.Read(ref _level);
         set => Volatile.Write(ref _level, (int)value);
     }
+
+    /// <summary>Whether this computer's OS shows alerts at all (the sink's answer); the settings UI draws its choice only when it does.</summary>
+    public bool IsAvailable => _sink.IsAvailable;
+
+    /// <summary>Why the OS refused the last alert (the sink's own words), or null when the last one was shown or none was tried.</summary>
+    public string? LastRefusal => Volatile.Read(ref _lastRefusal);
 
     /// <summary>
     /// The warnings that matter at the default level: a run that was aborted, and a mount limit. A weather or roof safety
@@ -155,6 +162,7 @@ public sealed class DesktopAlerts
                 try
                 {
                     var result = _sink.Show(alert);
+                    Volatile.Write(ref _lastRefusal, result.Shown ? null : result.Reason ?? "the system gave no reason");
                     if (!result.Shown)
                     {
                         _logger?.LogDebug("Desktop alert {Tag} not shown: {Reason}", alert.Tag, result.Reason);

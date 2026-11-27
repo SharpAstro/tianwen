@@ -643,6 +643,7 @@ namespace TianWen.UI.Abstractions
             SubscribeAccess(bus);
             SubscribePolarAlignment(bus);
             SubscribeFlats(bus);
+            SubscribeDesktopAlerts(bus);
             SubscribePreview(bus, shutdownToken);
 
             // Theme is app state, not host state, so it lives here rather than in a host's own
