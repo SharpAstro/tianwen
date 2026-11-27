@@ -112,8 +112,35 @@ every part of a frame reads that one value.
 ## New project
 
 A "New project" button stands beside "Open project" in the top bar, on one row of one height and one middle. It makes a
-project from a folder of captured frames: the project holds one step, the stack, and "Run to here" stacks the capture with
-the run's progress and cancel, as for any step.
+project from a folder of captured frames and then leads through two pages (below) before the workbench opens on it.
+
+### The two pages (#2553, `docs/designs/workbench/Import.dc.html` and `Workflow.dc.html`)
+
+`WorkbenchState.Stage` (`WorkbenchStage`: Workbench, Import, Workflow) says which page is on show and `WorkbenchState.Import`
+(a `WorkbenchImport`, replaced whole) holds what they show. `WorkbenchHost` paints the page through
+`WorkbenchScreen.NewProject.cs` and the actions are `WorkbenchActions.Import.cs`; both call only the Lib routines and show
+their answers, never a click. While a page is on show the screen lists no viewer regions (`Children` is empty). Opening an
+existing project (`Open project`, a project argument) is always the workbench and clears nothing of a page.
+
+- **Import (1 of 2)**: New project picks the folder, makes the project in its workdir (`WorkbenchProjects.NewAsync`, which is
+  what a reassignment is saved into), and detects the folder off the render thread (`CaptureDetection.DetectAsync`). The page
+  shows the groups found on the left (mark, name, detail, count, and what needs a look said once) and the chosen group's
+  files as a table: file, "Is" (a dropdown of the kinds a stack takes, `FrameReassignment.Kinds`, and "Detected" to take an
+  answer back), why, grade, exposure, filter, sensor temperature. A guessed kind carries a question mark, never colour alone.
+  Columns that do not fit the window are given up from the right (sensor first), never cut. A choice calls
+  `WorkbenchProjects.ReassignAsync` and then detects again (keeping the grades already read), so the table shows the saved
+  answer. Cancel takes back the project this New project made. "Choose a workflow ›" is the one accent action.
+- **Workflow (2 of 2)**: `BuiltInWorkflows.Answer` for the detected facts; those that fit are cards with their one-line why
+  (a press selects, a double-click uses it), those that do not fit say why not and cannot be chosen, the best fit is
+  preselected, and the chosen workflow's tree (`WorkbenchWorkflows.Tree`) is previewed at the right. "Use selected workflow ›"
+  (the accent action, also Enter) writes it through `WorkbenchWorkflows.ApplyAsync` and opens the workbench; "Start from an
+  empty workflow" applies the empty one. The DIR.Lib switch of the mockups (DIR.Lib#156) is not used here: nothing on these
+  pages is an on/off setting.
+- Tests: `WorkbenchImportScreenTests` through `WorkbenchE2E` at DPI 1 and 1.5, with captures at 1280 x 800 and 2000 x 1100 in
+  Light, Dark and Night kept under `TIANWEN_KEEP_TEST_OUTPUT=1`.
+
+The older one-step behaviour below (the stack step selected on opening) is what Use selected workflow does with the Quick look
+or Empty workflow; the dialog and refusal rules are unchanged.
 
 - **One folder dialog**, through `IFileDialogs.OpenFolderAsync`: "New project: choose the folder of the capture to stack" (it
   opens where the current project is). The project and every result are kept in **`<capture>\workdir\`** (`project.json`
@@ -123,8 +150,8 @@ the run's progress and cancel, as for any step.
 - **The work is the Lib routine's**, `WorkbenchProjects.NewAsync(captureFolder)`, the one `tianwen workbench new <folder>` calls
   (both make `workdir`; `new --project <dir>` and the two-argument `NewAsync` keep a project elsewhere, outside the capture).
   `WorkbenchActions.NewProject` runs the dialog and the routine through the background tracker, never on the render thread,
-  and then opens the new project through `OpenProject`, so the step bar shows the stack step selected and the status comes
-  from the runner.
+  and then shows the Import page; the Workflow page's action opens the project through `OpenProject`, so the step bar and the
+  status come from the runner.
 - **A refusal is said in words.** The routine refuses a `workdir` that already holds a `project.json`, a missing capture folder,
   a capture folder equal to the project folder, one inside the step store and a project folder inside the capture folder that
   is not its `workdir` (the stack would read `project.json` and the store among the frames). A failure the routine throws (a project folder that is a

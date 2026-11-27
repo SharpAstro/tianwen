@@ -76,9 +76,11 @@ public sealed partial class WorkbenchScreen<TSurface>
                         Layout.Builder.Text("TianWen Edit", BaseFontSize, palette.BodyText).WAuto(),
                         Layout.Builder.Text("New project", BaseFontSize * 0.9f, palette.DimText).WAuto())
                     .WithGap(Gap * 1.5f).CrossCenter().Pad(Gap * 1.5f, 0f).Bg(palette.HeaderBg).WStar().HFixed(TopBarHeight),
-                Strip(import, onWorkflow).WStar().HFixed(StripHeight),
-                Layout.Builder.HStack(refusal is not null ? refusalText.WithTooltip(refusal) : refusalText)
-                    .CrossCenter().Pad(Gap * 3, 0f).Bg(palette.PanelBg).WStar().HFixed(RefusalHeight),
+                Layout.Builder.VStack(
+                        Strip(import, onWorkflow).WStar().HFixed(StripHeight),
+                        Layout.Builder.HStack(refusal is not null ? refusalText.WithTooltip(refusal) : refusalText)
+                            .CrossCenter().Pad(Gap * 3, 0f).WStar().HFixed(RefusalHeight))
+                    .Bg(palette.PanelBg).WStar().HFixed(StripHeight + RefusalHeight),
                 (onWorkflow ? WorkflowPage(import, actions) : ImportPage(import, actions)).WStar().HStar(),
                 (onWorkflow ? WorkflowFooter(import, actions) : ImportFooter(import, actions)).WStar().HFixed(FooterHeight))
             .Stretch().Bg(palette.ContentBg);
@@ -484,7 +486,7 @@ public sealed partial class WorkbenchScreen<TSurface>
                 var full = note.Length > 0 ? $"{row.Label}: {note}" : row.Label;
                 rows.Add(Layout.Builder.HStack(
                         Layout.Builder.Spacer().WFixed(row.Depth * TreeIndent).HStar(),
-                        Layout.Builder.Text(row.Kind == WorkflowRowKind.Split ? "⑂" : row.Kind == WorkflowRowKind.Join ? "⑃" : "•", BaseFontSize, palette.DimText).WFixed(14f),
+                        Layout.Builder.Text(row.Kind == WorkflowRowKind.Split ? "◆" : row.Kind == WorkflowRowKind.Join ? "◇" : "•", BaseFontSize, palette.DimText).WFixed(14f),
                         Layout.Builder.Text(row.Label, BaseFontSize, palette.BodyText, trim: TextTrim.End).WStar(2f),
                         Layout.Builder.Text(note, BaseFontSize * 0.85f, palette.DimText, TextAlign.Far, trim: TextTrim.End).WStar())
                     .WithGap(Gap).CrossCenter().WStar().HFixed(TreeRowHeight).WithTooltip(full));
