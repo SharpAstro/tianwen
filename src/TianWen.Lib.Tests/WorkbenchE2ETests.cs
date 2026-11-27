@@ -806,7 +806,9 @@ public sealed class WorkbenchE2ETests : IDisposable
             "the dimmed button says why on hover");
         e2e.FakeFolderPicks(null);
         e2e.Actions.NewProject();
-        await e2e.PumpFramesUntilAsync(() => !e2e.Host.IsBusy, "the press to be answered", ct);
+        // The run is held at its gate, so the host is busy until it is released: pump the frames that would
+        // carry the press to the dialog, not until the host is idle.
+        await e2e.PumpFramesUntilAsync(() => true, "the frames after the press", ct);
         _ = e2e.FileDialog.DidNotReceiveWithAnyArgs().OpenFolderAsync(default!, default);
 
         _gate.Release.SetResult();
