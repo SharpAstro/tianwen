@@ -11405,11 +11405,11 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
 
     On eta Carinae's bright nebula, the case at issue, the answer built at four times the exposure leaves more than
     half of the faint stars the judge takes (56.5 % of 170), no fewer than the quarter's own plate does. A depth pair
-    from that session would show the model those stars as kept, as R4k's real pairs did on the Lagoon (the builder
-    took 69 % of such stars in R4k's own training sessions, see the head of this plan; the stars were kept on the
-    Lagoon). The Running Chicken does not show it: its answer leaves 11.1 % of 90. Some of the judge's points on bright nebula may be small
-    knots of the nebula rather than stars; with no catalogue that deep here they cannot be told apart, and it is the
-    judge's taking, not ours, that the scorecard's rows reward.
+    from that session would show the model those stars as kept, as the builder's answers already do for the share
+    of such stars they leave (31 % in R4k's own training sessions, where the builder took 69 %: the head of this
+    plan). The Running Chicken does not show it: its answer leaves 11.1 % of 90. Some of the judge's points on bright
+    nebula may be small knots of the nebula rather than stars; with no catalogue that deep here they cannot be told
+    apart, and it is the judge's taking, not ours, that the scorecard's rows reward.
   - **Not registered, and the session's reading is that the evidence does not yet support building it:** at the one
     depth measured (four times the exposure), the depth answer leaves 56.5 % of the judge's 170 bright-nebula stars on
     eta Carinae, but only 11.1 % of the Running Chicken's 90 (better than the quarter plate's 15.6 %), so one session
