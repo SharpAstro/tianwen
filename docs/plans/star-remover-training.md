@@ -91,12 +91,14 @@ stars is further from the judge than the model already is.
 been reached, or nearly, by some model of ours and by none for all of them; and two seeds of one recipe scatter by
 1.2 points on the crowded flat, so a rule of both seeds over a bar could not pass a gain of two points. The next arm
 is judged on the mean of its seeds (the owner's go, 2026-11-27). Ten of our models' plates combined by a fixed rule
-(`teacher_combine.py`) read, on the scoring masters through the chain, the Tarantula's crowded flat at 94.6 and BP
-17-19 with the level set aside at 95.4, the planted stars at 41.0 % left and the Lagoon's 84 real ones at 14.3 %,
-with every registered guard held, purity among them (a form that pools more reads 95.7 and 96.6 with purity at
-1.1). That scorecard is fitted to the scoring masters and is no held-out reading. **R5a and R5b are registered**
-("R5a and R5b" in section 6): one net, of R4h's size and of R4l's, taught by that combination on the training
-masters' own tiles, which is the plan's H4 run for the first time. R4n (the crowding weight) is prepared and held.
+(`teacher_combine.py`) read, on the scoring masters through the chain, the Tarantula's crowded flat at 95.7 and BP
+17-19 with the level set aside at 96.6, the planted stars at 39.5 % left and the Lagoon's 84 real ones at 13.1 %,
+with purity at 1.1 and every other registered guard held (the form that takes, off the nebula, only what two
+members agree on reads 94.6 and 95.4 with purity at 1.0). The owner loosened the purity guard on 2026-11-28, so
+the first form is the teacher. That scorecard is fitted to the scoring masters and is no held-out reading.
+**R5a and R5b are registered** ("R5a and R5b" in section 6): one net, of R4h's size and of R4l's, taught by that
+combination on the training masters' own tiles, which is the plan's H4 run for the first time. R4n (the crowding
+weight) is prepared and held.
 The status of 2026-11-11 and the one of 2026-10-03 below are kept as the record.
 
 **Status, 2026-11-11: rounds 1 to 3 run (R2a to R3s, section 6), and NO model ships.** R2p was chosen on
@@ -11549,15 +11551,15 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
 
     | row | StarXTerminator | R4h seed 0 / 1 | `--off med2` | `--off med` | `--off low` |
     |---|---|---|---|---|---|
-    | Tarantula crowded flat | 96.1 | 91.9 / 90.5 | **94.6** | 95.7 | 96.0 |
-    | Gaia BP 17-19 removed, level set aside | 96.6 | 91.4 / 91.9 | **95.4** | 96.6 | 96.6 |
+    | Tarantula crowded flat | 96.1 | 91.9 / 90.5 | 94.6 | **95.7** | 96.0 |
+    | Gaia BP 17-19 removed, level set aside | 96.6 | 91.4 / 91.9 | 95.4 | **96.6** | 96.6 |
     | Sagittarius crowded flat | 99.6 | 97.4 / 96.8 | 97.9 | 98.1 | 98.2 |
     | Andromeda dark flat, dug | 98.6, 1.4 | 98.6, 0.5 / 98.2, 0.9 | 98.4, 1.1 | 98.5, 1.1 | 98.3, 1.3 |
     | Tarantula dark flat | 96.6 | 95.9 / 95.5 | 97.0 | 97.2 | 97.7 |
-    | planted stars left on the Lagoon's bright nebula, as trained | 42.4 % | 67.8 / 70.7 % | **41.0 %** | 39.5 % | 39.5 % |
+    | planted stars left on the Lagoon's bright nebula, as trained | 42.4 % | 67.8 / 70.7 % | 41.0 % | **39.5 %** | 39.5 % |
     | planted stars left on dark sky, as trained | 0.5 % | 6.8 / 7.3 % | 6.3 % | 5.9 % | 5.9 % |
-    | the Lagoon's 84 real faint stars left, as trained | 15.5 % | 34.5 / 33.3 % | **14.3 %** | 13.1 % | 13.1 % |
-    | purity | 3.1 | 0.9 / 0.9 | **1.0** | 1.1 | 1.3 |
+    | the Lagoon's 84 real faint stars left, as trained | 15.5 % | 34.5 / 33.3 % | 14.3 % | **13.1 %** | 13.1 % |
+    | purity | 3.1 | 0.9 / 0.9 | 1.0 | **1.1** | 1.3 |
     | light taken from the Tarantula field, densest tenth and whole frame | 98, 106 % | 81, 84 / 80, 84 % | 83, 88 % | 84, 90 % | 85, 92 % |
     | the glow's green median, Andromeda and Tarantula | 243, -31 | -48, -15 / -90, -85 | -136, -126 | -184, -174 | -240, -417 |
     | the Lagoon's broad light taken, as trained | 0.42 | 1.91 / 1.70 | 2.11 | 2.12 | 2.18 |
@@ -11581,11 +11583,14 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     training masters are made with the corrected rule only: the eight written before it were set aside and made
     again.
 
-    **The form the arm below uses is `--off med2`.** It holds every registered guard, purity among them; off the
-    nebula it takes only what two members agree on, so one member's mistake on a master nobody looked at is not
-    taught; and it washes no more of the Tarantula's structure than R4h does. `--off med` reads a point higher on
-    the crowded rows and misses purity by a tenth: it is the form to use if the owner moves that guard to
-    StarXTerminator's own reading, as the field-light guard was moved. Pooling is not free where the members
+    **The form the arm below uses is `--off med`** (the owner's answer of 2026-11-28, under the arm's guards; this
+    registration first named `--off med2`, before any training). `--off med2` holds every guard at its earlier
+    value, purity among them; off the nebula it takes only what two members agree on, so one member's mistake on a
+    master nobody looked at is not taught; and it washes no more of the Tarantula's structure than R4h does.
+    `--off med` reads a point higher on the crowded rows, 1.7 and 2.3 over their bars where `--off med2` stands 0.6
+    and 1.1 over, which is the room a net needs to end over a bar after it loses part of its teacher's gain; it
+    reads purity at 1.1, a tenth over the earlier guard, and teaches every compact star any ONE member took off the
+    nebula. Pooling is not free where the members
     disagree pixel by pixel: on the Tarantula's crowded field the ten stand 0.32 pixel sigma apart about their
     median plate, and `--off med` lowers the plate by 0.43 sigma a pixel beyond it (`--off med2` 0.26, `--off low`
     0.50); on dark sky they stand 0.04 to 0.10 apart and it lowers the plate by 0.07 to 0.15 (`--off med2` 0.04 to
@@ -11620,19 +11625,20 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     their plates are combined by the same rule and their digs filled by the product's own step, and that plate is
     the answer for the master's own tiles, beside R4h's drawn stars. R4k showed the model real tiles with the plate
     builder as the teacher, a remover that reads 59.8 on the Tarantula's crowded flat, and fell to 87.4 and 87.5;
-    this teacher reads 94.6 there. No StarXTerminator output is read anywhere in the data or the training (the
+    this teacher reads 95.7 there. No StarXTerminator output is read anywhere in the data or the training (the
     owner's rule of 2026-11-26); the judge only reads the result.
   - **The teacher.** For each training session: the ten members (A, L and O of the check) as they are on the
     session's retained master (`bh-bin14`, `image remove-stars --model ... --views 1 --no-stars --no-protect-cores
-    --no-fill-digs --keep-overshoot`), combined by `teacher_combine.py --off med2` (the rule above), then `image
+    --no-fill-digs --keep-overshoot`), combined by `teacher_combine.py --off med` (the rule above), then `image
     fill-digs` on that plate (the product's dig fill, held at or under the input), so the answer holds no hole
     under a removed star. **No core protection:** tried first and looked at on real tiles, `image protect-cores`
     put the stars back inside eta Carinae's bright core (that master carries no plate solution, in which case the
     step keeps a protected core's stars; with one it keeps removed only the stars its catalogue lists), which is
     the opposite of what this arm teaches; the rule's median plate already keeps a core that only a minority of
     the members take. The driver is
-    `C:/temp/e2/h4/teacher-plates7.sh` on the development machine (scratch, not in the tree); a session's member
-    plates are deleted once its teacher plate is written.
+    `C:/temp/e2/h4/teacher-plates8.sh` on the development machine (scratch, not in the tree); a session's member
+    plates are deleted once its teacher plate is written. The plates of 45 sessions written as `--off med2` before
+    the owner's answer are set aside as that form's, and the export reads the `--off med` store only.
   - **The data.** R4k's sessions and cells exactly: the 113 three-channel session ids that remain once every id
     of an object a scorecard row is read on (the Lagoon, the Tarantula, the Sagittarius Star Cloud) is taken out of
     R4h's train and validation lists (113 is the count AFTER that), 105 for training and 8 held out, 40 cells a
@@ -11664,44 +11670,58 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     Tarantula's crowded flat **at least 94.0** and Gaia BP 17-19 with the level set aside **at least 94.3** (R4l's
     and R4m's question); as trained, of the 205 plants on the Lagoon's bright nebula **at most 45.0 % left** (R4j's
     and R4k's question). R4h's means are 91.2, 91.7 and 69.3; StarXTerminator reads 96.1, 96.6 and 42.4; the
-    teacher 94.6, 95.4 and 41.0.
-  - **Guards, on the mean,** R4m's on the same terms and at the same values but one: Sagittarius's crowded flat at
+    teacher 95.7, 96.6 and 39.5.
+  - **Guards, on the mean,** R4m's on the same terms and at the same values but two: Sagittarius's crowded flat at
     least 96.3; Andromeda's dark flat at least 95 with at most 3 % dug; the Tarantula's dark flat at least 91; the
     glow's green median within 450 on Andromeda and 500 on the Tarantula; M31's nucleus taken under 10 % through the
-    chain; purity at most 1.0; **the light taken from the Tarantula field at most 98 and 106 %** (the owner's
-    answer of 2026-11-27, in place of 83 and 84); light added on each master's nebula at most 1.0 %; the brightest
-    tenth of the Tarantula's peaks standing on at least 11 of 77; faint stars left on the Lagoon's core at most
-    37 % and on 30 Doradus at most 27 %; the Lagoon's broad light taken at most 2.67; of the 205 plants on dark
-    sky at most 12.0 % left. The teacher itself holds every one of them on the scoring masters (the table above).
+    chain; **purity at most 3.1** (the owner's answer of 2026-11-28, in place of 1.0: the entry after this one);
+    **the light taken from the Tarantula field at most 98 and 106 %** (the owner's answer of 2026-11-27, in place
+    of 83 and 84); light added on each master's nebula at most 1.0 %; the brightest tenth of the Tarantula's peaks
+    standing on at least 11 of 77; faint stars left on the Lagoon's core at most 37 % and on 30 Doradus at most
+    27 %; the Lagoon's broad light taken at most 2.67; of the 205 plants on dark sky at most 12.0 % left. The
+    teacher itself holds every one of them on the scoring masters (the table above).
+  - **The purity guard, the owner's answer of 2026-11-28.** Purity is the share of the light a remover takes that
+    lies away from every star Gaia lists (StarXTerminator 3.1 %, R4h 0.9, the two forms of the teacher 1.0 and
+    1.1). Asked whether the guard stays at 1.0 with the `--off med2` teacher or moves to StarXTerminator's own
+    reading with the `--off med` one, the owner answered that it may be loosened and left the value open ("not
+    quite sure of the value"; the dictated message reads "listen the purity guard", taken as "loosen"). It is
+    registered **at StarXTerminator's own reading, 3.1**, by the rule the owner set for the field-light guard on
+    2026-11-27: a net asked to reach the judge's level is not asked to be purer than the judge, on a row where
+    purer also means leaving a crowded field's uncatalogued stars. The value is this session's proposal and is put
+    to the owner; another value named before the launch replaces it under "Before the launch", and the teacher
+    reads 1.1, so any value from there up admits it. What still guards against light taken that is no star's is
+    unchanged: the light taken from the Tarantula field, the Lagoon's broad light, the standing peaks, the glow's
+    median and the light added on nebula.
   - **Kill:** a guard fails on the mean; or the mean of the Tarantula's crowded flat through the chain is at or
     under R4h's mean of 91.2. **Cleared:** the question with every guard held, on the mean. Anything else is
     neither, and the rows go to the owner. The two arms are read separately: one can clear while the other does
     not.
   - **Reported, no bar:** each seed beside the mean on every row; R4h's two seeds, the teacher and StarXTerminator
-    beside them; the Lagoon's 84 real faint stars (R4h 34.5 and 33.3 %, the teacher 14.3, StarXTerminator 15.5);
+    beside them; the Lagoon's 84 real faint stars (R4h 34.5 and 33.3 %, the teacher 13.1, StarXTerminator 15.5);
     Gaia's most crowded cell; the two-sided crowded row; the compact clusters' kept share; the Tarantula's peaks
     against the judge, peak by peak (of the 132 the judge leaves standing, how many each seed takes: the teacher
-    33, R4h's seeds 28 and 34); Andromeda's dark flat and dug share AS TRAINED (R4h 60.4 with 24.7 % dug and 79.0
+    34, R4h's seeds 28 and 34); Andromeda's dark flat and dug share AS TRAINED (R4h 60.4 with 24.7 % dug and 79.0
     with 13.0: the teacher's answers hold no dig, so this is where a net that fills its own holes would show); the
     extra cache's held-out objective beside its training objective at the best step; route A's four scenes; the
     time a whole master takes; which rows of the head's scorecard stand within one scatter of a two-seed mean of
     StarXTerminator's, or better.
-  - **Prediction.** Each arm's mean lands between R4h's and the teacher's on the three rows of the question. The
-    teacher stands only 0.6 over the crowded flat's bar, and a net seldom passes its teacher, so R5a most likely
-    reads 92.5 to 94.0 there, 93.5 to 95.0 on BP 17-19 and 48 to 60 % of the plants left: "neither", with the
-    crowded bar or the plants' bar missed by a little. R5b a point better on the crowded rows and five points or
-    more on the plants, as R4l stood to R4h; it clears with odds of about one in four. No guard is expected to
-    fail: the one to read first is purity, which the teacher holds at exactly its bar, and after it the
+  - **Prediction** (written again on 2026-11-28 for the `--off med` teacher, before any training). Each arm's mean
+    lands between R4h's and the teacher's on the three rows of the question. The teacher stands 1.7 over the
+    crowded flat's bar and 2.3 over BP 17-19's, and a net seldom passes its teacher, so R5a most likely reads 93.0
+    to 95.0 on the crowded flat, 94.0 to 96.0 on BP 17-19 and 48 to 60 % of the plants left (the rule on bright
+    nebula is the same in both forms): the crowded bars passed about as often as not, and "neither" the likeliest
+    end, with the plants' bar missed. R5b a point better on the crowded rows and five points or more on the
+    plants, as R4l stood to R4h; it clears with odds of about one in three. No guard is expected to fail: the one
+    to read first is the Lagoon's broad light (the teacher takes 2.12 against a bound of 2.67), and after it the
     Tarantula's glow. What speaks for more: the answers are real stars on the fields they were recorded on, over
     the whole tile where R4k's masks counted a quarter of it, from a teacher that holds every guard; R2p held in
     one pass most of what an average of two seeds over eight views held. What speaks against: the teacher was
-    fitted on the three scoring masters and is unread on most training masters; a net is asked to hold what ten
-    nets of two sizes and two lines hold between them; real pairs cost R4k the crowded rows, though with a far
-    weaker teacher; and a fifth of the draw may not outweigh the drawn stars' own lesson that a faint peak on a
-    textured background stays.
+    fitted on the three scoring masters and is unread on most training masters, and off the nebula this form
+    teaches a compact peak that a single member took; a net is asked to hold what ten nets of two sizes and two
+    lines hold between them; real pairs cost R4k the crowded rows, though with a far weaker teacher; and a fifth
+    of the draw may not outweigh the drawn stars' own lesson that a faint peak on a textured background stays.
   - **If it gains:** the plan's H4 is a loop. A seed of R5 that holds the guards joins the members, the teacher is
-    rebuilt and scored as above, and the next generation is registered on it. If the owner moves the purity guard
-    to StarXTerminator's own reading, the `--off med` form is the teacher for that generation.
+    rebuilt and scored as above, and the next generation is registered on it.
   - **Nothing is adopted;** adoption is the owner's.
 
 #### The dig floor inside bright nebula: floor4, and what it leaves (2026-11-20)
