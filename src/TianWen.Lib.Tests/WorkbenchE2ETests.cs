@@ -302,15 +302,14 @@ public sealed class WorkbenchE2ETests : IDisposable
         e2e.StepWords(0).ShouldBe("kept", "step 1 is in the store");
         e2e.StepWords(1).ShouldBe("will run", "step 2 is not, and step 3 needs it");
         e2e.StepWords(2).ShouldBe("will run");
-        Normalise(e2e.PanelText()).ShouldContain("Run to here (runs 2 first)", Case.Sensitive, "the button says what runs before");
+        e2e.Actions.RunToHereOffer().Label.ShouldBe("Run to here (runs 2 first)", "the offer says what runs before");
         _add.Runs.ShouldBe(runs, "selecting ran nothing");
 
         await SelectAsync(e2e, 0, ct);
-        Normalise(e2e.PanelText()).ShouldContain("Nothing to run: this step is kept", Case.Sensitive);
-        e2e.Texts().ShouldNotContain(t => t.Text == "Run to here", "no button to press where nothing needs to run");
+        e2e.Actions.RunToHereOffer().CanRun.ShouldBeFalse("nothing to run where the step is kept");
 
         await SelectAsync(e2e, 1, ct);
-        e2e.Texts().ShouldContain(t => t.Text == "Run to here", "a step that will run, with nothing before it to run first, says so plainly");
+        e2e.Actions.RunToHereOffer().Label.ShouldBe("Run to here", "a step that will run, with nothing before it to run first, says so plainly");
     }
 
     [Theory(Timeout = 120_000)]
@@ -324,7 +323,7 @@ public sealed class WorkbenchE2ETests : IDisposable
         await e2e.OpenProjectAsync(folder, ct);
         await SelectAsync(e2e, 1, ct);
 
-        e2e.ClickText("Run to here (runs 1 first)");
+        e2e.ClickRun();
         await SettleAsync(e2e, ct);
 
         _add.Runs.ShouldBe(2, "steps 1 and 2 ran, and nothing after");
@@ -353,7 +352,7 @@ public sealed class WorkbenchE2ETests : IDisposable
         e2e.State.RunOn.ShouldBeTrue("on by default");
         await e2e.PumpUntilAsync(() => e2e.State.Plan is not null, "the first plan", ct);
 
-        e2e.ClickText("Run on from step 1");
+        e2e.Actions.RunOn();
         await SettleAsync(e2e, ct);
 
         _add.Runs.ShouldBe(2, "the adds before the refused step ran, and the one behind it did not");
@@ -375,16 +374,16 @@ public sealed class WorkbenchE2ETests : IDisposable
         await e2e.OpenProjectAsync(folder, ct);
         await e2e.PumpUntilAsync(() => e2e.State.Plan is not null, "the first plan", ct);
 
-        e2e.Click(e2e.Region("RunOn"));
+        e2e.Actions.SetRunOn(false);
         e2e.State.RunOn.ShouldBeFalse();
-        e2e.ClickText("Run step 1");
+        e2e.Actions.RunOn();
         await SettleAsync(e2e, ct);
 
         _add.Runs.ShouldBe(1, "one step");
         e2e.State.SelectedStep.ShouldBe(0, "stopped with that step selected");
-        e2e.Texts().ShouldContain(t => t.Text == "Run step 2", "the next step is the one the button now offers");
+        e2e.Actions.RunOnOffer().Label.ShouldBe("Run step 2", "the next step is the one the offer now names");
 
-        e2e.ClickText("Run step 2");
+        e2e.Actions.RunOn();
         await SettleAsync(e2e, ct);
         _add.Runs.ShouldBe(2);
         e2e.State.SelectedStep.ShouldBe(1);
@@ -404,19 +403,18 @@ public sealed class WorkbenchE2ETests : IDisposable
         await e2e.OpenProjectAsync(folder, ct);
         await SelectAsync(e2e, 1, ct);
 
-        e2e.ClickText("Run to here (runs 1 first)");
+        e2e.ClickRun();
         await e2e.PumpFramesUntilAsync(() => _gate.Started.Task.IsCompleted && e2e.Actions.Jobs.State.Fraction is not null, "the step at its gate", ct);
 
         var panel = Normalise(e2e.PanelText());
         panel.ShouldContain("Step 2, Gate: 50 percent", Case.Sensitive, "the running step, and its fraction in words");
         e2e.ClickText("Log ⌄");
         Normalise(string.Join(' ', e2e.Texts().Select(static t => t.Text))).ShouldContain("at the gate", Case.Sensitive, "the run's line, in the log behind the disclosure");
-        e2e.Texts().ShouldContain(t => t.Text == "Cancel");
-        e2e.Texts().ShouldNotContain(t => t.Text.StartsWith("Run to here", StringComparison.Ordinal) || t.Text.StartsWith("Run on", StringComparison.Ordinal),
-            "no second start is offered while one runs");
+        e2e.Texts().ShouldContain(t => t.Text == "■ Stop");
+        e2e.Texts().Count(static t => t.Text.StartsWith("▶ Run", StringComparison.Ordinal)).ShouldBe(0, "no start is offered while one runs, the toolbar's is dimmed and the canvas has its picture");
         e2e.Actions.Jobs.TryStart(folder, "m", through: null).ShouldBeFalse();
 
-        e2e.ClickText("Cancel");
+        e2e.ClickText("■ Stop");
         await SettleAsync(e2e, ct);
 
         e2e.Actions.Jobs.State.Outcome.ShouldBe(WorkbenchJobOutcome.Cancelled);
@@ -550,7 +548,7 @@ public sealed class WorkbenchE2ETests : IDisposable
         await e2e.OpenProjectAsync(folder, ct, "m");
         await SelectAsync(e2e, 1, ct);
 
-        e2e.ClickText("Run to here (runs 1 first)");
+        e2e.ClickRun();
         await e2e.PumpFramesUntilAsync(() => _gate.Started.Task.IsCompleted, "the step at its gate", ct);
 
         // The run writes the store, so no status is asked of it: the box does not open, and the actions refuse.
@@ -791,7 +789,7 @@ public sealed class WorkbenchE2ETests : IDisposable
         await using var e2e = WorkbenchE2E.Start(dpi, Runner(), Catalog());
         await e2e.OpenProjectAsync(folder, ct);
         await SelectAsync(e2e, 1, ct);
-        e2e.ClickText("Run to here (runs 1 first)");
+        e2e.ClickRun();
         await e2e.PumpFramesUntilAsync(() => _gate.Started.Task.IsCompleted, "the step at its gate", ct);
 
         e2e.RegionOfLabel("New project").Tooltip.ShouldNotBeNull().ShouldContain(WorkbenchActions.ChoiceWaitsForTheRun, Case.Sensitive,
@@ -830,7 +828,7 @@ public sealed class WorkbenchE2ETests : IDisposable
         var picked = new TaskCompletionSource<FileDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         e2e.FileDialog.OpenFolderAsync(default!, default).ReturnsForAnyArgs(_ => picked.Task);
         e2e.Actions.NewProject();
-        e2e.ClickText("Run to here (runs 1 first)");
+        e2e.ClickRun();
         await e2e.PumpFramesUntilAsync(() => _gate.Started.Task.IsCompleted, "the step at its gate", ct);
 
         picked.SetResult(new FileDialogResult { Paths = [capture] });

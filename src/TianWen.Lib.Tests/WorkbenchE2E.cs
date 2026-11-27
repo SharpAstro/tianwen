@@ -206,6 +206,9 @@ internal sealed class WorkbenchE2E : IAsyncDisposable
     internal void Click(ClickableRegion region) => Click(new RectF32(region.X, region.Y, region.Width, region.Height));
 
     /// <summary>Clicks where the last frame painted this text, which a button or a choice declares as its label.</summary>
+    /// <summary>Presses the toolbar's Run to the selected step (the topmost painted "▶ Run", the canvas's empty state having another below it).</summary>
+    internal void ClickRun() => Click(Texts().Where(static t => t.Text.StartsWith("▶ Run", StringComparison.Ordinal)).OrderBy(static t => t.Bounds.Y).First().Bounds);
+
     internal void ClickText(string text)
     {
         var found = Texts().Where(t => t.Text == text).ToArray();

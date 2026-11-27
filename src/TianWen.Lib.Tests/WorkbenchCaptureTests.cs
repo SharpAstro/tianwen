@@ -121,8 +121,8 @@ public sealed class WorkbenchCaptureTests : IDisposable
                 _gradient.Release.TrySetResult();
                 e2e.Click(cells[2]);
                 await e2e.PumpUntilAsync(
-                    () => e2e.Texts().Any(static t => t.Text.StartsWith("Run to here", StringComparison.Ordinal)), "the run button for step 3", ct);
-                e2e.Click(e2e.Texts().Single(static t => t.Text.StartsWith("Run to here", StringComparison.Ordinal)).Bounds);
+                    () => e2e.Texts().Any(static t => t.Text.StartsWith("▶ Run", StringComparison.Ordinal)), "the run button for step 3", ct);
+                e2e.ClickRun();
                 await e2e.PumpFramesUntilAsync(
                     () => !e2e.Actions.Jobs.IsRunning && e2e.Actions.Jobs.State.Outcome is WorkbenchJobOutcome.Finished
                         && e2e.State.View!.Image!.Steps[2].State is StepState.Kept, "step 3 kept", ct);
@@ -136,8 +136,8 @@ public sealed class WorkbenchCaptureTests : IDisposable
             {
                 e2e.Click(cells[2]);
                 await e2e.PumpUntilAsync(
-                    () => e2e.Texts().Any(static t => t.Text.StartsWith("Run to here", StringComparison.Ordinal)), "the run button for step 3", ct);
-                e2e.Click(e2e.Texts().Single(static t => t.Text.StartsWith("Run to here", StringComparison.Ordinal)).Bounds);
+                    () => e2e.Texts().Any(static t => t.Text.StartsWith("▶ Run", StringComparison.Ordinal)), "the run button for step 3", ct);
+                e2e.ClickRun();
                 await e2e.PumpFramesUntilAsync(
                     () => _gradient.Started.Task.IsCompleted && e2e.Actions.Jobs.State.Fraction is not null, "the gradient at its gate", ct);
             }
