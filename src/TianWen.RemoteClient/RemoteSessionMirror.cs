@@ -325,7 +325,8 @@ namespace TianWen.RemoteClient
         /// <summary>
         /// The node's notes, oldest first as its ring keeps them (P5b part 6): the ring as it stood when it was fetched, then
         /// each <c>NOTIFICATION</c> it pushed. The ring is fetched when the node first answers and again after the socket
-        /// reconnects, since a note pushed while it was down is in the ring and nowhere else.
+        /// reconnects, since a note pushed while it was down is in the ring and nowhere else. <see cref="NoteReceived"/> is
+        /// raised for each note this feed gains after the first ring read, pushed or brought by a later ring read.
         /// </summary>
         public ImmutableArray<NotificationDto> Notes => _notes;
 
@@ -339,6 +340,9 @@ namespace TianWen.RemoteClient
         // Whether the ring is to be fetched on the node's next answer: at the start, and after the socket reconnects.
         // Raised on the socket's thread, taken by the poll loop.
         private int _ringDue = 1;
+
+        // 1 once a ring read has landed: the first is history from before this client attached, a later one follows a reconnect.
+        private int _ringRead;
 
         /// <summary>The socket (re)connected: the ring is read again at the node's next answer. <c>internal</c> so a test can
         /// raise it without a socket.</summary>
@@ -778,8 +782,18 @@ namespace TianWen.RemoteClient
             var ring = await _client.GetNotificationsAsync(cancellationToken).ConfigureAwait(false);
             if (ring is { IsSuccess: true, Value: { } notes })
             {
-                if (MergeNotes(notes))
+                var firstRead = Interlocked.Exchange(ref _ringRead, 1) == 0;
+                if (MergeNotes(notes, out var added))
                 {
+                    // The first read is history from before this client attached; a later one (after the socket came
+                    // back) brings what was pushed while it was down, which a person has not been told of yet.
+                    if (!firstRead)
+                    {
+                        foreach (var note in added)
+                        {
+                            NoteReceived?.Invoke(this, note);
+                        }
+                    }
                     RaiseChanged();
                 }
                 return;
@@ -793,40 +807,69 @@ namespace TianWen.RemoteClient
         /// Merges notes into <see cref="Notes"/>, the ring's and the pushes' alike: one of each note (a note is its instant,
         /// severity and wording), oldest first, the newest <see cref="MaxNotes"/> kept. True when a note was new.
         /// </summary>
-        internal bool MergeNotes(IReadOnlyCollection<NotificationDto> incoming) =>
-            ImmutableInterlocked.Update(ref _notes, static (held, incoming) =>
+        internal bool MergeNotes(IReadOnlyCollection<NotificationDto> incoming) => MergeNotes(incoming, out _);
+
+        /// <summary>As <see cref="MergeNotes(IReadOnlyCollection{NotificationDto})"/>, and says which notes it added (oldest
+        /// first), that the feed still holds.</summary>
+        internal bool MergeNotes(IReadOnlyCollection<NotificationDto> incoming, out ImmutableArray<NotificationDto> addedNotes)
+        {
+            while (true)
             {
-                var seen = new HashSet<(DateTimeOffset, string, string)>(held.Length + incoming.Count);
-                foreach (var note in held)
+                var held = _notes;
+                var (next, added) = MergeInto(held, incoming);
+                if (added.IsEmpty)
                 {
-                    seen.Add((note.TimestampUtc, note.Severity, note.Message));
+                    addedNotes = [];
+                    return false;
                 }
+                if (next.SequenceEqual(held))
+                {
+                    // Notes older than a full feed keeps come back with every read of the ring and are trimmed straight off
+                    // again: that is nothing new.
+                    addedNotes = [];
+                    return false;
+                }
+                if (ImmutableInterlocked.InterlockedCompareExchange(ref _notes, next, held) == held)
+                {
+                    addedNotes = added;
+                    return true;
+                }
+            }
+        }
 
-                List<NotificationDto>? added = null;
-                foreach (var note in incoming)
-                {
-                    if (seen.Add((note.TimestampUtc, note.Severity, note.Message)))
-                    {
-                        (added ??= []).Add(note);
-                    }
-                }
-                if (added is null)
-                {
-                    // Nothing new: the same array, so Update reports no change.
-                    return held;
-                }
+        private static (ImmutableArray<NotificationDto> Merged, ImmutableArray<NotificationDto> Added) MergeInto(
+            ImmutableArray<NotificationDto> held, IReadOnlyCollection<NotificationDto> incoming)
+        {
+            var seen = new HashSet<(DateTimeOffset, string, string)>(held.Length + incoming.Count);
+            foreach (var note in held)
+            {
+                seen.Add((note.TimestampUtc, note.Severity, note.Message));
+            }
 
-                // OrderBy is stable, so two notes of one instant keep the order they came in.
-                ImmutableArray<NotificationDto> merged = [.. held.AddRange(added).OrderBy(static n => n.TimestampUtc)];
-                if (merged.Length > MaxNotes)
+            List<NotificationDto>? fresh = null;
+            foreach (var note in incoming)
+            {
+                if (seen.Add((note.TimestampUtc, note.Severity, note.Message)))
                 {
-                    merged = merged.RemoveRange(0, merged.Length - MaxNotes);
+                    (fresh ??= []).Add(note);
                 }
+            }
+            if (fresh is null)
+            {
+                return (held, []);
+            }
 
-                // Notes older than a full feed keeps come back with every read of the ring and are trimmed straight off
-                // again: that is nothing new, and the same array says so.
-                return merged.SequenceEqual(held) ? held : merged;
-            }, incoming);
+            // OrderBy is stable, so two notes of one instant keep the order they came in.
+            ImmutableArray<NotificationDto> merged = [.. held.AddRange(fresh).OrderBy(static n => n.TimestampUtc)];
+            if (merged.Length > MaxNotes)
+            {
+                merged = merged.RemoveRange(0, merged.Length - MaxNotes);
+            }
+
+            // Only a note the feed still holds counts as added: one older than a full feed keeps is trimmed straight off.
+            var kept = new HashSet<NotificationDto>(merged);
+            return (merged, [.. fresh.Where(kept.Contains).OrderBy(static n => n.TimestampUtc)]);
+        }
 
         /// <summary>
         /// Whether to fetch the node's frames at all. Off by default: a mirror is often attached just to
@@ -1311,6 +1354,7 @@ namespace TianWen.RemoteClient
             var note = new NotificationDto
             {
                 Severity = ReadString(data, "Severity") ?? nameof(NotificationSeverity.Info),
+                Kind = ReadString(data, "Kind"),
                 Message = message,
                 TimestampUtc = when,
             };
@@ -1757,8 +1801,9 @@ namespace TianWen.RemoteClient
         public event EventHandler<GuiderStateChangedEventArgs>? GuiderStateChanged;
 
         /// <summary>
-        /// A note the node recorded, as it pushed it (<c>NOTIFICATION</c>). The node's ring
-        /// (<see cref="GetNotificationsAsync"/>) holds what came before.
+        /// A note new to <see cref="Notes"/>: one the node pushed (<c>NOTIFICATION</c>), or one a ring read after the first
+        /// brought, which a socket that was down missed. Raised once per note. The first ring read, history from before this
+        /// client attached, raises nothing (<see cref="GetNotificationsAsync"/> reads it).
         /// </summary>
         public event EventHandler<NotificationDto>? NoteReceived;
 

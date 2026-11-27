@@ -705,17 +705,17 @@ namespace TianWen.UI.Abstractions
             {
                 if (wasBreached)
                 {
-                    Notify(NotificationSeverity.Info, "Mount is clear of its safety limits again.");
+                    Notify(NotificationSeverity.Info, "Mount is clear of its safety limits again.", NoteKind.MountLimitCleared);
                 }
                 return;
             }
             Notify(verdict.IsWarningOnly ? NotificationSeverity.Warning : NotificationSeverity.Error,
-                $"Mount safety limit: {verdict.Describe()}");
+                $"Mount safety limit: {verdict.Describe()}", NoteKind.MountLimit);
         }
 
-        private void Notify(NotificationSeverity severity, string message)
+        private void Notify(NotificationSeverity severity, string message, NoteKind kind = NoteKind.None)
         {
-            _appState.AppendNotification(_timeProvider.GetUtcNow(), severity, message);
+            _appState.AppendNotification(_timeProvider.GetUtcNow(), severity, message, kind);
             _appState.NeedsRedraw = true;
 
             // Also LOG anything that went wrong. The notification feed is in-memory and dies with the

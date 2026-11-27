@@ -25,6 +25,14 @@ namespace TianWen.Hosting.Dto
         /// <summary>Info / Warning / Error, matching the GUI severity names.</summary>
         public required string Severity { get; init; }
 
+        /// <summary>
+        /// What kind of event the note is about, by the name of <c>TianWen.Lib.Sequencing.NoteKind</c> (a string for the same
+        /// reason as <see cref="Severity"/>: this assembly does not reference Lib). Null from an older node, which a reader
+        /// takes as "None"; a name it does not know reads as "None" too. Never <c>required</c> (a nullable wire property),
+        /// and <c>set</c> rather than <c>init</c> (a serialised property with a default).
+        /// </summary>
+        public string? Kind { get; set; }
+
         public required string Message { get; init; }
 
         /// <summary>When the node recorded it, from the node's <c>ITimeProvider</c> (so a simulated

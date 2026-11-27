@@ -29,7 +29,8 @@ public enum GuiTab
 public readonly record struct NotificationEntry(
     DateTimeOffset When,
     NotificationSeverity Severity,
-    string Message)
+    string Message,
+    NoteKind Kind = NoteKind.None)
 {
     /// <summary>
     /// A note a node recorded, as this computer's feed shows notes: its rig's Home card and the Notifications tab of the
@@ -40,7 +41,9 @@ public readonly record struct NotificationEntry(
     public static NotificationEntry FromNode(TianWen.Hosting.Dto.NotificationDto note) => new NotificationEntry(
         note.TimestampUtc,
         Enum.TryParse<NotificationSeverity>(note.Severity, ignoreCase: true, out var severity) ? severity : NotificationSeverity.Info,
-        note.Message);
+        note.Message,
+        // An older node sends no kind, and a name this build does not know is not a reason to drop the note: both read None.
+        Enum.TryParse<NoteKind>(note.Kind, ignoreCase: true, out var kind) && Enum.IsDefined(kind) ? kind : NoteKind.None);
 }
 
 /// <summary>
@@ -502,10 +505,10 @@ public class GuiAppState
     /// <see cref="StatusMessage"/>. Caller supplies the timestamp from their own
     /// <c>ITimeProvider</c>: this class does not hold a time source.
     /// </summary>
-    public void RecordNotification(DateTimeOffset when, NotificationSeverity severity, string message)
+    public void RecordNotification(DateTimeOffset when, NotificationSeverity severity, string message, NoteKind kind = NoteKind.None)
     {
         ImmutableInterlocked.Update(ref _notifications, static (current, entry) => WithNotification(current, entry),
-            new NotificationEntry(when, severity, message));
+            new NotificationEntry(when, severity, message, kind));
         if (ActiveTab != GuiTab.Notifications)
         {
             Interlocked.Increment(ref _unreadNotificationCount);
@@ -524,10 +527,10 @@ public class GuiAppState
     /// at any call site where you'd otherwise just assign StatusMessage and
     /// also want a persistent history entry. Caller supplies the timestamp.
     /// </summary>
-    public void AppendNotification(DateTimeOffset when, NotificationSeverity severity, string message)
+    public void AppendNotification(DateTimeOffset when, NotificationSeverity severity, string message, NoteKind kind = NoteKind.None)
     {
         StatusMessage = message;
-        RecordNotification(when, severity, message);
+        RecordNotification(when, severity, message, kind);
     }
 
     /// <summary>Empty the notification history. Called by the Notifications tab's Clear button.</summary>
