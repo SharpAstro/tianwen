@@ -30,8 +30,9 @@ One `Layout` tree, built each frame from the state, as `docs/designs/workbench/M
 top bar (the project's folder, the image choice where the project has several, New project and Open project), the toolbar,
 then left to right the **project tree** (300 wide), the **panel slot** (340 wide: the selected step's panel, or a frame
 group's files) and the canvas with the viewer's own renderer in a keyed fill, and under them the **status strip**. The
-viewer's toolbar is cut to the controls that are about looking (`ViewerOffer`): no Open file, Enhance, crop or solve,
-because those are operations here, and no file list. The layout lives in `WorkbenchScreen.cs` (frame, top bar, panel),
+viewer is drawn as the picture alone (`HideChrome`, no info panel, no file list): its own toolbar and info panel are not
+shown, because the workbench's toolbar has the view, Fit, 1:1 and the stretch and the panel beside the tree has a file's
+details. The layout lives in `WorkbenchScreen.cs` (frame, top bar, panel),
 `WorkbenchScreen.Tree.cs` (toolbar, tree, canvas empty state, status strip) and `WorkbenchScreen.NewProject.cs` (the two
 pages); the actions for the tree are `WorkbenchActions.Tree.cs`.
 
@@ -54,9 +55,9 @@ after only where the step has a result and an input.
   refused, – off), its title and a ▶. The marks of the images not on show are read with the image on show: the status
   is asked for every image at once (`WorkbenchView.Reports`). A press selects (a row of another image opens that image
   first), nothing runs. The ▶ and the toolbar's button are the same run: every step up to the step, the kept ones
-  kept, the stale and the missing ones first (`RunToRow`, `RunToHere`). The ▶ is always drawn, dimly, and takes the
-  accent on the selected row and on hover: the engine has no hover-only reveal, and the room is reserved so nothing moves
-  under the pointer.
+  kept, the stale and the missing ones first (`RunToRow`, `RunToHere`). The ▶ is drawn on the selected row and on the row
+  under the pointer (`DrawHoveredPlayMarks`: a layout node has no ink of its own for hover, so the mark is painted over
+  the slot); the slot is always there and lights on hover, so nothing moves under the pointer.
 - **Header**: the workflow's name as a dropdown that switches workflow (`SwitchWorkflow`, through
   `WorkbenchWorkflows.ApplyAsync` with the capture's facts read afresh), + Step › (a menu of the operations that take no
   other image; `WorkbenchWorkflows.AddStepAsync` after the selected step) and Remove (`RemoveStepAsync`). A switch asks
@@ -109,11 +110,14 @@ blocked. Selecting a step shows its panel, described under "The step's panel" be
 
 ## The step's panel (#2553, section 3)
 
-The panel right of the tree, top to bottom: the step's number and title (wrapping, never cut) with its **On** checkbox, what the
+The panel right of the tree, top to bottom: the step's number and title (wrapping, never cut) with its **On** checkbox under it (beside it, it was cut by a narrow panel), what the
 operation does, the state in words with what fixes it (`WorkbenchActions.FixWords`: stale because a setting or an earlier step
-changed, switch it on, change the settings, run to here), the Run and Job blocks, the stack's masters, **Settings**, **Gives**,
+changed, switch it on, change the settings, run to here), the Job block while a run goes, the stack's masters, **Settings**, **Gives**,
 **Served by** and the **Command line**, folded behind a disclosure (it can be a path wide) with Copy inside it. Section labels
-are the small dim upper-case ones, never the accent, which is kept for the one main action.
+are the small dim upper-case ones, never the accent, which is kept for the one main action: the toolbar's **Run to <step>**.
+The panel has no run button of its own (the toolbar's and the row's ▶ are the run; the canvas's empty state keeps a standard
+button), so one view has one accent. The switch "Run on until a step needs me" and its starts stay in `WorkbenchActions`
+(`RunOn`, `SetRunOn`) with no control until a place for them is designed.
 
 **Settings are controls the Lib derives**, never written by hand per operation. `OperationSettingsForm.Describe(operation)` reads the
 operation's `JsonTypeInfo` from `OperationSettingsJsonContext` (`IOperation.SettingsContract`) and gives each setting a name, a
@@ -125,7 +129,7 @@ reflection over the settings type, so a new setting is a control with no change 
 | `Bool` | a checkbox (stands in for the mockup's switch until DIR.Lib#156 lands) |
 | `Choice` (an enum) | a dropdown of the enum's names |
 | `Integer`, `Number`, `Text` | a field, saved with Enter (the mockup's slider with a numeric field waits for DIR.Lib#330; no range is known to the contract, so there is no slider) |
-| `Other` (a list or a record) | the value in words; edited in `project.json` or on the command line |
+| `Other` (a list or a record) | words: "none" when empty, "set in the project file" otherwise (never raw JSON); a list of entries with add and remove is missing, marked `MISSING` in the code |
 
 An edit goes through `WorkbenchActions.SetSetting`, which parses the text (`OperationSettingsForm.TryParse`: a text that is not a
 value of the setting is refused in words under the controls and nothing is written), then `WorkbenchWorkflows.SetStepSettingAsync`
@@ -139,27 +143,29 @@ answer; what was typed and not saved is dropped when the field loses focus.
 **A frame group's panel** lists its files: the name (a press shows the file on the canvas, through the viewer's own load path,
 `WorkbenchActions.Wanted` handing the viewer the file and `WorkbenchViewDriver` asking for it between frames, off the render
 thread), the same kind dropdown as the Import page (`WorkbenchActions.ReassignFrame`, `WorkbenchProjects.ReassignAsync`, then the
-frames and the project are read again, so the stack step reads stale), and a grade where the lights were graded (grading reads the
-pixels, so it is asked once, at the first look at the Lights). A step has no picture of its own: that is said once, on the canvas,
-not again in the panel (only a comparison the viewer could not keep is said in the panel).
+frames and the project are read again, so the stack step reads stale), and its grade as a short word on the row, dim when not graded (grading reads the
+pixels, so it is asked once, at the first look at the Lights). Under the list the selected file's details stand as a few dim
+lines (exposure, filter, temperature, gain, camera, and why it is taken for its kind). A step has no picture of its own: that is said once, on the canvas,
+not again in the panel (only a comparison the viewer could not keep is said in the panel). A project made from no built-in workflow is titled "Custom workflow" in the tree's header.
 
 A refused New project is said in the top bar's own row, in the place of the folder, with the whole text on hover: there is no band
 of its own, so nothing is reserved for it and nothing moves when it comes.
 
 ## Run to here and run on
 
-- **Run to here** makes the image up to the selected step. Its label is the runner's word for what that would do (a status
-  through that step), read once the answer is in, so the button never promises what the runner did not say.
+- **Run to here** makes the image up to the selected step: the toolbar's **Run to <step>**, the row's ▶ and the canvas's button. Its
+  offer (`RunToHereOffer`) is the runner's word for what that would do (a status through that step), read once the answer is in,
+  so the button never promises what the runner did not say; the words are its hover text, and a run that cannot go dims it.
 - **Run on from step N** goes on from the first step that is not kept. The switch "Run on until a step needs me" (on by
   default) takes the run to the end of the list and stops at a step that is refused or blocked, selecting it; off, a run
-  makes only the next step that is not kept and stops with it selected.
+  makes only the next step that is not kept and stops with it selected. Neither has a button now (see the panel above).
 
 ## Jobs and cancel
 
 `WorkbenchJobs` starts `WorkbenchRunner.RunAsync` on the background tracker with a token linked to the app's, takes the
 engine's `IProgress` and log lines into one immutable `WorkbenchJobState` (running, step, title, fraction where the
 operation reports one, every line, how it ended) and says when it ended. A second start while one runs is refused, and no
-screen offers it. The panel shows the running step, a bar, the lines, and Cancel, which ends the run at its next check of
+screen offers it. The panel shows the running step, a bar and the lines; **■ Stop** in the toolbar ends the run at its next check of
 the token. A run ends as Finished, Stopped (at a refused or blocked step, with the reason), Cancelled or Failed (an
 exception). What a run did to the steps is never read from the job: the settled callback asks the runner afresh.
 
@@ -334,7 +340,7 @@ filter group), by `WorkbenchStepPanel.Masters`.
   on hover, and `OpenProject`, `ChooseProject`, `NewProject` and `ChooseImage` refuse, so a choice made meanwhile is not
   landed on by the chain's own open (which goes through a private path that skips that guard).
 - **A chain made but not opened is said in words.** If a run started after the press passed its guard, the chain is on disk
-  but its image is not opened: the stack step stays selected (its panel, the masters list and Cancel stay on screen),
+  but its image is not opened: the stack step stays selected (its panel, the masters list and the toolbar's Stop stay on screen),
   `MasterRefusal` says "<group> was processed but its image was not opened: <the run's reason>. Choose it from the image
   box.", and the log says the same. `AChainMadeWhileARunStartsIsNotOpenedAndSaysSoInWordsLeavingTheStackStepSelected` pins it.
 - **The chain is added under the project file's lock**, re-reading `project.json` there, so a second press or the CLI while
@@ -347,7 +353,7 @@ filter group), by `WorkbenchStepPanel.Masters`.
 ## A comparison the viewer could not keep
 
 A Comparison keeps the step's input pixels as the before half. When the viewer declines (it does under memory pressure,
-`ShouldSkipBeforePixelCache`) the person gets the result alone, and the Views section says "The comparison was not kept for
+`ShouldSkipBeforePixelCache`) the person gets the result alone, and the panel says "The comparison was not kept for
 want of memory" (`WorkbenchState.ComparisonDeclined`, set by `WorkbenchViewDriver`, cleared when another picture is asked for).
 
 ## What W2 leaves out

@@ -634,7 +634,12 @@ drawn edits: exclusion polygons, a crop rectangle, the colour looks with before 
 frame groups with their file lists, per-file reassignment and the grade (W4 keeps calibration inspection: the coverage of
 darks, flats and bias against the lights). **Brought forward from W9:** switching a step on or off and changing one setting
 through the Lib, `WorkbenchWorkflows.SetStepEnabledAsync` and `SetStepSettingAsync` (W9 keeps the workflow file and gates). Left
-for when DIR.Lib has them: a switch (DIR.Lib#156) and a slider with a numeric field (DIR.Lib#330). See
+for when DIR.Lib has them: a switch (DIR.Lib#156) and a slider with a numeric field (DIR.Lib#330). After the controller's look at the
+captures: the panel has no run button (one accent per view, the toolbar's Run to <step>), the viewer is drawn without its own
+toolbar and info panel, the ▶ shows on the selected and the hovered row only, a list setting reads in words until it has a
+control (a list of entries with add and remove is still missing), the grade is a word on each file row with the selected file's
+details under the list, and the comet template builds the comet stack (one run gives the comet and the stars), each finished,
+and the blend (no remove-stars split: the run itself gives the star layer). See
 [workbench-app.md](../architecture/workbench-app.md), "What is in the folder" and "The step's panel".
 
 ### W3 The planetary steps
