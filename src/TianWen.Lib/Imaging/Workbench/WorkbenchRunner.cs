@@ -73,6 +73,13 @@ public sealed record StepReport(
     /// tw or mix. Empty where no model serves the step, or what serves it does not say whose it is.</summary>
     public string ServedTag { get; init; } = string.Empty;
 
+    /// <summary>
+    /// For a kept or ran step whose results are named by its run (the stack): the name of each result it gave, in the
+    /// order it gave them, so a host can list the masters (a group each) without reading the store itself. Empty for
+    /// every other step, and for one not yet made or whose results the store has lost.
+    /// </summary>
+    public ImmutableArray<string> Results { get; init; } = [];
+
     /// <summary>The state in the words a person reads (<see cref="StepStates.Words"/>).</summary>
     public string Words => StepStates.Words(State);
 }
@@ -393,7 +400,7 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
 
         // The report is read off the plan before the project file takes this run's keys, so "changed since the last
         // run" is said against the run before this one.
-        var report = new WorkbenchReport([.. images.Select(image => planner.Plan(image.Name).Report())], refusal, exported)
+        var report = new WorkbenchReport([.. images.Select(image => planner.Plan(image.Name).Report(store))], refusal, exported)
         {
             FramesDigested = frames.Digested,
             FramesFromIndex = frames.FromIndex,
@@ -1150,7 +1157,7 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             return node;
         }
 
-        public ImageReport Report() => new(
+        public ImageReport Report(StepStore store) => new(
             Image.Name,
             Path.Length > 0 ? Path : Image.Result is { Length: > 0 } result ? $"from {Image.From} ({result})" : $"from {Image.From}",
             Key,
@@ -1166,6 +1173,7 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             {
                 ServedBy = step.ServedBy,
                 ServedTag = step.ServedTag,
+                Results = step is { State: StepState.Kept or StepState.Ran, Node: { Operation: IRunNamedOperation } named } ? NamesIn(store, named) ?? [] : [],
             })],
             Refusal,
             Image.Digest is { } digest && Key.Length > 0 && !string.Equals(digest, Key, StringComparison.Ordinal));

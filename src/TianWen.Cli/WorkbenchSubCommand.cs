@@ -1,7 +1,6 @@
 using System.CommandLine;
 using System.IO;
 using System.Linq;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Imaging;
@@ -10,7 +9,7 @@ using TianWen.Lib.Imaging.Workbench;
 namespace TianWen.Cli;
 
 /// <summary>
-/// <c>tianwen workbench status|run|operations|chain</c>: a project's edit lists run with no window
+/// <c>tianwen workbench new|process|status|run|operations|chain</c>: a project made from a capture, and its edit lists run, with no window
 /// (docs/plans/stacking-workbench.md, W1). A project is a folder holding <c>project.json</c> (the original files and
 /// the edits made to each) beside the step store.
 /// </summary>
@@ -24,7 +23,7 @@ internal sealed class WorkbenchSubCommand(IConsoleHost consoleHost, OperationCat
         "Run a project's edit lists without a window: a folder holding project.json (the original files and the edits made to each) "
         + "beside the step store. A step whose result is in the store is not run again.")
     {
-        Subcommands = { BuildStatusCommand(), BuildRunCommand(), BuildOperationsCommand(), BuildChainCommand() },
+        Subcommands = { BuildStatusCommand(), BuildRunCommand(), BuildOperationsCommand(), BuildChainCommand(), BuildNewCommand(), BuildProcessCommand() },
     };
 
     private Command BuildChainCommand()
@@ -43,91 +42,89 @@ internal sealed class WorkbenchSubCommand(IConsoleHost consoleHost, OperationCat
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
+            if (!operations.TryGet(EnhanceOperation.Id, out var registered) || registered is not EnhanceOperation enhance)
+            {
+                consoleHost.WriteError("[workbench] the enhance is not registered here");
+                return 1;
+            }
+
+            return PrintAdded(await WorkbenchProjects.AddChainAsync(parseResult.Required(projectArg), runner, enhance, parseResult.Required(imageArg),
+                parseResult.GetValue(nameOpt), line => consoleHost.WriteScrollable($"[workbench] {line}"), ct));
+        });
+        return cmd;
+    }
+
+    private Command BuildNewCommand()
+    {
+        var projectArg = ProjectArgument();
+        var framesArg = new Argument<string>("frames") { Description = "The capture folder: a night's lights (and calibration frames, which the stack finds itself)." };
+        var cmd = new Command("new",
+            "Make a project for a capture: a project.json holding one image, the capture folder, whose one edit is the stack at its defaults. "
+            + "Nothing is run (workbench run stacks it). Refused where the project folder already holds a project, the capture folder is not "
+            + "there, or it is the project folder or inside its step store.")
+        {
+            Arguments = { projectArg, framesArg },
+        };
+        cmd.SetAction(async (parseResult, ct) =>
+        {
             var folder = parseResult.Required(projectArg);
-            var (project, unreadable) = await WorkbenchProjectFile.ReadAsync(folder, ct);
-            if (project is null)
+            var made = await WorkbenchProjects.NewAsync(folder, parseResult.Required(framesArg), ct);
+            if (made.Project is not { } project)
             {
-                consoleHost.WriteError($"[workbench] {unreadable}");
+                consoleHost.WriteError($"[workbench] {made.Refusal}");
                 return 1;
             }
 
-            var name = parseResult.Required(imageArg);
-            if (Refusal(project, name, folder) is { } refusal)
-            {
-                consoleHost.WriteError($"[workbench] {refusal}");
-                return 1;
-            }
-
-            var image = project.Images.First(each => each.Name == name);
-            var edit = image.Edits[0];
-            var settings = edit.Settings is null ? new EnhanceSettings() : JsonSerializer.Deserialize(edit.Settings, OperationSettingsJsonContext.Default.EnhanceSettings) ?? new EnhanceSettings();
-            if (!operations.TryGet(EnhanceOperation.Id, out var registered) || registered is not EnhanceOperation enhance
-                || !EnhanceOperation.TryOptions(settings, out var options, out _))
-            {
-                consoleHost.WriteError("[workbench] the enhance is not registered here, or its settings are not ones it takes");
-                return 1;
-            }
-
-            // The enhance's input: the image's own file, or what the image it starts from leaves in the store.
-            var sourcePath = await StartingFileAsync(folder, image, ct);
-            if (sourcePath is null || !Image.TryReadFitsFile(sourcePath, out var source))
-            {
-                consoleHost.WriteError($"[workbench] {name} starts from {image.From ?? image.Path}, which has no file to read yet: run the project first (workbench run).");
-                return 1;
-            }
-
-            var program = await enhance.ProgramAsync(enhance.Start(source, options), settings, stretchedInPipeline: false, recombine: true,
-                line => consoleHost.WriteScrollable($"[workbench] {line}"), ct);
-            var chainName = parseResult.GetValue(nameOpt) ?? name + "-chain";
-            var (chain, notFollowed) = EnhanceChain.ImagesFor(program, settings, source, chainName, image);
-            if (notFollowed is not null)
-            {
-                consoleHost.WriteError($"[workbench] {name} cannot be laid out as single steps: {notFollowed}.");
-                return 1;
-            }
-
-            if (chain.FirstOrDefault(each => project.Images.Any(other => other.Name == each.Name)) is { } taken)
-            {
-                consoleHost.WriteError($"[workbench] the project already has an image named {taken.Name}: name the chain with --name.");
-                return 1;
-            }
-
-            await WorkbenchProjectFile.WriteAsync(folder, project with { Images = [.. project.Images, .. chain] }, ct);
-            foreach (var each in chain)
-            {
-                consoleHost.WriteScrollable($"[workbench] added {each.Name}" + (each.From is { } from ? $" from {from}{(each.Result is { } result ? $"'s {result}" : string.Empty)}" : string.Empty)
-                    + $": {string.Join(", ", each.Edits.Select(static step => step.Operation))}");
-            }
-
+            var image = project.Images[0];
+            consoleHost.WriteScrollable($"[workbench] made {Path.GetFullPath(folder)}: {image.Name} from {image.Path}, one step: {image.Edits[0].Operation}");
             return 0;
         });
         return cmd;
     }
 
-    // Why the named image cannot be laid out as a chain, or null: it must exist and its one edit must be an enhance, on a
-    // file or on another image's main result.
-    private static string? Refusal(WorkbenchProject project, string name, string folder)
-        => project.Images.FirstOrDefault(each => each.Name == name) switch
-        {
-            null => $"{folder} has no image named {name}",
-            { Edits: not [{ Operation: EnhanceOperation.Id, Enabled: true }] } => $"{name} is laid out only when its one edit is an enhance",
-            { Result: not null } => $"{name} starts from another image's extra result, which the chain does not take",
-            _ => null,
-        };
-
-    // The file an image's edits start from: its own, or the last stored result of the image it starts from.
-    private async Task<string?> StartingFileAsync(string folder, ProjectImage image, CancellationToken cancellationToken)
+    private Command BuildProcessCommand()
     {
-        if (image.From is null)
+        var projectArg = ProjectArgument();
+        var imageArg = new Argument<string>("image") { Description = "The image with the stack step." };
+        var groupArg = new Argument<string>("group") { Description = "The master to process: the name of one of the stack's groups (workbench status lists them)." };
+        var nameOpt = new Option<string?>("--name") { Description = "What the chain's result is called. Default: <image>-<group>, made safe and unique." };
+        var cmd = new Command("process",
+            "Process one master of a stack: add an image that starts from the master of that group, its edits the enhance laid out as its chain of "
+            + "single steps (as workbench chain). Nothing is run. Refused where the stack has not been run or did not give that group.")
         {
-            return Path.Combine(folder, image.Path);
+            Arguments = { projectArg, imageArg, groupArg },
+            Options = { nameOpt },
+        };
+        cmd.SetAction(async (parseResult, ct) =>
+        {
+            if (!operations.TryGet(EnhanceOperation.Id, out var registered) || registered is not EnhanceOperation enhance)
+            {
+                consoleHost.WriteError("[workbench] the enhance is not registered here");
+                return 1;
+            }
+
+            return PrintAdded(await WorkbenchProjects.AddMasterChainAsync(parseResult.Required(projectArg), runner, enhance, parseResult.Required(imageArg),
+                parseResult.Required(groupArg), parseResult.GetValue(nameOpt), line => consoleHost.WriteScrollable($"[workbench] {line}"), ct));
+        });
+        return cmd;
+    }
+
+    // Prints what a routine added, or why it added nothing; the exit code is 1 on a refusal.
+    private int PrintAdded(ChainAddedResult result)
+    {
+        if (result.Refusal is { } refusal)
+        {
+            consoleHost.WriteError($"[workbench] {refusal}");
+            return 1;
         }
 
-        var status = await runner.StatusAsync(folder, new WorkbenchRunOptions { Image = image.From }, cancellationToken);
-        var from = status.Images.FirstOrDefault(each => each.Name == image.From);
-        return from?.Steps.LastOrDefault() is { State: StepState.Kept, Output: { } output } ? Path.Combine(folder, output)
-            : from is { Steps.IsEmpty: true, Path.Length: > 0 } ? Path.Combine(folder, from.Path)
-            : null;
+        foreach (var each in result.Added)
+        {
+            consoleHost.WriteScrollable($"[workbench] added {each.Name}" + (each.From is { } from ? $" from {from}{(each.Result is { } picked ? $"'s {picked}" : string.Empty)}" : string.Empty)
+                + $": {string.Join(", ", each.Edits.Select(static step => step.Operation))}");
+        }
+
+        return 0;
     }
 
     private static Argument<string> ProjectArgument() => new("project") { Description = "The project's folder: it holds project.json." };
