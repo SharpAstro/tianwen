@@ -169,6 +169,10 @@ internal sealed class WorkbenchE2E : IAsyncDisposable
 
         public override bool HasBeforeImageTextures => _retained;
 
+        // The default reads the machine-wide GC memory load, so a run of many classes on a loaded machine declines the
+        // retention and the comparison never starts; this surface always keeps, as ViewerSplitTests pins it too.
+        protected override bool ShouldSkipBeforePixelCache(long bytes) => false;
+
         public override bool TryRetainImageTexturesAsBefore()
         {
             _retained = true;

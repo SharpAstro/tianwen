@@ -279,7 +279,12 @@ public sealed class WorkbenchActions(
             {
                 logger.LogInformation("{Folder} was made but not opened: {Why}", projectFolder, ChoiceWaitsForTheRun);
             }
-        }, appToken, logger, "Make a workbench project from a capture folder", onError: _ => state.NeedsRedraw = true);
+        }, appToken, logger, "Make a workbench project from a capture folder",
+            onError: ex =>
+            {
+                state.NewProjectRefusal = $"No project was made: {ex.Message}";
+                state.NeedsRedraw = true;
+            });
     }
 
     /// <summary>Shows another image of the project. Refused while a run goes, as <see cref="OpenProject"/> is.</summary>

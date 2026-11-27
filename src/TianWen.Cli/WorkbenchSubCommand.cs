@@ -316,6 +316,12 @@ internal sealed class WorkbenchSubCommand(IConsoleHost consoleHost, OperationCat
                     consoleHost.WriteScrollable($"[workbench]     served by: {step.ServedBy}");
                 }
 
+                // A stack's masters, one per group: the names `workbench process` takes.
+                if (!step.Results.IsDefaultOrEmpty)
+                {
+                    consoleHost.WriteScrollable($"[workbench]     masters: {string.Join(", ", step.Results)}");
+                }
+
                 if (commandLines && !step.CommandLine.IsDefaultOrEmpty)
                 {
                     consoleHost.WriteScrollable($"[workbench]     {StepCommandLine.Display(step.CommandLine)}");

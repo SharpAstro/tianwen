@@ -222,6 +222,11 @@ public sealed class WorkbenchNewProjectTests : IDisposable
 
         // The verb adds what the routine adds.
         var (command, said) = WorkbenchVerb(catalog, runner);
+
+        // The status names the masters a kept stack step gives, so a group is known before a refusal teaches it.
+        (await command.Parse(["status", project]).InvokeAsync(cancellationToken: ct)).ShouldBe(0, string.Join("\n", said));
+        said.ShouldContain(line => line.Contains("masters: m31_L, m31_R"));
+        said.Clear();
         (await command.Parse(["process", project, "night-1", "m31_R", "--name", "right"]).InvokeAsync(cancellationToken: ct)).ShouldBe(0, string.Join("\n", said));
         read = (await WorkbenchProjectFile.ReadAsync(project, ct)).Project.ShouldNotBeNull();
         var right = read.Images.Single(static image => image.Name == "right-starless");

@@ -697,6 +697,26 @@ public sealed class WorkbenchE2ETests : IDisposable
     }
 
     [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task ANewProjectThatCannotBeWrittenSaysWhyInsteadOfDoingNothing(float dpi)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var capture = CaptureFolder();
+        // A project folder that is an existing file: the routine throws when it makes the folder.
+        var aFile = Path.Combine(_folders.Create("file-").FullName, "not-a-folder");
+        File.WriteAllText(aFile, "x");
+        await using var e2e = WorkbenchE2E.Start(dpi, new WorkbenchRunner(StackCatalog()), StackCatalog());
+        e2e.FakeFolderPicks(aFile, capture);
+
+        e2e.Click(e2e.RegionOfLabel("New project"));
+        await e2e.PumpUntilAsync(() => e2e.State.NewProjectRefusal is not null, "the refusal", ct);
+
+        e2e.State.View.ShouldBeNull("nothing was opened");
+        e2e.State.NewProjectRefusal.ShouldNotBeNull().ShouldStartWith("No project was made: ");
+    }
+
+    [Theory(Timeout = 120_000)]
     [InlineData(1f, 0)]
     [InlineData(1.5f, 0)]
     [InlineData(1f, 1)]
@@ -737,6 +757,7 @@ public sealed class WorkbenchE2ETests : IDisposable
             "the dimmed button says why on hover");
         e2e.FakeFolderPicks(null);
         e2e.Actions.NewProject();
+        await e2e.PumpFramesUntilAsync(() => !e2e.Host.IsBusy, "the press to be answered", ct);
         _ = e2e.FileDialog.DidNotReceiveWithAnyArgs().OpenFolderAsync(default!, default);
 
         _gate.Release.SetResult();
