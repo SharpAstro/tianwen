@@ -146,12 +146,20 @@ namespace TianWen.UI.Abstractions
                 widest = MathF.Max(widest, Layout.Engine.Measure(Layout.Builder.Text(option.Label ?? "", AlertChoiceFontSize),
                     new Layout.Size<float>(float.MaxValue, float.MaxValue), ctx).Width);
             }
-            var wanted = widest + AlertSegmentSlack;
+            return FitSegments(widest, surfaceWidthDesign);
+        }
 
-            // The choice has a row of its own where the surface is narrow, so it must fit the surface whatever the face's width:
-            // three equal segments, the two gaps, the ring and the row's padding either side. Where the words want more than the
-            // surface leaves, the segments take what it leaves and the words shrink with them (never cut, never past the edge).
-            var overhead = 2f * BasePadding + 2f * GuiTheme.Metrics.ControlEdgeWidth + 2f * AlertSegmentGap;
+        /// <summary>
+        /// The pure arithmetic of <see cref="AlertChoiceFit"/>, given the widest option word's measured width. The choice has a
+        /// row of its own where the surface is narrow, so it must fit the surface whatever the face's width: three equal
+        /// segments, the two gaps, the ring, the row's padding either side and the row's own gap (between its spacer and the
+        /// choice). Where the words want more than the surface leaves, the segments take what it leaves and the words shrink
+        /// with them (never cut, never past the edge).
+        /// </summary>
+        internal static (float SegmentWidth, float FontSize) FitSegments(float widestWord, float surfaceWidthDesign)
+        {
+            var wanted = widestWord + AlertSegmentSlack;
+            var overhead = 2f * BasePadding + HeaderRowGap + 2f * GuiTheme.Metrics.ControlEdgeWidth + 2f * AlertSegmentGap;
             var room = MathF.Max(0f, (surfaceWidthDesign - overhead) / 3f);
             if (wanted <= room || wanted <= 0f)
             {
@@ -160,6 +168,9 @@ namespace TianWen.UI.Abstractions
             var shrink = MathF.Max(room / wanted, 0.5f);
             return (wanted * shrink, AlertChoiceFontSize * shrink);
         }
+
+        // The gap between a header row's pieces, design units.
+        private const float HeaderRowGap = 8f;
 
         // The gap between the choice's segments, design units.
         private const float AlertSegmentGap = 1f;
@@ -172,7 +183,7 @@ namespace TianWen.UI.Abstractions
             _ => "All warnings"
         };
 
-        // The alert choice's segments, built once: the choice shows these and AlertSegmentWidth measures these, so the words
+        // The alert choice's segments, built once: the choice shows these and AlertChoiceFit measures these, so the words
         // measured are the words drawn.
         private static readonly Layout.ButtonGroupOption<DesktopAlertLevel>[] AlertOptions =
         [
@@ -210,7 +221,7 @@ namespace TianWen.UI.Abstractions
         /// (the design language's segmented control), and the others <see cref="HeaderControlFill"/> with the body text. The
         /// chosen segment was a mix of the accent into the header, which carried its word at 1.7:1 at night.
         /// </summary>
-        /// <param name="segmentWidth">Design units each segment takes (see <c>AlertSegmentWidth</c>).</param>
+        /// <param name="segmentWidth">Design units each segment takes (see <c>AlertChoiceFit</c>).</param>
         internal static Layout.ButtonGroupStyle AlertChoiceStyle(float segmentWidth)
         {
             var chosen = GuiTheme.Palette.Accent;
@@ -229,11 +240,11 @@ namespace TianWen.UI.Abstractions
         /// setting, so it shows on a rig's view too; it is left out where the host has no alerts (no
         /// <see cref="GuiAppState.DesktopAlerts"/>, or none on this OS). Clear stays on this computer's own feed.
         /// </summary>
-        /// <param name="segmentWidth">Design units each segment of the choice takes (see <c>AlertSegmentWidth</c>).</param>
+        /// <param name="segmentWidth">Design units each segment of the choice takes (see <c>AlertChoiceFit</c>).</param>
         internal static Layout.Node BuildHeader(NotificationFeed feed, GuiAppState appState, Action<DesktopAlertLevel> onLevel, float segmentWidth, float choiceFontSize = AlertChoiceFontSize)
         {
             static Layout.Node Row(List<Layout.Node> nodes)
-                => Layout.Builder.HStack([.. nodes]).WithGap(8f).Pad(BasePadding, 3f).CrossCenter().WStar().HFixed(HeaderRowHeight).Bg(HeaderBg);
+                => Layout.Builder.HStack([.. nodes]).WithGap(HeaderRowGap).Pad(BasePadding, 3f).CrossCenter().WStar().HFixed(HeaderRowHeight).Bg(HeaderBg);
 
             Layout.Node Heading()
                 => Layout.Builder.Text(feed.Header, BaseFontSize * 1.05f, HeaderText, TextAlign.Near, TextAlign.Center).HStar();

@@ -128,6 +128,31 @@ public class NotificationsTabAlertSettingTests(ITestOutputHelper output)
         }
     }
 
+    // The shrink branch, pinned without a font: where the words want more than the surface leaves, the three segments, the
+    // two gaps, the ring, the padding and the row's own gap end exactly at the surface's edge.
+    [Theory]
+    [InlineData(200f)]
+    [InlineData(300f)]
+    public void WhereTheWordsAreTooWideTheChoiceEndsAtTheSurfaceEdgeAndTheWordsShrink(float surface)
+    {
+        var (segment, font) = NotificationsTab<RgbaImage>.FitSegments(widestWord: 200f, surface);
+
+        var ring = 2f * GuiTheme.Metrics.ControlEdgeWidth;
+        var end = 10f + 8f + 3f * segment + 2f * 1f + ring + 10f;
+        end.ShouldBe(surface, 0.01f);
+        font.ShouldBeLessThan(13f * 0.85f);
+        segment.ShouldBeLessThan(208f);
+    }
+
+    [Fact]
+    public void WhereTheWordsFitTheSegmentsKeepTheirWantedWidthAndFont()
+    {
+        var (segment, font) = NotificationsTab<RgbaImage>.FitSegments(widestWord: 40f, surfaceWidthDesign: 1000f);
+
+        segment.ShouldBe(48f);
+        font.ShouldBe(13f * 0.85f);
+    }
+
     [Fact]
     public void TheChoiceIsDrawnBesideClearOnThisComputersFeed()
     {
