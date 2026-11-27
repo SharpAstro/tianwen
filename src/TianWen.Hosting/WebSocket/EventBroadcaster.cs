@@ -236,7 +236,7 @@ internal sealed class EventBroadcaster(
     {
         if (!e.Succeeded)
         {
-            Notify("Warning", $"Image enhance failed: {e.Error ?? "unknown error"}");
+            Notify("Warning", NoteKind.EnhanceFailed, $"Image enhance failed: {e.Error ?? "unknown error"}");
         }
 
         BroadcastSafe(BroadcastEvents.EnhanceCompleted(e));
@@ -299,7 +299,7 @@ internal sealed class EventBroadcaster(
         var record = e.Record;
         if (!record.Succeeded)
         {
-            Notify("Warning", $"Plate solve failed ({record.Context}) on {record.OtaName}: {record.DetectedStars} stars detected");
+            Notify("Warning", NoteKind.PlateSolveFailed, $"Plate solve failed ({record.Context}) on {record.OtaName}: {record.DetectedStars} stars detected");
         }
 
         BroadcastSafe(BroadcastEvents.PlateSolveCompleted(record));
@@ -358,7 +358,7 @@ internal sealed class EventBroadcaster(
 
         // Severity Error, not Warning: the run is blocked until somebody acts, and when it needs a body
         // at the observatory a remote operator cannot clear it themselves.
-        Notify("Error", e.RequiresPhysicalPresence
+        Notify("Error", NoteKind.PromptWaiting, e.RequiresPhysicalPresence
             ? $"{e.Title} (needs someone at the rig): {e.Message}"
             : $"{e.Title}: {e.Message}");
 
@@ -398,7 +398,7 @@ internal sealed class EventBroadcaster(
         if (hostedSession.TryRespondToPrompt(prompt.DefaultIfUnanswerable))
         {
             logger.LogWarning("Prompt '{Title}' was outstanding when the last observer went (disconnected, or stopped drawing)", prompt.Title);
-            Notify("Warning", $"{prompt.Title}: no window could show it any more, so it got the unattended answer");
+            Notify("Warning", NoteKind.PromptAnsweredUnattended, $"{prompt.Title}: no window could show it any more, so it got the unattended answer");
         }
     }
 
@@ -422,11 +422,11 @@ internal sealed class EventBroadcaster(
         {
             if (wasBreached)
             {
-                Notify("Info", "Mount is clear of its safety limits again.");
+                Notify("Info", NoteKind.MountLimitCleared, "Mount is clear of its safety limits again.");
             }
             return;
         }
-        Notify(verdict.IsWarningOnly ? "Warning" : "Error", $"Mount safety limit: {verdict.Describe()}");
+        Notify(verdict.IsWarningOnly ? "Warning" : "Error", NoteKind.MountLimit, $"Mount safety limit: {verdict.Describe()}");
     }
 
     /// <summary>Records a notification and pushes it to connected clients.</summary>
@@ -435,15 +435,16 @@ internal sealed class EventBroadcaster(
     {
         if (note is { } n)
         {
-            Notify(n.Severity.ToString(), n.Message);
+            Notify(n.Severity.ToString(), n.Kind, n.Message);
         }
     }
 
-    private void Notify(string severity, string message)
+    private void Notify(string severity, NoteKind kind, string message)
     {
         var dto = new NotificationDto
         {
             Severity = severity,
+            Kind = kind.ToString(),
             Message = message,
             TimestampUtc = timeProvider.GetUtcNow()
         };

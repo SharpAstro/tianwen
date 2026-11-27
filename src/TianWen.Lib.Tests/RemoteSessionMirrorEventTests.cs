@@ -152,9 +152,11 @@ public class RemoteSessionMirrorEventTests
             mirror.Changed += (_, _) => changes++;
 
             mirror.Dispatch(OverTheWire(BroadcastEvents.Notification(
-                new NotificationDto { Severity = "Warning", Message = "Guiding lost on M 42", TimestampUtc = Now })));
+                new NotificationDto { Severity = "Warning", Kind = "GuideStarLost", Message = "Guiding lost on M 42", TimestampUtc = Now })));
 
             note.ShouldNotBeNull();
+            note.Kind.ShouldBe("GuideStarLost");
+            mirror.Notes.ShouldHaveSingleItem().Kind.ShouldBe("GuideStarLost");
             note.Severity.ShouldBe("Warning");
             note.Message.ShouldBe("Guiding lost on M 42");
             note.TimestampUtc.ShouldBe(Now);

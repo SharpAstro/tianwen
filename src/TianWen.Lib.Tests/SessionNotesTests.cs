@@ -36,13 +36,46 @@ public class SessionNotesTests
     [Fact]
     public void ARunsEndCarriesItsFailureInTheWordsItGave()
     {
-        SessionNotes.ForRunEnd(SessionPhase.Complete, null).ShouldBe(new SessionNote(NotificationSeverity.Info, "Session complete"));
-        SessionNotes.ForRunEnd(SessionPhase.Aborted, null).ShouldBe(new SessionNote(NotificationSeverity.Warning, "Session aborted"));
+        SessionNotes.ForRunEnd(SessionPhase.Complete, null).ShouldBe(new SessionNote(NotificationSeverity.Info, "Session complete", NoteKind.SessionComplete));
+        SessionNotes.ForRunEnd(SessionPhase.Aborted, null).ShouldBe(new SessionNote(NotificationSeverity.Warning, "Session aborted", NoteKind.SessionAborted));
         SessionNotes.ForRunEnd(SessionPhase.Failed, "Check the mount's cable").ShouldBe(
-            new SessionNote(NotificationSeverity.Error, "Session failed: Check the mount's cable"));
-        SessionNotes.ForRunEnd(SessionPhase.Failed, null).ShouldBe(new SessionNote(NotificationSeverity.Error, "Session failed"));
-        SessionNotes.ForFlatRunEnd(SessionPhase.Aborted, null).ShouldBe(new SessionNote(NotificationSeverity.Warning, "Flat run cancelled"));
+            new SessionNote(NotificationSeverity.Error, "Session failed: Check the mount's cable", NoteKind.SessionFailed));
+        SessionNotes.ForRunEnd(SessionPhase.Failed, null).ShouldBe(new SessionNote(NotificationSeverity.Error, "Session failed", NoteKind.SessionFailed));
+        SessionNotes.ForFlatRunEnd(SessionPhase.Aborted, null).ShouldBe(new SessionNote(NotificationSeverity.Warning, "Flat run cancelled", NoteKind.FlatRunCancelled));
     }
+
+    [Fact]
+    public void EveryNoteSaysWhatKindOfEventItIs()
+    {
+        SessionNotes.ForRunStart(flatRun: false).Kind.ShouldBe(NoteKind.RunStarted);
+        SessionNotes.ForRunStart(flatRun: true).Kind.ShouldBe(NoteKind.RunStarted);
+        foreach (var phase in Enum.GetValues<SessionPhase>())
+        {
+            if (SessionNotes.ForPhase(phase) is { } phaseNote)
+            {
+                phaseNote.Kind.ShouldBe(NoteKind.Phase, phase.ToString());
+            }
+        }
+
+        SessionNotes.ForRunEnd(SessionPhase.Complete, null).ShouldNotBeNull().Kind.ShouldBe(NoteKind.SessionComplete);
+        SessionNotes.ForRunEnd(SessionPhase.Aborted, null).ShouldNotBeNull().Kind.ShouldBe(NoteKind.SessionAborted);
+        SessionNotes.ForRunEnd(SessionPhase.Failed, "why").ShouldNotBeNull().Kind.ShouldBe(NoteKind.SessionFailed);
+        SessionNotes.ForRunEnd(SessionPhase.Failed, null).ShouldNotBeNull().Kind.ShouldBe(NoteKind.SessionFailed);
+        SessionNotes.ForFlatRunEnd(SessionPhase.Complete, null).Kind.ShouldBe(NoteKind.FlatsComplete);
+        SessionNotes.ForFlatRunEnd(SessionPhase.Aborted, null).Kind.ShouldBe(NoteKind.FlatRunCancelled);
+        SessionNotes.ForFlatRunEnd(SessionPhase.Failed, "why").Kind.ShouldBe(NoteKind.FlatsFailed);
+        SessionNotes.ForFlatRunEnd(SessionPhase.Failed, null).Kind.ShouldBe(NoteKind.FlatsFailed);
+        SessionNotes.ForFlatRunEnd(SessionPhase.Finalising, null).Kind.ShouldBe(NoteKind.FlatRunFinished);
+        SessionNotes.ForScout(Scout(ScoutClassification.Transparency, ScoutOutcome.Proceed)).ShouldNotBeNull().Kind.ShouldBe(NoteKind.ScoutTransparency);
+        SessionNotes.ForScout(Scout(ScoutClassification.Obstruction, ScoutOutcome.Proceed)).ShouldNotBeNull().Kind.ShouldBe(NoteKind.ScoutCleared);
+        SessionNotes.ForScout(Scout(ScoutClassification.Obstruction, ScoutOutcome.Advance, TimeSpan.FromMinutes(5))).ShouldNotBeNull().Kind.ShouldBe(NoteKind.ScoutAdvanced);
+        SessionNotes.ForScout(Scout(ScoutClassification.Obstruction, ScoutOutcome.Advance)).ShouldNotBeNull().Kind.ShouldBe(NoteKind.ScoutAdvanced);
+        SessionNotes.ForGuiderTransition("Guiding", "LostLock").ShouldNotBeNull().Kind.ShouldBe(NoteKind.GuideStarLost);
+        SessionNotes.ForGuiderTransition("LostLock", "Guiding").ShouldNotBeNull().Kind.ShouldBe(NoteKind.GuideStarReacquired);
+    }
+
+    [Fact]
+    public void ANoteNobodyClassifiedIsNone() => new SessionNote(NotificationSeverity.Info, "x").Kind.ShouldBe(NoteKind.None);
 
     [Fact]
     public void AHealthyScoutAndOrdinaryGuiderChurnStayQuiet()

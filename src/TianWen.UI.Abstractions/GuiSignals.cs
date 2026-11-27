@@ -88,6 +88,12 @@ public readonly record struct SelectRemoteRigSignal(string DisplayName, GuiTab? 
 public readonly record struct SelectLocalContextSignal(GuiTab? OpenTab = null);
 
 /// <summary>
+/// Set which notes become a desktop alert on this computer (#2507). A per-computer choice: the handler sets
+/// <see cref="DesktopAlerts.Level"/> and saves it, whichever rig is on show.
+/// </summary>
+public readonly record struct SetDesktopAlertLevelSignal(DesktopAlertLevel Level);
+
+/// <summary>
 /// Drop a bound rig entirely: disconnect its mirror and delete its binding record. Distinct from
 /// <see cref="SelectLocalContextSignal"/>, which merely looks away.
 /// </summary>

@@ -220,6 +220,7 @@ internal static class BroadcastEvents
         Data = new Dictionary<string, object?>
         {
             ["Severity"] = dto.Severity,
+            ["Kind"] = dto.Kind,
             ["Message"] = dto.Message,
             ["TimestampUtc"] = dto.TimestampUtc
         }

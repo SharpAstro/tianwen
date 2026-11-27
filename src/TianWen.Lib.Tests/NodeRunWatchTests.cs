@@ -80,7 +80,8 @@ public class NodeRunWatchTests
 
         rig.After(TimeSpan.FromSeconds(1));
         rig.Node.Received(1).TryAbort(polar);
-        rig.Node.Received(1).AddNotification(Arg.Is<NotificationDto>(n => n.Message.Contains("Polar alignment stopped")));
+        rig.Node.Received(1).AddNotification(Arg.Is<NotificationDto>(n => n.Message.Contains("Polar alignment stopped")
+            && n.Kind == "RunStoppedUnwatched"));
 
         // It restores the mount for a while yet, still the run going on: the next looks leave it to end.
         rig.After(Grace);

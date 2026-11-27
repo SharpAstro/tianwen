@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Net;
@@ -243,6 +244,38 @@ public class RigContactAndFeedTests
 
             await mirror.PollOnceAsync(ct);
             ringReads.ShouldBe(1, "the ring is read once, at the first answer, not every poll");
+        }
+    }
+
+    [Fact]
+    public async Task ARingReadAfterTheFirstRaisesNoteReceivedForANoteItAddsAndNotForOneHeld()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var ring = new[] { Note(0, "Session started") };
+        var (mirror, _) = BuildMirror(request => IsRoute(request, "/session/notifications") ? Ring(ring) : State());
+
+        await using (mirror)
+        {
+            var raised = new List<NotificationDto>();
+            mirror.NoteReceived += (_, n) => raised.Add(n);
+
+            await mirror.PollOnceAsync(ct);
+            raised.ShouldBeEmpty("the first ring read is history from before this client attached");
+
+            // A note pushed while the socket was down (with its kind): only the ring has it.
+            var missed = Note(7, "Session failed: boom", "Error");
+            missed.Kind = "SessionFailed";
+            ring = [Note(0, "Session started"), missed];
+            mirror.OnEventStreamConnectedChanged(this, connected: true);
+            await mirror.PollOnceAsync(ct);
+
+            raised.ShouldHaveSingleItem().Message.ShouldBe("Session failed: boom");
+            mirror.Notes[^1].Kind.ShouldBe("SessionFailed", "the ring read carries the kind as the push does");
+
+            // Read again with nothing new: nothing is raised twice.
+            mirror.OnEventStreamConnectedChanged(this, connected: true);
+            await mirror.PollOnceAsync(ct);
+            raised.Count.ShouldBe(1);
         }
     }
 

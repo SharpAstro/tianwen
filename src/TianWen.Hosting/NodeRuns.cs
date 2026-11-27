@@ -1,5 +1,6 @@
 using TianWen.Hosting.Dto;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Sequencing;
 
 namespace TianWen.Hosting;
 
@@ -36,6 +37,7 @@ internal static class NodeRuns
             hosted.AddNotification(new NotificationDto
             {
                 Severity = "Warning",
+                Kind = NoteKind.RunFaulted.ToString(),
                 Message = $"{what} stopped: {failure}",
                 TimestampUtc = timeProvider.GetUtcNow(),
             });

@@ -182,6 +182,58 @@ and passes `SdlMetadataFor(startMenuShortcut == StartMenuShortcut.Packaged)` to 
   keeps a shortcut that points at a copy still on disk and repoints one whose target is gone, so an
   installed copy keeps it.
 
+## Desktop alerts
+
+**`DesktopAlerts` (TianWen.UI.Abstractions) is the one place that decides whether a note becomes an operating
+system alert (#2507); the sink only shows what it is given.** `tianwen-gui` shows an alert as a Windows toast
+through AppShell's `DesktopNotification` (AppShell 1.7), by way of `AppShellDesktopAlert`, the `IDesktopAlert`
+sink in TianWen.UI.Gui.
+
+- **What alerts, and when.** Info never alerts. An Error always does (at any level but Off). A Warning alerts
+  at `ErrorsAndSafety` (the default) only when its kind is a safety kind (`IsSafetyKind`: an aborted run, a mount
+  limit, a run the node stopped because no client was watching it, a run that ended on a fault), and always at `AllWarnings`. Nothing alerts while the window is in front, and a host that supplies no
+  window probe gets no alerts at all. The level is per computer (`DesktopAlertSettings`).
+- **Where a person sets it.** The Notifications tab's header carries the three levels as a segmented choice beside
+  Clear, on this computer's view and a rig's alike (the setting is this computer's), and only where the sink says
+  alerts are available. A choice posts `SetDesktopAlertLevelSignal`; its handler sets the level and saves it off the
+  render thread. The tooltip names every safety kind (a test holds it to `IsSafetyKind`'s list) and, when Windows
+  refused the last alert, says why. The choice and Clear share the header controls' fill and ring
+  (`HeaderControlFill`, `HeaderControlEdge`), checked at 3:1 and 4.5:1 in the day, dark and night palettes.
+- **Grouping.** An alert has a tag (the note's kind; a note with no kind, from an older node, is tagged by its severity and its wording, so a
+  different message is never held back as a repeat) and a group (the rig's NodeId, or
+  `this-computer`). A repeat of the same tag and group inside `GroupingWindow` (5 minutes, on this client's
+  clock, never the note's stamp, because another node's clock may be skewed) is held back and counted; the next
+  alert of that tag says how many were held back. The tag and group are also the toast's own, so Windows
+  replaces a toast rather than stacking it.
+- **Why Urgent is for Error only.** Urgent is the Windows reminder toast that may pass Do Not Disturb. A
+  warning must never wake someone through it; only a failure that needs a person now may, so the policy builds
+  Urgent for an Error and nothing else, and the sink maps it one to one.
+- **The window in front** is a flag the main thread writes each loop iteration from SDL's window flags (input
+  focus set, not minimised, not hidden) and the alert consumer reads through `Volatile`. It is never read from
+  the SDL window off the main thread.
+- **Identity and scheme.** The toast is shown under the app's id (`DesktopAppIdentity.Gui`, the one `Claim`
+  gave the process), so it groups with the app's windows. `Program.cs` calls `LaunchScheme.Register` with
+  `DesktopAppIdentity.GuiLaunchScheme` (`tianwen-gui`) after `AppIdentity.Claim`, so the click's link
+  (`tianwen-gui:notifications` or `tianwen-gui:notifications/<NodeId>`) has a handler that starts this
+  executable. `Foreign` (another program owns the scheme) and `Failed` are logged at Warning, and the toast
+  still shows, only without a working click. `DesktopNotification.LogOnce` logs what the probe found, once.
+- **The click's route.** Windows starts `tianwen-gui <link>`. `Program.cs` reads args[0] with
+  `LaunchScheme.TryRead`; with an instance already running it hands the link through `InstanceGate` instead of the
+  empty payload, and `PumpInstanceGate` in the running instance resolves each payload with `DesktopAlertLink`.
+  With no running instance the link is kept and routed once the window and its views exist (once: a rig the link
+  names that has no view context yet falls back to this computer's feed). A payload is untrusted
+  input: it is an id to look up, never a command or a path. `DesktopAlertLink.Resolve` matches only a known
+  NodeId and otherwise opens this computer's view. The view is selected the way the rig picker selects it
+  (`SelectRemoteRigSignal` with `GuiTab.Notifications`, or `SelectLocalContextSignal` for this computer), then
+  `sdlWindow.Activate()` brings the window to the front. A click on a rig's toast at a cold start is best effort:
+  the rig is found by display name, and discovery may not have found it yet, in which case the Notifications tab of
+  this computer opens.
+- **Linux and macOS: not yet.** The sink reports `IsAvailable` only on Windows, so off Windows the policy decides
+  nothing and nothing is shown. The seam is `IDesktopAlert`; a platform joins by supplying its sink.
+- **The live check (the controller's).** Force a session failure with the window behind another window: one toast
+  appears. With the window in front: none. Click the toast: the window comes to the front on the Notifications tab
+  of that view. Repeat with Do Not Disturb on and the app allowed through it: the Error's toast still shows.
+
 ## Where the pieces live, and why
 
 **Three layers, and the arguments are the point:**
