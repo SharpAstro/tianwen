@@ -56,6 +56,24 @@ public sealed class WorkbenchState
         set => Volatile.Write(ref _view, value);
     }
 
+    private int _stage;
+
+    /// <summary>The page on show: the workbench, or one of the two pages of New project. Opening a project is always the workbench.</summary>
+    public WorkbenchStage Stage
+    {
+        get => (WorkbenchStage)Volatile.Read(ref _stage);
+        set => Volatile.Write(ref _stage, (int)value);
+    }
+
+    private WorkbenchImport? _import;
+
+    /// <summary>What the pages of New project show; null when no New project is under way. Replaced whole, from the Lib's answers.</summary>
+    public WorkbenchImport? Import
+    {
+        get => Volatile.Read(ref _import);
+        set => Volatile.Write(ref _import, value);
+    }
+
     private string? _newProjectRefusal;
 
     /// <summary>Why the New project button made no project, in words (<see cref="WorkbenchProjects.NewAsync"/>'s refusal); null

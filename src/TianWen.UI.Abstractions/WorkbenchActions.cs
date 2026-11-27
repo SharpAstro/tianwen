@@ -67,7 +67,7 @@ public sealed record WorkbenchStepPanel(
 /// A step's state is only ever what the runner answered: a press selects a step and starts no run, and the answer replaces
 /// <see cref="WorkbenchState.View"/> whole on the render thread, on a frame of its choosing.
 /// </remarks>
-public sealed class WorkbenchActions(
+public sealed partial class WorkbenchActions(
     WorkbenchState state,
     WorkbenchRunner runner,
     OperationCatalog catalog,
@@ -276,9 +276,10 @@ public sealed class WorkbenchActions(
     }
 
     /// <summary>
-    /// The New project button: a folder dialog for the capture's folder (the project is made in its workdir), then the Lib routine
-    /// (<see cref="WorkbenchProjects.NewAsync"/>) off the render thread and <see cref="OpenProject"/> on the folder it made. A
-    /// cancelled dialog changes nothing; a refusal is kept in <see cref="WorkbenchState.NewProjectRefusal"/> and shown in words.
+    /// The New project button: a folder dialog for the capture's folder (the project is made in its workdir), then the Lib routines
+    /// off the render thread: the project (<see cref="WorkbenchProjects.NewAsync"/>), the detection of the folder, and the Import page. The
+    /// Workflow page and <see cref="UseWorkflow"/> open the workbench on it. A cancelled dialog changes nothing; a refusal is kept in
+    /// <see cref="WorkbenchState.NewProjectRefusal"/> and shown in words.
     /// Not offered while <see cref="ChoiceWaits"/> says why not.
     /// </summary>
     public void NewProject()
@@ -301,26 +302,8 @@ public sealed class WorkbenchActions(
                 return;
             }
 
-            var projectFolder = WorkbenchProjects.WorkdirOf(captureFolder);
-            var made = await WorkbenchProjects.NewAsync(captureFolder, ct);
-            if (made.Refusal is { } refusal)
-            {
-                state.NewProjectRefusal = $"No project was made: {refusal}";
-                state.NeedsRedraw = true;
-                return;
-            }
-
-            state.NewProjectRefusal = null;
-            if (!OpenProject(projectFolder))
-            {
-                // Read once: the log and the words say the same reason; with none left (the run ended meanwhile) no cause is named.
-                var why = ChoiceWaits;
-                logger.LogInformation("{Folder} was made but not opened: {Why}", projectFolder, why);
-                state.NewProjectRefusal = why is null
-                    ? $"The project was made in {projectFolder}. Use Open project to show it."
-                    : $"The project was made in {projectFolder} but not opened: {why}. Use Open project to show it.";
-                state.NeedsRedraw = true;
-            }
+            // The project is made in the capture's workdir and the folder detected; the Import page then the Workflow page follow (#2553).
+            await StartImportAsync(captureFolder, ct);
         }, appToken, logger, "Make a workbench project from a capture folder",
             onError: ex =>
             {

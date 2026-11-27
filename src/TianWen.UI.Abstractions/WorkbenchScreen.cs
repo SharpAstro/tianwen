@@ -17,7 +17,7 @@ namespace TianWen.UI.Abstractions;
 /// Colours are the theme's alone, so Night is judged by the palette. There is nothing in the top bar for a screen that does
 /// not exist yet (Stack, Process, Workflow).
 /// </remarks>
-public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
+public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
 {
     /// <summary>The key of the fill the viewer is embedded in.</summary>
     internal const string CanvasKey = "WorkbenchCanvas";
@@ -99,15 +99,24 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
         // A word wider than its flow is broken at the width the engine arranged the flow at (Flow): arranged once, and again in
         // the same frame only when a flow's width changed (the first frame, a resize, a new DPI), so a break is never a frame late.
         var bounds = new RectF32(0, 0, width, height);
-        var arranged = ArrangeLayout(Build(state, actions), bounds);
+        var onPages = state.Stage != WorkbenchStage.Workbench;
+        var arranged = ArrangeLayout(onPages ? BuildNewProject(state, actions) : Build(state, actions), bounds);
         if (TookRooms(arranged))
         {
-            arranged = ArrangeLayout(Build(state, actions), bounds);
+            arranged = ArrangeLayout(onPages ? BuildNewProject(state, actions) : Build(state, actions), bounds);
         }
 
         // The second build's flows are never looked up (the next frame's build fills the map afresh), so say they are done with.
         _flows.Clear();
         PaintLayout(arranged);
+        if (onPages)
+        {
+            // The pages of New project hold no canvas: the viewer is not drawn, and the only overlay is a file's kind menu.
+            CanvasRect = default;
+            RenderKindMenu(arranged, width, height);
+            return;
+        }
+
         CanvasRect = ArrangedFills.RectOf(arranged, CanvasKey);
 
         if (CanvasRect.Width > 0f && CanvasRect.Height > 0f)
@@ -583,10 +592,10 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
 
     // Where a flow of words stands: straight in the panel's column, or in the job's list of lines (narrower by its own padding
     // and scroll bar). Each has one width the engine arranges, read back by TookRooms.
-    private enum FlowRoom { Panel, JobLines }
+    private enum FlowRoom { Panel, JobLines, Groups, Cards, Preview }
 
     // The width, in surface units, the last arrange gave each kind of flow; infinite until a frame has arranged one.
-    private readonly float[] _rooms = [float.PositiveInfinity, float.PositiveInfinity];
+    private readonly float[] _rooms = [float.PositiveInfinity, float.PositiveInfinity, float.PositiveInfinity, float.PositiveInfinity, float.PositiveInfinity];
 
     // The flows this build made, by reference, so the arranged tree tells which node is which flow.
     private readonly Dictionary<Layout.Node, FlowRoom> _flows = new(ReferenceEqualityComparer.Instance);
@@ -595,7 +604,7 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
     // against, so the caller builds again with the arranged widths.
     private bool TookRooms(ImmutableArray<Layout.ArrangedNode<float>> arranged)
     {
-        Span<float> seen = [float.PositiveInfinity, float.PositiveInfinity];
+        Span<float> seen = [float.PositiveInfinity, float.PositiveInfinity, float.PositiveInfinity, float.PositiveInfinity, float.PositiveInfinity];
         foreach (var node in arranged)
         {
             if (_flows.TryGetValue(node.Node, out var where))
