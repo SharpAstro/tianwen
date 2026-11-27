@@ -105,8 +105,46 @@ The look follows `.github/docs/ui-changes.md`. Specifically:
 Each tree row shows the number, a mark and the title, with the word from the runner's status on hover, never from a click: kept, will run, not needed,
 derived, off, refused, blocked, and a "changed" note (↻ stale) when a step's settings (or a step before it) are not what the last run made it from.
 A step that is running is not a state of the bar: the job panel shows it. A refused step (the operation is unknown, or its settings are refused) says why in the panel, and the steps after it are
-blocked. Selecting a step shows its panel: the words and reason, Run, the job, Views, Settings and Command line (the line
-the verb would take, to copy; "There is no command line until the step can be planned" when it is refused).
+blocked. Selecting a step shows its panel, described under "The step's panel" below.
+
+## The step's panel (#2553, section 3)
+
+The panel right of the tree, top to bottom: the step's number and title (wrapping, never cut) with its **On** checkbox, what the
+operation does, the state in words with what fixes it (`WorkbenchActions.FixWords`: stale because a setting or an earlier step
+changed, switch it on, change the settings, run to here), the Run and Job blocks, the stack's masters, **Settings**, **Gives**,
+**Served by** and the **Command line**, folded behind a disclosure (it can be a path wide) with Copy inside it. Section labels
+are the small dim upper-case ones, never the accent, which is kept for the one main action.
+
+**Settings are controls the Lib derives**, never written by hand per operation. `OperationSettingsForm.Describe(operation)` reads the
+operation's `JsonTypeInfo` from `OperationSettingsJsonContext` (`IOperation.SettingsContract`) and gives each setting a name, a
+kind, whether it can be left out, its choices and its default, with the summary from `OperationDescription.Settings`; no
+reflection over the settings type, so a new setting is a control with no change in the UI. The kinds and their controls:
+
+| Kind | Control |
+|------|---------|
+| `Bool` | a checkbox (stands in for the mockup's switch until DIR.Lib#156 lands) |
+| `Choice` (an enum) | a dropdown of the enum's names |
+| `Integer`, `Number`, `Text` | a field, saved with Enter (the mockup's slider with a numeric field waits for DIR.Lib#330; no range is known to the contract, so there is no slider) |
+| `Other` (a list or a record) | the value in words; edited in `project.json` or on the command line |
+
+An edit goes through `WorkbenchActions.SetSetting`, which parses the text (`OperationSettingsForm.TryParse`: a text that is not a
+value of the setting is refused in words under the controls and nothing is written), then `WorkbenchWorkflows.SetStepSettingAsync`
+off the render thread. That routine joins the one value to the edit's settings, requires the result to read as the operation's
+settings (`TryReadSettings`) and writes `project.json` atomically; the project is then read again with the step selected, so the
+step's key has changed and the tree and the panel show the **runner's** answer, stale, never the click. The **On** checkbox is
+`WorkbenchWorkflows.SetStepEnabledAsync` the same way (an edit that is off is passed over; switching it on finds its result in the
+store). While a run goes the controls are dimmed with the reason on hover. A field that is not being typed in follows the runner's
+answer; what was typed and not saved is dropped when the field loses focus.
+
+**A frame group's panel** lists its files: the name (a press shows the file on the canvas, through the viewer's own load path,
+`WorkbenchActions.Wanted` handing the viewer the file and `WorkbenchViewDriver` asking for it between frames, off the render
+thread), the same kind dropdown as the Import page (`WorkbenchActions.ReassignFrame`, `WorkbenchProjects.ReassignAsync`, then the
+frames and the project are read again, so the stack step reads stale), and a grade where the lights were graded (grading reads the
+pixels, so it is asked once, at the first look at the Lights). A step has no picture of its own: that is said once, on the canvas,
+not again in the panel (only a comparison the viewer could not keep is said in the panel).
+
+A refused New project is said in the top bar's own row, in the place of the folder, with the whole text on hover: there is no band
+of its own, so nothing is reserved for it and nothing moves when it comes.
 
 ## Run to here and run on
 
@@ -314,7 +352,7 @@ want of memory" (`WorkbenchState.ComparisonDeclined`, set by `WorkbenchViewDrive
 
 ## What W2 leaves out
 
-- Editing a step's settings: the panel shows them (W6, W12).
+- Editing a setting a control cannot hold (a list or a record: the gradient's exclusion polygons, a white balance), a slider with a numeric field (DIR.Lib#330) and a switch (DIR.Lib#156): the checkbox and the field stand in. A drawn edit (the exclusion polygons on the image, a crop's rectangle) is W6.
 - Gates, and a workflow's own editor (W9).
 - The other screens: the planetary steps (W3), deep-sky import, inspect and calibrate (W4), register and integrate (W5),
   processing and colour (W6), profiles and batches (W7).

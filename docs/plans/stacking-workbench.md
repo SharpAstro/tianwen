@@ -624,8 +624,18 @@ stack --reassign`) that changes the step's key and is taken by the stack. Verbs:
 detected`, `workbench reassign`. Workflows, headless (second leg): four built-in templates (comet colour, deep sky colour, quick
 look, empty) with a fit rule and one line of why each, the best fit chosen by order, apply into `workdir\project.json` with
 hand-change detection, add and remove a step, the tree of splits and joins; verbs `workbench workflows` and `workbench apply`.
-The screens (import, workflow choice, the tree) are the next legs. See
-[workbench-app.md](../architecture/workbench-app.md), "What is in the folder".
+**Screens built (2026-11-28):** New project, the Import page, the Workflow page, the project tree with a run to each step, the toolbar,
+the canvas with its empty state and the status strip (legs three and four), and the panel beside the tree (leg five): a selected
+step's name with an on/off, what it does, its state with what fixes it, its settings as controls derived from the settings type's
+JSON contract (`OperationSettingsForm`; a dropdown for an enum, a checkbox for a bool, a field for a number), what it gives, what
+serves it and the command line folded away; a selected frame group's file list with the reassign dropdown and the grade, a press
+showing the file. **Brought forward from W6:** editing a step's settings as controls saved into the project (W6 keeps the
+drawn edits: exclusion polygons, a crop rectangle, the colour looks with before and after). **Brought forward from W4:** the
+frame groups with their file lists, per-file reassignment and the grade (W4 keeps calibration inspection: the coverage of
+darks, flats and bias against the lights). **Brought forward from W9:** switching a step on or off and changing one setting
+through the Lib, `WorkbenchWorkflows.SetStepEnabledAsync` and `SetStepSettingAsync` (W9 keeps the workflow file and gates). Left
+for when DIR.Lib has them: a switch (DIR.Lib#156) and a slider with a numeric field (DIR.Lib#330). See
+[workbench-app.md](../architecture/workbench-app.md), "What is in the folder" and "The step's panel".
 
 ### W3 The planetary steps
 

@@ -355,7 +355,8 @@ public sealed partial class WorkbenchScreen<TSurface>
             var fill = picked ? palette.Selection : palette.PanelBg;
             var ink = picked ? palette.SelectionText : palette.BodyText;
             var full = file.FullPath;
-            var grade = file.Grade is { } g ? GradeWords(g) : null;
+            // A grade is said where there is one; "not graded" on every row would be the same line six times.
+            var grade = file.Grade is { } g && (g.Causes != GradeCause.None || g.Share > 0f) ? GradeWords(g) : null;
             var name = Layout.Builder.Text(file.Place, BaseFontSize, ink, trim: TextTrim.Start).WStar().HStar()
                 .WithTooltip(file.FullPath)
                 .Clickable(new HitResult.ButtonHit("Frame:" + file.Place), _ => actions.ShowFrameFile(full), CursorKind.Pointer);

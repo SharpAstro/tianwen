@@ -499,15 +499,13 @@ public sealed class WorkbenchE2ETests : IDisposable
         e2e.Texts().ShouldContain(t => t.Text == "Output", "the output is always chosen, and says so on the canvas when there is none");
         e2e.Texts().ShouldNotContain(t => t.Text == "Before and after", "step 2 is not made yet");
         e2e.Texts().ShouldContain(t => t.Text == "Add has no output yet", "the canvas says so");
-        var panel = Normalise(e2e.PanelText());
-        panel.ShouldContain("Step 2 has not been made yet.", Case.Sensitive, "said in words");
-        panel.ShouldContain("Step 2 has no result to compare", Case.Sensitive);
+        Normalise(e2e.PanelText()).ShouldNotContain("has not been made yet", Case.Sensitive, "said once, on the canvas");
 
         // The unknown operation is refused: nothing was made, and the words say so.
         var (refusedFolder, _) = await ProjectAsync("nofile2");
         await e2e.OpenProjectAsync(refusedFolder, ct);
         await SelectAsync(e2e, 3, ct);
-        Normalise(e2e.PanelText()).ShouldContain("Step 4 made nothing: it is refused.", Case.Sensitive);
+        e2e.Texts().ShouldContain(t => t.Text == "ghost has no output yet", "the canvas says so for the refused step");
         e2e.Texts().ShouldNotContain(t => t.Text == "Before and after");
     }
 

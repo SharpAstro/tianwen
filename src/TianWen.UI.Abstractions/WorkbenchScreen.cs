@@ -280,7 +280,7 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
         var waits = actions.Jobs.IsRunning ? "A run is going: the step can be switched when it ends" : null;
         var on = Layout.Builder.Checkbox("On", step.State is not StepState.Off, actions.SetStepEnabled, onStyle, BaseFontSize,
                 new HitResult.ButtonHit(StepSwitchHit))
-            .WithTooltip(waits ?? "Switch this step off; the steps after it take its input").WAuto();
+            .WithTooltip(waits ?? "Switch this step off; the steps after it take its input").WFixed(BaseFontSize * 4.5f);
         rows.Add(Layout.Builder.HStack(
                 Words(step.Label, palette.BodyText, FlowRoom.Panel, BaseFontSize * 1.15f).WStar(),
                 waits is null ? on : on.Disabled(waits))
@@ -575,29 +575,15 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
     // Which pictures the step has, and for one it has not, why, in words.
     private void AddViews(List<Layout.Node> rows, WorkbenchActions actions)
     {
-        var offer = actions.ViewOffer();
-        var declined = actions.ComparisonDeclined;
-        if (offer is { ResultOffered: true, ComparisonOffered: true } && !declined)
+        // That a step has no picture of its own is said once, on the canvas (its empty state); only what the canvas cannot say is here.
+        if (!actions.ComparisonDeclined)
         {
             return;
         }
 
         rows.Add(Heading("Views"));
-        if (declined)
-        {
-            rows.Add(Words("The comparison was not kept for want of memory: the result is shown alone. Close other programs, then choose Comparison again.",
-                GuiTheme.Palette.DimText));
-        }
-
-        if (!offer.ResultOffered)
-        {
-            rows.Add(Words(offer.ResultNote ?? string.Empty, GuiTheme.Palette.DimText));
-        }
-
-        if (!offer.ComparisonOffered && offer.ComparisonNote is { } note)
-        {
-            rows.Add(Words(note, GuiTheme.Palette.DimText));
-        }
+        rows.Add(Words("The comparison was not kept for want of memory: the result is shown alone. Close other programs, then choose Comparison again.",
+            GuiTheme.Palette.DimText));
     }
 
     private Layout.Node Column(List<Layout.Node> rows)
