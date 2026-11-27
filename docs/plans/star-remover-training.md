@@ -78,9 +78,12 @@ Lagoon's broad light at about twice the parent's (4.52 and 3.89, bar 2.67) and t
 nearly every faint star the whole stack's builder takes at 20 to 150 sky sigma (the 5 to 20 band has 15 such stars in
 one session, too few to call), so depth pairs would mostly add faint stars on dark sky, a band this check leaves
 unmeasured for real stars; and, at the one depth measured (four times the exposure), the answer leaves 56.5 % of the
-faint stars StarXTerminator takes on eta Carinae's bright nebula (the judge 4.7) but only 11.1 % of the Running
-Chicken's (better than the quarter plate's 15.6 %), so only one of two sessions shows the failure. Not registered;
-the session reads it as not worth building on that evidence, the owner's to decide. The free check that came first:
+faint stars StarXTerminator takes on eta Carinae's bright nebula (the judge's own plate 4.7, by construction: the
+stars counted are its star layer's peaks) but only 11.1 % of the Running Chicken's (better than the quarter plate's
+15.6 %), so only one of two sessions shows the failure. Not registered; the session read it as not worth building on
+that evidence. **The owner's two answers that evening:** route B is closed, and from the next arm on the field-light
+guard sits at StarXTerminator's own reading (at most 98 and 106 %), the reads already made standing as registered
+("The owner's two answers" in section 6). The free check that came first:
 on the held-out Tarantula StarXTerminator keeps about a third of a real compact cluster's unresolved glow and R4h
 less at the median (cluster by cluster a lean, not a clear split), so the scenes' rule that a compact cluster is all
 stars is further from the judge than the model already is.
@@ -11416,8 +11419,18 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     of two shows the failure; other depths are unmeasured. Answers made by StarXTerminator are ruled out. Building
     route B (every session stacked twice, an exporter mode, the plates) would add mostly faint dark-sky stars, a
     5 to 20 sigma band where the models' real gap is unmeasured (the 20 to 150 band's is small). Whether to close it is
-    the owner's.
+    the owner's (closed the same evening, next).
   - **Nothing is adopted;** adoption is the owner's.
+- **The owner's two answers, 2026-11-27 (evening), after R4l's read and route B's checks:** "well if SXT takes more
+  we can do so too, and close route b".
+  - **The field-light guard.** From the next arm on, the light taken from the Tarantula field (green, the densest
+    tenth of cells and the whole frame) is guarded at StarXTerminator's own reading, **at most 98 % and 106 %**, not
+    at R4d's 81 and 82 plus two points. The reads already made stand as registered. Under the new bar R4m's
+    field-light failure would not fire, and R4m would read "neither", since its seed 1 misses the question. R4l's
+    kill stands on the Lagoon's broad-light guard either way. This answers the question R4l's read asks under
+    "Next, the owner's".
+  - **Route B (depth pairs): closed**, on the checks above (at the one depth measured, the depth answer fails on
+    one session of two; the 5 to 20 sigma dark-sky band it would mostly add is unmeasured for the models).
 
 #### The dig floor inside bright nebula: floor4, and what it leaves (2026-11-20)
 
