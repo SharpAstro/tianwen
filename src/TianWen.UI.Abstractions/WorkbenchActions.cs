@@ -237,6 +237,8 @@ public sealed class WorkbenchActions(
             if (!OpenProjectNow(folder, added.Added[^1].Name))
             {
                 logger.LogInformation("{Group} was processed but the new image was not opened: {Why}", group, ChoiceWaitsForTheRun);
+                state.MasterRefusal = $"{group} was processed but its image was not opened: {ChoiceWaitsForTheRun}. Choose it from the image box.";
+                state.NeedsRedraw = true;
             }
         }, appToken, logger, "Process a master of the workbench project",
             onError: ex => state.MasterRefusal = $"{group} was not processed: {ex.Message}",
@@ -317,6 +319,8 @@ public sealed class WorkbenchActions(
             if (!OpenProject(projectFolder))
             {
                 logger.LogInformation("{Folder} was made but not opened: {Why}", projectFolder, ChoiceWaits);
+                state.NewProjectRefusal = $"The project was made in {projectFolder} but not opened: {ChoiceWaits ?? "another read was on its way"}. Use Open project to show it.";
+                state.NeedsRedraw = true;
             }
         }, appToken, logger, "Make a workbench project from a capture folder",
             onError: ex =>
