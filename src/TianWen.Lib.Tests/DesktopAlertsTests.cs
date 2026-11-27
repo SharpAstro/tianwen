@@ -145,6 +145,31 @@ public class DesktopAlertsTests(ITestOutputHelper output)
         rig.Alerts.Decide(Note(NotificationSeverity.Error, NoteKind.None, "camera lost"), "old-node", "Old rig").ShouldBeNull();
     }
 
+    // An older node that words each error differently takes a slot per wording; past the threshold the slots whose window has
+    // passed are swept, and one still inside its window stays (its repeat is still held back).
+    [Fact]
+    public void SlotsPastTheirWindowAreSweptOnceTheThresholdIsPassed()
+    {
+        var rig = new Rig();
+        DesktopAlert? Error(string message) => rig.Alerts.Decide(Note(NotificationSeverity.Error, NoteKind.None, message), "old-node", "Old rig");
+
+        for (var i = 0; i < DesktopAlerts.GroupSweepThreshold - 1; i++)
+        {
+            Error($"camera lost at {i}").ShouldNotBeNull();
+        }
+        rig.Clock.Advance(DesktopAlerts.GroupingWindow - TimeSpan.FromMinutes(1));
+        Error("recent").ShouldNotBeNull();
+        rig.Alerts.GroupCount.ShouldBe(DesktopAlerts.GroupSweepThreshold);
+        rig.Clock.Advance(TimeSpan.FromMinutes(1));
+
+        // One past the threshold: the slots a whole window old go, the recent one and this one stay.
+        Error("one more").ShouldNotBeNull();
+
+        rig.Alerts.GroupCount.ShouldBe(2);
+        Error("recent").ShouldBeNull();
+        Error("camera lost at 0").ShouldNotBeNull().Body.ShouldBe("camera lost at 0");
+    }
+
     [Fact]
     public void TheGroupingIsTimedOnThisClientAndNotTheNotesStamp()
     {

@@ -134,6 +134,10 @@ public sealed class DesktopAlerts
             {
                 if (_groups.TryAdd(key, new GroupState(now, 0)))
                 {
+                    if (_groups.Count > GroupSweepThreshold)
+                    {
+                        SweepExpired(now);
+                    }
                     return 0;
                 }
                 continue;
@@ -149,6 +153,28 @@ public sealed class DesktopAlerts
             if (_groups.TryUpdate(key, new GroupState(now, 0), current))
             {
                 return current.Held;
+            }
+        }
+    }
+
+    /// <summary>How many grouping slots are kept before the ones whose window has passed are swept. A slot is a tag and a group,
+    /// and a note with no kind (from a node older than this client) takes one per wording, so an older node that words each
+    /// error with a number or a time in it would otherwise add a slot per message for the life of the process.</summary>
+    internal const int GroupSweepThreshold = 256;
+
+    /// <summary>The grouping slots held now (for tests).</summary>
+    internal int GroupCount => _groups.Count;
+
+    // Drops every slot whose window has passed. Its held-back count goes with it, so past the window the next alert of that tag
+    // reads as a first; that happens only beyond the threshold. TryRemove of the pair removes a slot only while it is unchanged,
+    // so a concurrent claim on it is never lost.
+    private void SweepExpired(long now)
+    {
+        foreach (var pair in _groups)
+        {
+            if (now - pair.Value.LastShownTicks >= GroupingWindow.Ticks)
+            {
+                _groups.TryRemove(pair);
             }
         }
     }

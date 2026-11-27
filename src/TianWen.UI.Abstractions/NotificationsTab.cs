@@ -154,10 +154,40 @@ namespace TianWen.UI.Abstractions
             _ => "All warnings"
         };
 
-        /// <summary>What the alert choice says on hover: what the levels mean, and why Windows refused the last alert when it did.</summary>
+        /// <summary>
+        /// What the alert choice says on hover: what the levels mean, and why Windows refused the last alert when it did. It names
+        /// every kind <see cref="DesktopAlerts.IsSafetyKind"/> holds; a test fails when that list gains one these words do not name.
+        /// </summary>
         internal static string AlertTooltip(DesktopAlerts alerts)
-            => "Desktop alerts on this computer. Errors and safety: errors, an aborted run and a mount limit. All warnings: every warning too."
+            => "Desktop alerts on this computer. Errors and safety: every error, a mount limit, and a run that was aborted, "
+               + "stopped because no one was watching it, or ended on a fault. All warnings: every warning too."
                + (alerts.LastRefusal is { } why ? $" Windows did not show the last alert: {why}. Check that notifications are on for this app." : "");
+
+        /// <summary>
+        /// The ring round the alert choice, so its extent reads against the header whichever segment is chosen. A control's edge
+        /// stands 3:1 off what it is drawn on (ui-changes.md) in every palette: <c>DimText</c> does on the header (5.3:1 day,
+        /// 5.1:1 dark, 3.4:1 night, with no blue at night). DIR.Lib's <c>ControlEdge</c> default is tuned to the panel and is
+        /// 2.7:1 on the day header and spends blue at night; the separators are under 2:1.
+        /// </summary>
+        internal static RGBAColor32 AlertChoiceEdge => DimText;
+
+        /// <summary>
+        /// How the alert choice shows its levels: the chosen segment is the accent, its word in the ink that measures best on it
+        /// (the design language's segmented control), and the others a step off the header with the body text. The chosen
+        /// segment was a mix of the accent into the header, which carried its word at 1.7:1 at night.
+        /// </summary>
+        /// <param name="segmentWidth">Design units each segment takes (see <c>AlertSegmentWidth</c>).</param>
+        internal static Layout.ButtonGroupStyle AlertChoiceStyle(float segmentWidth)
+        {
+            var chosen = GuiTheme.Palette.Accent;
+            var rest = GuiTheme.Mix(HeaderBg, BodyText, 0.14f);
+            return new Layout.ButtonGroupStyle(chosen, rest, GuiTheme.InkOn(chosen), BodyText, GuiTheme.Hover(rest))
+            {
+                Gap = 1f,
+                InsetFraction = 0.7f,
+                SegmentWidth = segmentWidth,
+            };
+        }
 
         /// <summary>
         /// The header as one declared tree: [heading | spacer | alert choice | Clear], or, where that does not fit the room, the
@@ -177,21 +207,17 @@ namespace TianWen.UI.Abstractions
             Layout.Node? choice = null;
             if (appState.DesktopAlerts is { IsAvailable: true } alerts)
             {
-                var segmentActive = GuiTheme.Mix(HeaderBg, GuiTheme.Palette.Accent, 0.55f);
-                var segmentInactive = GuiTheme.Mix(HeaderBg, BodyText, 0.14f);
-                var style = new Layout.ButtonGroupStyle(segmentActive, segmentInactive, BodyText, BodyText, GuiTheme.Hover(segmentInactive))
-                {
-                    Gap = 1f,
-                    InsetFraction = 0.7f,
-                    SegmentWidth = segmentWidth,
-                };
+                var style = AlertChoiceStyle(segmentWidth);
                 ReadOnlySpan<Layout.ButtonGroupOption<DesktopAlertLevel>> options =
                 [
                     new(DesktopAlertLevel.Off, LevelLabel(DesktopAlertLevel.Off)) { Hit = new HitResult.ButtonHit("DesktopAlertOff") },
                     new(DesktopAlertLevel.ErrorsAndSafety, LevelLabel(DesktopAlertLevel.ErrorsAndSafety)) { Hit = new HitResult.ButtonHit("DesktopAlertErrors") },
                     new(DesktopAlertLevel.AllWarnings, LevelLabel(DesktopAlertLevel.AllWarnings)) { Hit = new HitResult.ButtonHit("DesktopAlertAll") },
                 ];
+                // The ring is reserved inside the choice's box by the engine, so the box stays the row's height and the segments
+                // sit within it.
                 choice = Layout.Builder.ButtonGroup(options, alerts.Level, onLevel, style, AlertChoiceFontSize)
+                    .Border(AlertChoiceEdge, GuiTheme.Metrics.ControlEdgeWidth, GuiTheme.Metrics.ControlRadius)
                     .WithTooltip(AlertTooltip(alerts)).HStar();
             }
 

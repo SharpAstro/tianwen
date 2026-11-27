@@ -16,6 +16,8 @@ namespace TianWen.Lib.Tests;
 /// painted region goes through the <see cref="InputRouter"/> as a real press does, and the level and the save are read
 /// back. In memory, against a fake sink.
 /// </summary>
+// In the ThemeCollection because the palette tests call GuiTheme.Apply (process-wide), and the render tests here read the palette.
+[Collection(ThemeCollection.Name)]
 public class NotificationsTabAlertSettingTests(ITestOutputHelper output)
 {
     internal sealed class Sink : IDesktopAlert
@@ -120,7 +122,8 @@ public class NotificationsTabAlertSettingTests(ITestOutputHelper output)
         else
         {
             choiceMiddle.ShouldBe(clearMiddle, 1f);
-            segments[0].Height.ShouldBe(clear.Height, 1f);
+            // The choice's box is Clear's height; its segments sit inside its ring.
+            (segments[0].Height + 2f * GuiTheme.Metrics.ControlEdgeWidth * dpiScale).ShouldBe(clear.Height, 1f);
             clear.X.ShouldBeGreaterThan(segments[2].X + segments[2].Width - 1f);
         }
     }
@@ -148,31 +151,101 @@ public class NotificationsTabAlertSettingTests(ITestOutputHelper output)
         ChoiceRegions(Paint(renderer, new GuiAppState(), new ViewContexts().Local).Tab).ShouldBeEmpty();
     }
 
-    // Kept output only (TIANWEN_KEEP_TEST_OUTPUT=1): the tab beside the test binary, narrow and wide, at both scales, to be looked at.
+    // Kept output only (TIANWEN_KEEP_TEST_OUTPUT=1): the tab beside the test binary, narrow and wide, at both scales and in every
+    // palette, to be looked at.
     [Theory]
-    [InlineData(560, 1f)]
-    [InlineData(560, 1.5f)]
-    [InlineData(1000, 1f)]
-    [InlineData(1000, 1.5f)]
-    public void TheHeaderRendersWithTheChoiceAtBothScales(int width, float dpiScale)
+    [InlineData(560, 1f, UiThemeState.Dark)]
+    [InlineData(560, 1.5f, UiThemeState.Dark)]
+    [InlineData(1000, 1f, UiThemeState.Dark)]
+    [InlineData(1000, 1.5f, UiThemeState.Dark)]
+    [InlineData(560, 1.5f, UiThemeState.Light)]
+    [InlineData(1000, 1f, UiThemeState.Light)]
+    [InlineData(560, 1.5f, UiThemeState.Night)]
+    [InlineData(1000, 1f, UiThemeState.Night)]
+    public void TheHeaderRendersWithTheChoiceAtBothScales(int width, float dpiScale, UiThemeState state)
     {
-        using var renderer = new RgbaImageRenderer((uint)width, 260u);
-        var app = new GuiAppState { DesktopAlerts = AlertsOn(new Sink { Refusal = "Disabled: toasts are off for this app" }) };
-        var now = new DateTimeOffset(2026, 11, 27, 22, 0, 0, TimeSpan.Zero);
-        app.RecordNotification(now, NotificationSeverity.Error, "Mount://ASCOMDevice/ASCOM.OnStep.Telescope refused the slew to Sharpless 2-132");
-        app.RecordNotification(now, NotificationSeverity.Warning, "Guiding RMS 0.9 arcsec");
-        app.RecordNotification(now, NotificationSeverity.Info, "Session started");
-        var bus = new SignalBus();
-        var tab = new NotificationsTab<RgbaImage>(renderer) { DpiScale = dpiScale, FontPath = FontResolver.ResolveSystemFont(), Bus = bus };
-
-        tab.Render(app, new ViewContexts().Local, new RectF32(0, 0, renderer.Width, renderer.Height));
-
-        ChoiceRegions(tab).Length.ShouldBe(3);
-        if (Environment.GetEnvironmentVariable("TIANWEN_KEEP_TEST_OUTPUT") == "1")
+        try
         {
-            System.IO.File.WriteAllBytes(
-                System.IO.Path.Combine(AppContext.BaseDirectory, $"notifications-alerts-{width}-{dpiScale:0.0}.png"),
-                PngWriter.Encode(renderer.Surface.Pixels, renderer.Surface.Width, renderer.Surface.Height));
+            GuiTheme.Apply(state, desktopIsDark: state != UiThemeState.Light);
+            using var renderer = new RgbaImageRenderer((uint)width, 260u);
+            var app = new GuiAppState { DesktopAlerts = AlertsOn(new Sink { Refusal = "Disabled: toasts are off for this app" }) };
+            var now = new DateTimeOffset(2026, 11, 27, 22, 0, 0, TimeSpan.Zero);
+            app.RecordNotification(now, NotificationSeverity.Error, "Mount://ASCOMDevice/ASCOM.OnStep.Telescope refused the slew to Sharpless 2-132");
+            app.RecordNotification(now, NotificationSeverity.Warning, "Guiding RMS 0.9 arcsec");
+            app.RecordNotification(now, NotificationSeverity.Info, "Session started");
+            var bus = new SignalBus();
+            var tab = new NotificationsTab<RgbaImage>(renderer) { DpiScale = dpiScale, FontPath = FontResolver.ResolveSystemFont(), Bus = bus };
+
+            tab.Render(app, new ViewContexts().Local, new RectF32(0, 0, renderer.Width, renderer.Height));
+
+            ChoiceRegions(tab).Length.ShouldBe(3);
+            if (Environment.GetEnvironmentVariable("TIANWEN_KEEP_TEST_OUTPUT") == "1")
+            {
+                System.IO.File.WriteAllBytes(
+                    System.IO.Path.Combine(AppContext.BaseDirectory, $"notifications-alerts-{state}-{width}-{dpiScale:0.0}.png"),
+                    PngWriter.Encode(renderer.Surface.Pixels, renderer.Surface.Width, renderer.Surface.Height));
+            }
+        }
+        finally
+        {
+            GuiTheme.Apply(UiThemeState.Dark, desktopIsDark: true);
+        }
+    }
+
+    // ui-changes.md: a control's edge is 3:1 against what it is drawn on, and its words 4.5:1 on their fill (3.4:1 at night,
+    // GuiThemeTests' floor for that palette), in every palette; at night nothing spends blue.
+    [Theory]
+    [InlineData(UiThemeState.Light)]
+    [InlineData(UiThemeState.Dark)]
+    [InlineData(UiThemeState.Night)]
+    public void TheChoiceStandsOffTheHeaderAndItsWordsReadInEveryPalette(UiThemeState state)
+    {
+        try
+        {
+            GuiTheme.Apply(state, desktopIsDark: state != UiThemeState.Light);
+            var header = GuiTheme.Palette.HeaderBg;
+            var edge = NotificationsTab<RgbaImage>.AlertChoiceEdge;
+            var style = NotificationsTab<RgbaImage>.AlertChoiceStyle(80f);
+            var rest = style.UnselectedFill.ShouldNotBeNull();
+            var textFloor = state == UiThemeState.Night ? 3.4 : 4.5;
+
+            RGBAColor32.ContrastRatio(edge, header).ShouldBeGreaterThanOrEqualTo(3.0, $"{state}: the ring on the header");
+            RGBAColor32.ContrastRatio(style.SelectedContent, style.SelectedFill).ShouldBeGreaterThanOrEqualTo(4.5, $"{state}: the chosen word");
+            RGBAColor32.ContrastRatio(style.UnselectedContent, rest).ShouldBeGreaterThanOrEqualTo(textFloor, $"{state}: a word at rest");
+            RGBAColor32.ContrastRatio(style.UnselectedContent, style.HoverFill).ShouldBeGreaterThanOrEqualTo(textFloor, $"{state}: a word hovered");
+            if (state == UiThemeState.Night)
+            {
+                foreach (var colour in new[] { edge, style.SelectedFill, style.SelectedContent, rest, style.UnselectedContent, style.HoverFill })
+                {
+                    colour.Blue.ShouldBe((byte)0);
+                }
+            }
+        }
+        finally
+        {
+            GuiTheme.Apply(UiThemeState.Dark, desktopIsDark: true);
+        }
+    }
+
+    // Every kind DesktopAlerts.IsSafetyKind holds is named in the words a person reads, and nothing else is; a kind added to (or
+    // taken from) that list fails here until the tooltip and this table say so too.
+    [Fact]
+    public void TheTooltipNamesEverySafetyKind()
+    {
+        var words = new Dictionary<NoteKind, string>
+        {
+            [NoteKind.SessionAborted] = "aborted",
+            [NoteKind.MountLimit] = "mount limit",
+            [NoteKind.RunStoppedUnwatched] = "no one was watching",
+            [NoteKind.RunFaulted] = "fault",
+        };
+        var tooltip = NotificationsTab<RgbaImage>.AlertTooltip(AlertsOn(new Sink()));
+
+        words.Keys.ShouldAllBe(kind => DesktopAlerts.IsSafetyKind(kind));
+        foreach (var kind in Enum.GetValues<NoteKind>().Where(DesktopAlerts.IsSafetyKind))
+        {
+            words.ShouldContainKey(kind, $"{kind} alerts at Errors and safety: name it in NotificationsTab.AlertTooltip and here");
+            tooltip.ShouldContain(words[kind]);
         }
     }
 
