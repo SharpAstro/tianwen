@@ -1,0 +1,181 @@
+{
+  "id": "equipment",
+  "title": "Equipment",
+  "root": {
+    "kind": "dock",
+    "background": "ContentBg",
+    "children": [
+      {
+        "kind": "dock", "side": "top", "size": 48, "padding": 8, "background": "HeaderBg",
+        "children": [
+          {"kind": "text", "side": "left", "size": 160, "text": "tianwen", "fontSize": 16, "color": "HeaderText"},
+          {"kind": "hstack", "side": "right", "size": 420, "gap": 6, "children": [
+            {"kind": "text", "text": "The switch", "width": "star", "height": "star", "align": "center", "background": "PanelBg", "color": "BodyText", "borderRadius": 6, "action": "goto:home"},
+            {"kind": "text", "text": "Session settings", "width": "star", "height": "star", "align": "center", "background": "PanelBg", "color": "BodyText", "borderRadius": 6, "action": "goto:settings"},
+            {"kind": "text", "text": "Equipment", "width": "star", "height": "star", "align": "center", "background": "Selection", "color": "SelectionText", "borderRadius": 6}
+          ]},
+          {"kind": "spacer"}
+        ]
+      },
+      {
+        "kind": "vstack", "padding": 24, "gap": 10,
+        "children": [
+          {"kind": "hstack", "width": 760, "height": 28, "children": [
+            {"kind": "text", "text": "Profile: Backyard rig", "width": "star", "height": "star", "fontSize": 15, "color": "HeaderText"}
+          ]},
+          {"kind": "vstack", "width": 760, "background": "PanelBg", "borderRadius": 8, "children": [
+
+            {"kind": "hstack", "width": "star", "height": 48, "padding": 12, "gap": 12, "when": "mount_off=false", "action": "toggle:mount_off", "tooltip": "Disconnect the mount", "children": [
+              {"kind": "text", "text": "Mount", "width": 100, "height": "star", "color": "DimText"},
+              {"kind": "text", "text": "Sky-Watcher EQ6-R Pro", "width": "star", "height": "star", "color": "BodyText"},
+              {"kind": "text", "text": "Connected", "width": 170, "height": "star", "align": "far", "fontSize": 12, "color": "Success"},
+              {"kind": "vstack", "width": 30, "height": "star", "children": [
+                {"kind": "spacer", "height": "star"},
+                {"kind": "hstack", "width": 30, "height": 16, "padding": 2, "background": "Accent", "borderRadius": 8, "children": [
+                  {"kind": "spacer", "width": "star"},
+                  {"kind": "spacer", "width": 12, "height": 12, "background": "#ffffff", "borderRadius": 6}
+                ]},
+                {"kind": "spacer", "height": "star"}
+              ]}
+            ]},
+            {"kind": "hstack", "width": "star", "height": 48, "padding": 12, "gap": 12, "when": "mount_off=true", "action": "toggle:mount_off", "tooltip": "Connect the mount", "children": [
+              {"kind": "text", "text": "Mount", "width": 100, "height": "star", "color": "DimText"},
+              {"kind": "text", "text": "Sky-Watcher EQ6-R Pro", "width": "star", "height": "star", "color": "BodyText"},
+              {"kind": "text", "text": "Not connected", "width": 170, "height": "star", "align": "far", "fontSize": 12, "color": "DimText"},
+              {"kind": "vstack", "width": 30, "height": "star", "children": [
+                {"kind": "spacer", "height": "star"},
+                {"kind": "hstack", "width": 30, "height": 16, "padding": 2, "background": "HeaderBg", "border": "SeparatorStrong", "borderRadius": 8, "children": [
+                  {"kind": "spacer", "width": 12, "height": 12, "background": "DimText", "borderRadius": 6},
+                  {"kind": "spacer", "width": "star"}
+                ]},
+                {"kind": "spacer", "height": "star"}
+              ]}
+            ]},
+            {"kind": "spacer", "width": "star", "height": 1, "background": "Separator"},
+
+            {"kind": "hstack", "width": "star", "height": 48, "padding": 12, "gap": 12, "when": "cam=false", "action": "set:cam=confirm", "tooltip": "Disconnect the camera: asks to warm the sensor first", "children": [
+              {"kind": "text", "text": "Camera", "width": 100, "height": "star", "color": "DimText"},
+              {"kind": "text", "text": "ZWO ASI2600MM Pro", "width": "star", "height": "star", "color": "BodyText"},
+              {"kind": "text", "text": "Connected · −10 °C", "width": 170, "height": "star", "align": "far", "fontSize": 12, "color": "Success"},
+              {"kind": "vstack", "width": 30, "height": "star", "children": [
+                {"kind": "spacer", "height": "star"},
+                {"kind": "hstack", "width": 30, "height": 16, "padding": 2, "background": "Accent", "borderRadius": 8, "children": [
+                  {"kind": "spacer", "width": "star"},
+                  {"kind": "spacer", "width": 12, "height": 12, "background": "#ffffff", "borderRadius": 6}
+                ]},
+                {"kind": "spacer", "height": "star"}
+              ]}
+            ]},
+            {"kind": "vstack", "width": "star", "when": "cam=confirm", "children": [
+              {"kind": "hstack", "width": "star", "height": 48, "padding": 12, "gap": 12, "action": "set:cam=false", "tooltip": "Keep the camera connected", "children": [
+                {"kind": "text", "text": "Camera", "width": 100, "height": "star", "color": "DimText"},
+                {"kind": "text", "text": "ZWO ASI2600MM Pro", "width": "star", "height": "star", "color": "BodyText"},
+                {"kind": "text", "text": "Connected · −10 °C", "width": 170, "height": "star", "align": "far", "fontSize": 12, "color": "Success"},
+                {"kind": "vstack", "width": 30, "height": "star", "children": [
+                  {"kind": "spacer", "height": "star"},
+                  {"kind": "hstack", "width": 30, "height": 16, "padding": 2, "background": "Accent", "borderRadius": 8, "children": [
+                    {"kind": "spacer", "width": "star"},
+                    {"kind": "spacer", "width": 12, "height": 12, "background": "#ffffff", "borderRadius": 6}
+                  ]},
+                  {"kind": "spacer", "height": "star"}
+                ]}
+              ]},
+              {"kind": "hstack", "width": "star", "height": 44, "padding": 8, "gap": 8, "background": "HeaderBg", "border": "Warn", "borderRadius": 6, "children": [
+                {"kind": "text", "text": "The sensor is at −10 °C. Warm it before disconnecting?", "width": "star", "height": "star", "fontSize": 12, "color": "Warn"},
+                {"kind": "text", "text": "Warm, then off", "width": 120, "height": "star", "align": "center", "fontSize": 12, "background": "Accent", "color": "#ffffff", "borderRadius": 6, "action": "set:cam=off"},
+                {"kind": "text", "text": "Off now", "width": 80, "height": "star", "align": "center", "fontSize": 12, "border": "Error", "color": "Error", "borderRadius": 6, "action": "set:cam=off"},
+                {"kind": "text", "text": "Cancel", "width": 70, "height": "star", "align": "center", "fontSize": 12, "background": "PanelBg", "color": "BodyText", "borderRadius": 6, "action": "set:cam=false"}
+              ]}
+            ]},
+            {"kind": "hstack", "width": "star", "height": 48, "padding": 12, "gap": 12, "when": "cam=off", "action": "set:cam=false", "tooltip": "Connect the camera", "children": [
+              {"kind": "text", "text": "Camera", "width": 100, "height": "star", "color": "DimText"},
+              {"kind": "text", "text": "ZWO ASI2600MM Pro", "width": "star", "height": "star", "color": "BodyText"},
+              {"kind": "text", "text": "Not connected", "width": 170, "height": "star", "align": "far", "fontSize": 12, "color": "DimText"},
+              {"kind": "vstack", "width": 30, "height": "star", "children": [
+                {"kind": "spacer", "height": "star"},
+                {"kind": "hstack", "width": 30, "height": 16, "padding": 2, "background": "HeaderBg", "border": "SeparatorStrong", "borderRadius": 8, "children": [
+                  {"kind": "spacer", "width": 12, "height": 12, "background": "DimText", "borderRadius": 6},
+                  {"kind": "spacer", "width": "star"}
+                ]},
+                {"kind": "spacer", "height": "star"}
+              ]}
+            ]},
+            {"kind": "spacer", "width": "star", "height": 1, "background": "Separator"},
+
+            {"kind": "hstack", "width": "star", "height": 48, "padding": 12, "gap": 12, "tooltip": "Connecting: wait for it to finish", "children": [
+              {"kind": "text", "text": "Focuser", "width": 100, "height": "star", "color": "DimText"},
+              {"kind": "text", "text": "ZWO EAF", "width": "star", "height": "star", "color": "BodyText"},
+              {"kind": "text", "text": "Connecting…", "width": 170, "height": "star", "align": "far", "fontSize": 12, "color": "Info"},
+              {"kind": "vstack", "width": 30, "height": "star", "children": [
+                {"kind": "spacer", "height": "star"},
+                {"kind": "hstack", "width": 30, "height": 16, "padding": 2, "background": "Separator", "border": "SeparatorStrong", "borderRadius": 8, "children": [
+                  {"kind": "spacer", "width": "star"},
+                  {"kind": "spacer", "width": 12, "height": 12, "background": "DimText", "borderRadius": 6},
+                  {"kind": "spacer", "width": "star"}
+                ]},
+                {"kind": "spacer", "height": "star"}
+              ]}
+            ]},
+            {"kind": "spacer", "width": "star", "height": 1, "background": "Separator"},
+
+            {"kind": "hstack", "width": "star", "height": 48, "padding": 12, "gap": 12, "when": "efw_on=true", "action": "toggle:efw_on", "tooltip": "Disconnect the filter wheel", "children": [
+              {"kind": "text", "text": "Filter wheel", "width": 100, "height": "star", "color": "DimText"},
+              {"kind": "text", "text": "ZWO EFW 7 × 36 mm", "width": "star", "height": "star", "color": "BodyText"},
+              {"kind": "text", "text": "Connected", "width": 170, "height": "star", "align": "far", "fontSize": 12, "color": "Success"},
+              {"kind": "vstack", "width": 30, "height": "star", "children": [
+                {"kind": "spacer", "height": "star"},
+                {"kind": "hstack", "width": 30, "height": 16, "padding": 2, "background": "Accent", "borderRadius": 8, "children": [
+                  {"kind": "spacer", "width": "star"},
+                  {"kind": "spacer", "width": 12, "height": 12, "background": "#ffffff", "borderRadius": 6}
+                ]},
+                {"kind": "spacer", "height": "star"}
+              ]}
+            ]},
+            {"kind": "hstack", "width": "star", "height": 48, "padding": 12, "gap": 12, "when": "efw_on=false", "action": "toggle:efw_on", "tooltip": "Connect the filter wheel", "children": [
+              {"kind": "text", "text": "Filter wheel", "width": 100, "height": "star", "color": "DimText"},
+              {"kind": "text", "text": "ZWO EFW 7 × 36 mm", "width": "star", "height": "star", "color": "BodyText"},
+              {"kind": "text", "text": "Not connected", "width": 170, "height": "star", "align": "far", "fontSize": 12, "color": "DimText"},
+              {"kind": "vstack", "width": 30, "height": "star", "children": [
+                {"kind": "spacer", "height": "star"},
+                {"kind": "hstack", "width": 30, "height": 16, "padding": 2, "background": "HeaderBg", "border": "SeparatorStrong", "borderRadius": 8, "children": [
+                  {"kind": "spacer", "width": 12, "height": 12, "background": "DimText", "borderRadius": 6},
+                  {"kind": "spacer", "width": "star"}
+                ]},
+                {"kind": "spacer", "height": "star"}
+              ]}
+            ]},
+            {"kind": "spacer", "width": "star", "height": 1, "background": "Separator"},
+
+            {"kind": "hstack", "width": "star", "height": 48, "padding": 12, "gap": 12, "when": "guider_on=true", "action": "toggle:guider_on", "tooltip": "Disconnect the guider", "children": [
+              {"kind": "text", "text": "Guider", "width": 100, "height": "star", "color": "DimText"},
+              {"kind": "text", "text": "Built-in guider", "width": "star", "height": "star", "color": "BodyText"},
+              {"kind": "text", "text": "Connected", "width": 170, "height": "star", "align": "far", "fontSize": 12, "color": "Success"},
+              {"kind": "vstack", "width": 30, "height": "star", "children": [
+                {"kind": "spacer", "height": "star"},
+                {"kind": "hstack", "width": 30, "height": 16, "padding": 2, "background": "Accent", "borderRadius": 8, "children": [
+                  {"kind": "spacer", "width": "star"},
+                  {"kind": "spacer", "width": 12, "height": 12, "background": "#ffffff", "borderRadius": 6}
+                ]},
+                {"kind": "spacer", "height": "star"}
+              ]}
+            ]},
+            {"kind": "hstack", "width": "star", "height": 48, "padding": 12, "gap": 12, "when": "guider_on=false", "action": "toggle:guider_on", "tooltip": "Connect the guider", "children": [
+              {"kind": "text", "text": "Guider", "width": 100, "height": "star", "color": "DimText"},
+              {"kind": "text", "text": "Built-in guider", "width": "star", "height": "star", "color": "BodyText"},
+              {"kind": "text", "text": "Not connected", "width": 170, "height": "star", "align": "far", "fontSize": 12, "color": "DimText"},
+              {"kind": "vstack", "width": 30, "height": "star", "children": [
+                {"kind": "spacer", "height": "star"},
+                {"kind": "hstack", "width": 30, "height": 16, "padding": 2, "background": "HeaderBg", "border": "SeparatorStrong", "borderRadius": 8, "children": [
+                  {"kind": "spacer", "width": 12, "height": 12, "background": "DimText", "borderRadius": 6},
+                  {"kind": "spacer", "width": "star"}
+                ]},
+                {"kind": "spacer", "height": "star"}
+              ]}
+            ]}
+          ]},
+          {"kind": "text", "text": "Click a row or its switch. The camera asks before it disconnects while cooled.", "fontSize": 12, "color": "DimText"}
+        ]
+      }
+    ]
+  }
+}

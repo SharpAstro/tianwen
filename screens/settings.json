@@ -1,0 +1,231 @@
+{
+  "id": "settings",
+  "title": "Session settings",
+  "root": {
+    "kind": "dock",
+    "background": "ContentBg",
+    "children": [
+      {
+        "kind": "dock", "side": "top", "size": 48, "padding": 8, "background": "HeaderBg",
+        "children": [
+          {"kind": "text", "side": "left", "size": 160, "text": "tianwen", "fontSize": 16, "color": "HeaderText"},
+          {"kind": "hstack", "side": "right", "size": 420, "gap": 6, "children": [
+            {"kind": "text", "text": "The switch", "width": "star", "height": "star", "align": "center", "background": "PanelBg", "color": "BodyText", "borderRadius": 6, "action": "goto:home"},
+            {"kind": "text", "text": "Session settings", "width": "star", "height": "star", "align": "center", "background": "Selection", "color": "SelectionText", "borderRadius": 6},
+            {"kind": "text", "text": "Equipment", "width": "star", "height": "star", "align": "center", "background": "PanelBg", "color": "BodyText", "borderRadius": 6, "action": "goto:equipment"}
+          ]},
+          {"kind": "hstack", "side": "right", "size": 166, "children": [
+            {"kind": "text", "width": 150, "height": "star", "when": "running=false", "text": "▶  Start session", "align": "center", "background": "Accent", "color": "#ffffff", "borderRadius": 6, "action": "set:running=true", "tooltip": "Starts the session; its settings lock while it runs"},
+            {"kind": "text", "width": 150, "height": "star", "when": "running=true", "text": "■  Stop session", "align": "center", "background": "PanelBg", "border": "Error", "color": "Error", "borderRadius": 6, "action": "set:running=false"},
+            {"kind": "spacer", "width": "star"}
+          ]},
+          {"kind": "spacer"}
+        ]
+      },
+      {
+        "kind": "dock", "side": "left", "size": 220, "padding": 12, "background": "PanelBg",
+        "children": [
+          {"kind": "text", "side": "top", "size": 44, "text": "Session", "fontSize": 18, "color": "HeaderText"},
+          {"kind": "vstack", "gap": 2, "children": [
+            {"kind": "text", "text": "Cooling rates", "width": "star", "height": 32, "padding": 8, "color": "BodyText", "borderRadius": 6},
+            {"kind": "text", "text": "Guiding", "width": "star", "height": 32, "padding": 8, "color": "BodyText", "borderRadius": 6},
+            {"kind": "text", "text": "Horizon", "width": "star", "height": 32, "padding": 8, "background": "Selection", "color": "SelectionText", "borderRadius": 6},
+            {"kind": "text", "text": "Meridian flip", "width": "star", "height": 32, "padding": 8, "color": "BodyText", "borderRadius": 6},
+            {"kind": "text", "text": "Focusing", "width": "star", "height": 32, "padding": 8, "color": "BodyText", "borderRadius": 6},
+            {"kind": "text", "text": "Imaging", "width": "star", "height": 32, "padding": 8, "color": "BodyText", "borderRadius": 6},
+            {"kind": "text", "text": "Mosaic", "width": "star", "height": 32, "padding": 8, "color": "BodyText", "borderRadius": 6},
+            {"kind": "text", "text": "Conditions", "width": "star", "height": 32, "padding": 8, "color": "BodyText", "borderRadius": 6}
+          ]}
+        ]
+      },
+      {
+        "kind": "vstack", "padding": 24, "gap": 10,
+        "children": [
+          {"kind": "hstack", "width": 640, "height": 40, "padding": 10, "gap": 8, "when": "running=true", "background": "PanelBg", "border": "Warn", "borderRadius": 8, "children": [
+            {"kind": "text", "text": "The session is running: its settings are locked until it stops.", "width": "star", "height": "star", "color": "Warn"}
+          ]},
+
+          {"kind": "text", "text": "Horizon", "fontSize": 15, "color": "HeaderText"},
+          {"kind": "vstack", "width": 640, "background": "PanelBg", "borderRadius": 8, "children": [
+            {"kind": "hstack", "width": "star", "height": 56, "padding": 12, "gap": 12, "children": [
+              {"kind": "vstack", "width": "star", "height": "star", "gap": 2, "children": [
+                {"kind": "text", "text": "Minimum altitude", "color": "BodyText"},
+                {"kind": "text", "text": "Targets below this are not started", "fontSize": 12, "color": "DimText"}
+              ]},
+              {"kind": "hstack", "width": 120, "height": "star", "gap": 2, "children": [
+                {"kind": "text", "text": "−", "width": 30, "height": "star", "align": "center", "background": "HeaderBg", "color": "BodyText", "borderRadius": 6},
+                {"kind": "text", "text": "20°", "width": "star", "height": "star", "align": "center", "color": "BodyText"},
+                {"kind": "text", "text": "+", "width": 30, "height": "star", "align": "center", "background": "HeaderBg", "color": "BodyText", "borderRadius": 6}
+              ]}
+            ]},
+            {"kind": "spacer", "width": "star", "height": 1, "background": "Separator"},
+            {"kind": "hstack", "width": "star", "height": 56, "padding": 12, "gap": 12, "children": [
+              {"kind": "vstack", "width": "star", "height": "star", "gap": 2, "children": [
+                {"kind": "text", "text": "Wait for a rising target", "color": "BodyText"},
+                {"kind": "text", "text": "Longest wait before moving on", "fontSize": 12, "color": "DimText"}
+              ]},
+              {"kind": "hstack", "width": 120, "height": "star", "gap": 2, "children": [
+                {"kind": "text", "text": "−", "width": 30, "height": "star", "align": "center", "background": "HeaderBg", "color": "BodyText", "borderRadius": 6},
+                {"kind": "text", "text": "30 min", "width": "star", "height": "star", "align": "center", "color": "BodyText"},
+                {"kind": "text", "text": "+", "width": 30, "height": "star", "align": "center", "background": "HeaderBg", "color": "BodyText", "borderRadius": 6}
+              ]}
+            ]},
+            {"kind": "spacer", "width": "star", "height": 1, "background": "Separator"},
+
+            {"kind": "hstack", "width": "star", "height": 56, "padding": 12, "gap": 12, "when": "running=false", "action": "toggle:unpark_off", "children": [
+              {"kind": "vstack", "width": "star", "height": "star", "gap": 2, "children": [
+                {"kind": "text", "text": "Unpark mount", "color": "BodyText"},
+                {"kind": "text", "text": "Unpark a parked mount once the wait for dark is over", "fontSize": 12, "color": "DimText"}
+              ]},
+              {"kind": "vstack", "width": 40, "height": "star", "when": "unpark_off=false", "children": [
+                {"kind": "spacer", "height": "star"},
+                {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "Accent", "borderRadius": 11, "children": [
+                  {"kind": "spacer", "width": "star"},
+                  {"kind": "spacer", "width": 18, "height": 18, "background": "#ffffff", "borderRadius": 9}
+                ]},
+                {"kind": "spacer", "height": "star"}
+              ]},
+              {"kind": "vstack", "width": 40, "height": "star", "when": "unpark_off=true", "children": [
+                {"kind": "spacer", "height": "star"},
+                {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "HeaderBg", "border": "SeparatorStrong", "borderRadius": 11, "children": [
+                  {"kind": "spacer", "width": 18, "height": 18, "background": "DimText", "borderRadius": 9},
+                  {"kind": "spacer", "width": "star"}
+                ]},
+                {"kind": "spacer", "height": "star"}
+              ]}
+            ]},
+            {"kind": "hstack", "width": "star", "height": 56, "padding": 12, "gap": 12, "when": "running=true", "tooltip": "Locked while the session runs", "children": [
+              {"kind": "vstack", "width": "star", "height": "star", "gap": 2, "children": [
+                {"kind": "text", "text": "Unpark mount", "color": "DimText"},
+                {"kind": "text", "text": "Unpark a parked mount once the wait for dark is over", "fontSize": 12, "color": "DimText"}
+              ]},
+              {"kind": "vstack", "width": 40, "height": "star", "when": "unpark_off=false", "children": [
+                {"kind": "spacer", "height": "star"},
+                {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "Selection", "borderRadius": 11, "children": [
+                  {"kind": "spacer", "width": "star"},
+                  {"kind": "spacer", "width": 18, "height": 18, "background": "DimText", "borderRadius": 9}
+                ]},
+                {"kind": "spacer", "height": "star"}
+              ]},
+              {"kind": "vstack", "width": 40, "height": "star", "when": "unpark_off=true", "children": [
+                {"kind": "spacer", "height": "star"},
+                {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "PanelBg", "border": "Separator", "borderRadius": 11, "children": [
+                  {"kind": "spacer", "width": 18, "height": 18, "background": "Separator", "borderRadius": 9},
+                  {"kind": "spacer", "width": "star"}
+                ]},
+                {"kind": "spacer", "height": "star"}
+              ]}
+            ]}
+          ]},
+
+          {"kind": "text", "text": "Focusing", "fontSize": 15, "color": "HeaderText"},
+          {"kind": "vstack", "width": 640, "background": "PanelBg", "borderRadius": 8, "children": [
+            {"kind": "hstack", "width": "star", "height": 56, "padding": 12, "gap": 12, "children": [
+              {"kind": "vstack", "width": "star", "height": "star", "gap": 2, "children": [
+                {"kind": "text", "text": "Autofocus steps", "color": "BodyText"},
+                {"kind": "text", "text": "Positions sampled in one autofocus run", "fontSize": 12, "color": "DimText"}
+              ]},
+              {"kind": "hstack", "width": 120, "height": "star", "gap": 2, "children": [
+                {"kind": "text", "text": "−", "width": 30, "height": "star", "align": "center", "background": "HeaderBg", "color": "BodyText", "borderRadius": 6},
+                {"kind": "text", "text": "9", "width": "star", "height": "star", "align": "center", "color": "BodyText"},
+                {"kind": "text", "text": "+", "width": 30, "height": "star", "align": "center", "background": "HeaderBg", "color": "BodyText", "borderRadius": 6}
+              ]}
+            ]},
+            {"kind": "spacer", "width": "star", "height": 1, "background": "Separator"},
+
+            {"kind": "hstack", "width": "star", "height": 56, "padding": 12, "gap": 12, "when": "running=false", "action": "toggle:refocus_off", "children": [
+              {"kind": "vstack", "width": "star", "height": "star", "gap": 2, "children": [
+                {"kind": "text", "text": "Refocus on a new target", "color": "BodyText"},
+                {"kind": "text", "text": "Run autofocus before the first frame of each target", "fontSize": 12, "color": "DimText"}
+              ]},
+              {"kind": "vstack", "width": 40, "height": "star", "when": "refocus_off=false", "children": [
+                {"kind": "spacer", "height": "star"},
+                {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "Accent", "borderRadius": 11, "children": [
+                  {"kind": "spacer", "width": "star"},
+                  {"kind": "spacer", "width": 18, "height": 18, "background": "#ffffff", "borderRadius": 9}
+                ]},
+                {"kind": "spacer", "height": "star"}
+              ]},
+              {"kind": "vstack", "width": 40, "height": "star", "when": "refocus_off=true", "children": [
+                {"kind": "spacer", "height": "star"},
+                {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "HeaderBg", "border": "SeparatorStrong", "borderRadius": 11, "children": [
+                  {"kind": "spacer", "width": 18, "height": 18, "background": "DimText", "borderRadius": 9},
+                  {"kind": "spacer", "width": "star"}
+                ]},
+                {"kind": "spacer", "height": "star"}
+              ]}
+            ]},
+            {"kind": "hstack", "width": "star", "height": 56, "padding": 12, "gap": 12, "when": "running=true", "tooltip": "Locked while the session runs", "children": [
+              {"kind": "vstack", "width": "star", "height": "star", "gap": 2, "children": [
+                {"kind": "text", "text": "Refocus on a new target", "color": "DimText"},
+                {"kind": "text", "text": "Run autofocus before the first frame of each target", "fontSize": 12, "color": "DimText"}
+              ]},
+              {"kind": "vstack", "width": 40, "height": "star", "when": "refocus_off=false", "children": [
+                {"kind": "spacer", "height": "star"},
+                {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "Selection", "borderRadius": 11, "children": [
+                  {"kind": "spacer", "width": "star"},
+                  {"kind": "spacer", "width": 18, "height": 18, "background": "DimText", "borderRadius": 9}
+                ]},
+                {"kind": "spacer", "height": "star"}
+              ]},
+              {"kind": "vstack", "width": 40, "height": "star", "when": "refocus_off=true", "children": [
+                {"kind": "spacer", "height": "star"},
+                {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "PanelBg", "border": "Separator", "borderRadius": 11, "children": [
+                  {"kind": "spacer", "width": 18, "height": 18, "background": "Separator", "borderRadius": 9},
+                  {"kind": "spacer", "width": "star"}
+                ]},
+                {"kind": "spacer", "height": "star"}
+              ]}
+            ]},
+            {"kind": "spacer", "width": "star", "height": 1, "background": "Separator"},
+
+            {"kind": "hstack", "width": "star", "height": 56, "padding": 12, "gap": 12, "when": "running=false", "action": "toggle:save_inter", "children": [
+              {"kind": "vstack", "width": "star", "height": "star", "gap": 2, "children": [
+                {"kind": "text", "text": "Save intermediate frames", "color": "BodyText"},
+                {"kind": "text", "text": "Keep every autofocus frame on disk", "fontSize": 12, "color": "DimText"}
+              ]},
+              {"kind": "vstack", "width": 40, "height": "star", "when": "save_inter=true", "children": [
+                {"kind": "spacer", "height": "star"},
+                {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "Accent", "borderRadius": 11, "children": [
+                  {"kind": "spacer", "width": "star"},
+                  {"kind": "spacer", "width": 18, "height": 18, "background": "#ffffff", "borderRadius": 9}
+                ]},
+                {"kind": "spacer", "height": "star"}
+              ]},
+              {"kind": "vstack", "width": 40, "height": "star", "when": "save_inter=false", "children": [
+                {"kind": "spacer", "height": "star"},
+                {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "HeaderBg", "border": "SeparatorStrong", "borderRadius": 11, "children": [
+                  {"kind": "spacer", "width": 18, "height": 18, "background": "DimText", "borderRadius": 9},
+                  {"kind": "spacer", "width": "star"}
+                ]},
+                {"kind": "spacer", "height": "star"}
+              ]}
+            ]},
+            {"kind": "hstack", "width": "star", "height": 56, "padding": 12, "gap": 12, "when": "running=true", "tooltip": "Locked while the session runs", "children": [
+              {"kind": "vstack", "width": "star", "height": "star", "gap": 2, "children": [
+                {"kind": "text", "text": "Save intermediate frames", "color": "DimText"},
+                {"kind": "text", "text": "Keep every autofocus frame on disk", "fontSize": 12, "color": "DimText"}
+              ]},
+              {"kind": "vstack", "width": 40, "height": "star", "when": "save_inter=true", "children": [
+                {"kind": "spacer", "height": "star"},
+                {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "Selection", "borderRadius": 11, "children": [
+                  {"kind": "spacer", "width": "star"},
+                  {"kind": "spacer", "width": 18, "height": 18, "background": "DimText", "borderRadius": 9}
+                ]},
+                {"kind": "spacer", "height": "star"}
+              ]},
+              {"kind": "vstack", "width": 40, "height": "star", "when": "save_inter=false", "children": [
+                {"kind": "spacer", "height": "star"},
+                {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "PanelBg", "border": "Separator", "borderRadius": 11, "children": [
+                  {"kind": "spacer", "width": 18, "height": 18, "background": "Separator", "borderRadius": 9},
+                  {"kind": "spacer", "width": "star"}
+                ]},
+                {"kind": "spacer", "height": "star"}
+              ]}
+            ]}
+          ]}
+        ]
+      }
+    ]
+  }
+}
