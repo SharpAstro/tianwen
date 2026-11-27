@@ -86,8 +86,8 @@ public sealed class WorkbenchSettingsEditTests : IDisposable
         });
         OperationSettingsForm.Describe(new KnobOperation()).Single(static f => f.Name == "mode").Choices.ShouldBe(["Fast", "Thorough"]);
 
-        e2e.Regions().ShouldContain(r => r.Result is HitResult.ButtonHit { Action: "Setting:flag" }, "a bool is a checkbox");
-        e2e.Regions().ShouldContain(r => r.Result is HitResult.ButtonHit { Action: "Setting:m:0:mode" }, "a choice is a dropdown");
+        e2e.Regions().Any(r => r.Result is HitResult.ButtonHit { Action: "Setting:flag" }).ShouldBeTrue("a bool is a checkbox");
+        e2e.Regions().Any(r => r.Result is HitResult.ButtonHit { Action: "Setting:m:0:mode" }).ShouldBeTrue("a choice is a dropdown");
         var inputs = new List<TextInputState>();
         e2e.Host.Screen.CollectRegisteredTextInputs(inputs);
         inputs.Count.ShouldBe(3, "a whole number, a number and a number that may be left out are fields");
