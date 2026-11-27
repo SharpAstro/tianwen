@@ -248,7 +248,7 @@ public sealed class WorkbenchActions(
         return true;
     }
 
-    /// <summary>The Open project button: a folder dialog, then <see cref="OpenProject"/>. Not offered while a run goes.</summary>
+    /// <summary>The Open project button: a folder dialog, then <see cref="OpenProject"/>. Not offered while <see cref="ChoiceWaits"/> says why not.</summary>
     public void ChooseProject()
     {
         if (ChoiceWaits is not null)
@@ -274,11 +274,11 @@ public sealed class WorkbenchActions(
     /// The New project button: a folder dialog for the project's folder, one for the capture's folder, then the Lib routine
     /// (<see cref="WorkbenchProjects.NewAsync"/>) off the render thread and <see cref="OpenProject"/> on the folder it made. A
     /// cancelled dialog changes nothing; a refusal is kept in <see cref="WorkbenchState.NewProjectRefusal"/> and shown in words.
-    /// Not offered while a run goes.
+    /// Not offered while <see cref="ChoiceWaits"/> says why not.
     /// </summary>
     public void NewProject()
     {
-        if (ChoiceWaits is null && false)
+        if (ChoiceWaits is not null)
         {
             return;
         }
@@ -326,7 +326,7 @@ public sealed class WorkbenchActions(
             });
     }
 
-    /// <summary>Shows another image of the project. Refused while a run goes, as <see cref="OpenProject"/> is.</summary>
+    /// <summary>Shows another image of the project. Refused while <see cref="ChoiceWaits"/> says why not, as <see cref="OpenProject"/> is.</summary>
     public void ChooseImage(string name)
     {
         if (ChoiceWaits is not null || state.View is not { } view || string.Equals(view.ImageName, name, StringComparison.Ordinal))

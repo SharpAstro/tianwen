@@ -92,8 +92,10 @@ a start pressed on the very frame the previous run's end asked for keeps its own
 (`WorkbenchJobTests.AStartTheMomentTheFirstRunEndedCanBeCancelledAndKeepsItsOwnSource`).
 
 While a run goes it writes the step store, so nothing else asks the runner for a status: no plan is asked for, and the
-image choice and Open project are dimmed with the reason on hover (`WorkbenchActions.ChoiceWaitsForTheRun`);
-`OpenProject` and `ChooseImage` refuse too. When the run ends, the image on show is read afresh, unless a read of
+image choice, Open project and New project are dimmed with the reason on hover. The reason is one property,
+`WorkbenchActions.ChoiceWaits`: `ChoiceWaitsForTheRun` while a run goes, `ChoiceWaitsForTheChain` while a press of Process
+this master lays out its chain (below), null otherwise; the controls' hover and the log lines of a refused open both say it.
+`OpenProject`, `ChooseProject`, `NewProject` and `ChooseImage` refuse on the same property. When the run ends, the image on show is read afresh, unless a read of
 another answer is already on its way, which the run's end then leaves alone rather than superseding it through the one
 status slot. A project's path is resolved inside that read, off the render thread.
 
@@ -126,8 +128,11 @@ the run's progress and cancel, as for any step.
   `WorkbenchState.NewProjectRefusal` and shown in a strip under the top bar ("No project was made: ..."), ellipsised with the
   whole text on hover. The strip's row is always reserved (empty while there is no refusal), so its appearing moves nothing under the pointer; the
   next successful open clears it.
-- **While a run goes the button is dimmed** with the same reason as Open project (`WorkbenchActions.ChoiceWaitsForTheRun`),
-  and `NewProject` refuses too, so no dialog opens: a run writes the store and no other project is read meanwhile.
+- **While a run goes or a master is processed the button is dimmed** with the same reason as Open project
+  (`WorkbenchActions.ChoiceWaits`), and `NewProject` refuses too, so no dialog opens: a run writes the store, and a press's
+  chain would land on whatever was chosen meanwhile. `NewProjectIsDimmedWithItsReasonWhileARunGoes` asserts the press
+  started no work on the tracker (it fails with the guard dropped). The empty strip carries no tooltip; a refusal's hover
+  is its whole text (`TheRefusalRowIsReservedSoItsAppearingMovesNothing`).
 - **With no project open the two buttons take the accent**, the colour of an action, since they are all there is to do; with
   a project open both are standard buttons. The empty step bar says "Open a project, or make a new one from a capture
   folder, to see the steps of an image."
@@ -158,8 +163,9 @@ filter group), by `WorkbenchStepPanel.Masters`.
   example a stack whose files the store has lost ("run it first"). The next open of a project clears it.
 - **The buttons are dimmed with their reason** while a run goes (`ChoiceWaitsForTheRun`), while a status is being read and
   while an earlier press is still laying out its chain (`WorkbenchState.IsProcessingMaster`); `ProcessMaster` refuses in the
-  same cases. While a press runs, `OpenProject` and `ChooseImage` refuse too, so a choice made meanwhile is not landed on
-  by the chain's own open (which goes through a private path that skips that guard).
+  same cases. While a press runs, Open project, New project and the image box are dimmed with `ChoiceWaitsForTheChain`
+  on hover, and `OpenProject`, `ChooseProject`, `NewProject` and `ChooseImage` refuse, so a choice made meanwhile is not
+  landed on by the chain's own open (which goes through a private path that skips that guard).
 - **The chain is added under the project file's lock**, re-reading `project.json` there, so a second press or the CLI while
   the app is open never drops the other's images.
 - Tests: `WorkbenchMastersE2ETests` at DPI 1 and 1.5 (no masters before the stack; one row per master after it; a press adds
