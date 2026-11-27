@@ -1,10 +1,10 @@
 # Star-remover training (P4): the inject-and-remove bootstrap
 
-**Status, 2026-11-27: rounds 1 to 4 run (R2a to R4m; R4l's seed 0 still trains), and NO model ships.**
+**Status, 2026-11-27: rounds 1 to 4 run (R2a to R4m), and NO model ships.**
 `image remove-stars --model` runs weights a caller names, none are in `src/TianWen.AI.Imaging/models/`, and
 RC-Astro stays the registered `IStarRemover`. What did reach the product is the chain round our models:
 catalogue-aware core protection and the dig fill (floor5). The baseline every arm is now held against is R4h,
-trained twice; R4i, R4j, R4k and R4m were killed by their registrations. Against StarXTerminator on the held-out
+trained twice; R4i, R4j, R4k, R4l and R4m were killed by their registrations. Against StarXTerminator on the held-out
 whole masters, through the chain unless a row says as trained:
 
 | row | StarXTerminator | R4h seed 0 / 1 | where it stands |
@@ -69,8 +69,21 @@ weighed up in crowded areas, then depth pairs for the faint stars on bright nebu
 killed.** One seed passed both crowded bars through the chain (the Tarantula's crowded flat 94.8, BP 17-19 with the
 level set aside 95.8, its most crowded cell 97.5 % against the judge's 99.2) while taking more of the Tarantula
 field's light than its guard allows (88 % of the whole frame, bar 84); the other stayed at the parent's level (91.4
-and 92.1). Both left about 6 points fewer of the Lagoon's 84 real faint stars than the parent (27.4 and 28.6 %).
-The free check that came first:
+and 92.1). Both left fewer of the Lagoon's 84 real faint stars than the parent (27.4 and 28.6 %, against 34.5 and
+33.3). **R4l's read (2026-11-27): killed.** Both seeds gained about two points on the crowded rows, short of the
+bars (92.8 and 93.2; 94.0 and 94.1), and took clearly more of the faint stars on bright nebula than any arm on both
+seeds (the Lagoon's real ones 25.0 and 21.4 % left, the bright plants 57.1 and 54.6 %), but with the nebula: the
+Lagoon's broad light at about twice the parent's (4.52 and 3.89, bar 2.67) and the Tarantula field's light at 85 %
+(bar 84). **Route B's free check (2026-11-27):** on bright nebula a quarter-depth stack's own plate already takes
+nearly every faint star the whole stack's builder takes at 20 to 150 sky sigma (the 5 to 20 band has 15 such stars in
+one session, too few to call), so depth pairs would mostly add faint stars on dark sky, a band this check leaves
+unmeasured for real stars; and, at the one depth measured (four times the exposure), the answer leaves 56.5 % of the
+faint stars StarXTerminator takes on eta Carinae's bright nebula (the judge's own plate 4.7, by construction: the
+stars counted are its star layer's peaks) but only 11.1 % of the Running Chicken's (better than the quarter plate's
+15.6 %), so only one of two sessions shows the failure. Not registered; the session read it as not worth building on
+that evidence. **The owner's two answers that evening:** route B is closed, and from the next arm on the field-light
+guard sits at StarXTerminator's own reading (at most 98 and 106 %), the reads already made standing as registered
+("The owner's two answers" in section 6). The free check that came first:
 on the held-out Tarantula StarXTerminator keeps about a third of a real compact cluster's unresolved glow and R4h
 less at the median (cluster by cluster a lean, not a clear split), so the scenes' rule that a compact cluster is all
 stars is further from the judge than the model already is.
@@ -11013,6 +11026,119 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     sees the case it most misses as rarely as R4h did; and a bigger net learns unrealistic stars better (round 2's
     ranked list, item 6).
   - **Nothing is adopted;** adoption is the owner's.
+- **R4l's read, 2026-11-27: KILLED. Both seeds trained as the others, and two guards fail on both: the light taken
+  from the Tarantula field (85 % of the whole frame on each, bar at most 84) and the Lagoon's broad light taken as
+  trained (4.52 and 3.89, bar at most 2.67).** The question is not cleared either: both seeds stop just short of both
+  rows through the chain (92.8 and 93.2 against 94.0; 94.0 and 94.1 against 94.3).
+  - **In plain words.** The net 1.5 times as wide gained what was predicted on the crowded rows, about two points, on
+    both runs alike, and less than the bars asked. It took clearly more of the faint stars on bright nebula than the
+    parent, the Lagoon's real ones and the planted ones, by 9 to 16 points. It also took more of the nebula itself:
+    about twice the parent's share of the Lagoon's broad light, and a point more of the Tarantula field's light than
+    the guard allows.
+  - **Looked at first**, before any row was read: both seeds beside R4h's two and StarXTerminator, through the
+    chain and as trained, the Tarantula's crowded field first (`seeds_look.py`;
+    `r4-look/r4l/r4l-{chain,trained}-{crowded,others}.png`). What they show:
+    - **The crowded field** is the parent's faint mottle on both seeds; nothing is dug, and no seam or new texture
+      shows.
+    - **30 Doradus's core:** seed 1 leaves an orange cast at the bright central knot (R4m's seed 0 a yellow one);
+      seed 0 keeps it as the parent does. **M31's nucleus through the chain** is round and clean on both.
+    - **The Lagoon's core as trained:** seed 0 flattens the bright Hourglass (dimmer, lower in contrast than the
+      parent's); seed 1 a little. This is the broad light its guard counts.
+  - **The training, by the stall rule: neither seed stalled.** Seed 0 (a Batch job on a low-priority T4) halved
+    first at step 46,000; the median of its held-out windows is 4.31e-5 from step 30,000 to there and 1.26e-5 over
+    the next 60,000 steps, a ratio of 0.29, with 13 new bests in those steps. It halved again at 71,500, 117,500 and
+    182,500, was moved to a new node three times (resumed after steps 68,000, 132,000 and 190,000) and stopped itself
+    at 194,500 (best 8.94e-6 at 170,500). Seed 1 (the GTX 1070) halved first at 41,500: 6.88e-5 before, 1.51e-5
+    after, 0.22, with 20 new bests; again at 117,500, 136,500 and 157,000; no resume; stopped itself at 169,000
+    (best 8.74e-6 at 145,000). The medians before the first halving are two to three times the parent's: the wider
+    net spiked more at the first rate, which raises the denominator, so the ratios flatter both runs; neither is
+    near 0.60.
+  - **The question, through the chain** (`explore/r4h1-step.sh`, as R4m was read):
+
+    | row | bar | R4h seed 0 / 1 | R4l seed 0 | R4l seed 1 |
+    |---|---|---|---|---|
+    | Tarantula crowded flat | at least 94.0 | 91.9 / 90.5 | 92.8 | 93.2 |
+    | Gaia BP 17-19 removed, level set aside | at least 94.3 | 91.4 / 91.9 | 94.0 | 94.1 |
+
+  - **Guards, on each seed**, through the chain unless the row says as trained:
+
+    | guard | bar | R4h seed 0 / 1 | R4l seed 0 | R4l seed 1 | read |
+    |---|---|---|---|---|---|
+    | Sagittarius crowded flat | at least 96.3 | 97.4 / 96.8 | 97.4 | 97.6 | held |
+    | Andromeda dark flat, dug | at least 95, at most 3 | 98.6, 0.5 / 98.2, 0.9 | 98.0, 1.1 | 98.2, 1.0 | held |
+    | Tarantula dark flat | at least 91 | 95.9 / 95.5 | 96.4 | 96.6 | held |
+    | the glow's green median, Andromeda and Tarantula | within 450 and 500 of zero | -48, -15 / -90, -85 | -129, -364 | -117, -257 | held |
+    | M31's nucleus taken | under 10 % | 0.0 / 0.0 | 0.0 | 0.0 | held |
+    | purity | at most 1.0 | 0.9 / 0.9 | 0.8 | 0.9 | held |
+    | light taken from the Tarantula field, densest tenth and whole frame | at most 83, 84 % | 81, 84 / 80, 84 | 80, **85** | 81, **85** | **fails on both** |
+    | light added on each master's nebula, as trained | at most 1.0 % | 0.0 / 0.0 | 0.0, 0.0, 0.0 | 0.1, 0.5, 0.0 | held |
+    | the brightest tenth of the Tarantula's peaks standing, as trained | at least 11 of 77 | 18 / 15 | 12 | 18 | held |
+    | faint stars left on the Lagoon's core and on 30 Doradus, as trained | at most 37 and 27 % | 30, 17 / 25, 21 | 19, 19 | 17, 22 | held |
+    | the Lagoon's broad light taken, as trained | at most 2.67 | 1.91 / 1.70 | **4.52** | **3.89** | **fails on both** |
+    | the 205 plants on dark sky, left | at most 12.0 % | 6.8 / 7.3 | 7.3 | 6.8 | held |
+
+    As trained the field-light row reads 80, 86 and 81, 85. Through the chain the Lagoon's broad light reads 2.86
+    and 3.07 (R4h 1.56 and 1.24); the guard is the as-trained figure. Neither row is one R4h misses, so the bars
+    stand as registered.
+  - **Reported, no bar:**
+    - **Gaia BP 17-19's most crowded cell** (`gaia_bp_by_level.py`, through the chain): 92.0 and 91.1 % removed,
+      against R4h's 82.7 and 87.5 and StarXTerminator's 99.2.
+    - **The two-sided crowded row** (#2404, the Tarantula, through the chain): the flat cells' median band 3.09 and
+      3.24 (R4h's seed 0 3.25, the judge 1.49); the structure cells within 0.8 to 1.25 of the judge's 51.6 and 41.9
+      % (R4h 45.2).
+    - **The compact clusters' kept share** (`sxt_compact_clusters.py`, 35 clusters, through the chain): 0.05 and
+      0.07 at the median (R4h 0.10 and 0.06, StarXTerminator 0.32), less than the judge in 27 and 26 of 35 (R4h 22
+      and 23). As trained 0.11 and 0.10 (R4h 0.15 and 0.14).
+    - **The bright plants on the Lagoon's nebula, left as trained:** 57.1 and 54.6 % on the layer stamp (R4h 67.8
+      and 70.7, StarXTerminator 42.4); on the psf stamp 46.1 and 55.6, on the donor stamp 49.5 and 48.4.
+    - **The Lagoon's 84 real faint stars on bright nebula, left as trained** (the repo's `nebula_stars_row.py`):
+      **25.0 and 21.4 %** (R4h 34.5 and 33.3, StarXTerminator 15.5), 9.5 and 11.9 points under the parent.
+    - **Route A's four scenes** (`cluster_models_band.py`, R4l's and R4m's seeds together; each model as trained on
+      the old composites as R4h ran there, `bh-bin14` with `--keep-overshoot`, which gives R4h's output on file bit
+      for bit). What each leaves against the old truth, the field cells' median and the cluster's core:
+
+      | scene | R4h seed 0 | R4l seed 0 | R4l seed 1 | R4m seed 0 | R4m seed 1 |
+      |---|---|---|---|---|---|
+      | seed 7, no nebula | 1.81 / 5.60 | 1.72 / 4.78 | 1.57 / 3.70 | 1.52 / **27.83** | 2.29 / 5.26 |
+      | seed 7, nebula | 1.53 / 5.00 | 1.42 / 4.25 | 1.39 / 3.71 | 1.51 / 6.40 | 2.03 / 5.06 |
+      | seed 11, no nebula | 1.72 / 8.43 | 1.62 / 12.39 | 1.50 / 9.83 | 1.47 / 5.64 | 2.12 / 14.25 |
+      | seed 11, nebula | 1.42 / 9.09 | 1.38 / 9.84 | 1.30 / 7.93 | 1.33 / 5.36 | 1.82 / 14.74 |
+
+      In the field cells R4l's seeds and R4m's seed 0 leave a little less than R4h, R4m's seed 1 more. In the cores
+      no arm leaves less on all four: R4l's seed 1 does on three, and seed 11's core without the nebula reads worse
+      for both R4l seeds. R4m's seed 0 leaves less than R4h on two cores (seed 11, with and without the nebula) and
+      more on both of seed 7's (27.8 and 6.4). The oracle reads 0.05 in the field and 0.10 to 0.11 in the core against
+      the old truth, as in route A. So on these scenes, too, neither arm takes a crowded core much closer to its
+      truth.
+    - **The best step's weights, through the chain:** seed 0 (step 170,500) 91.5 and 93.5 on the question's rows,
+      field light 80 and 87 %; seed 1 (step 145,000) 92.0 and 93.0, field light 80 and 84 %. As trained, seed 0's
+      best step takes the Lagoon's bright Hourglass nearly whole: its broad light taken reads 17.79 (its last step
+      4.52), and at 1:1 the core is a flat bright blob (`r4-look/r4l/r4l-s0best-lagoon.png`). Seed 1's best step
+      reads 3.85. So the held-out objective's best step is not the better plate on real nebula here. (Seed 0's
+      best-step chain was scored again after C: filled during its first run; every row above is from a run with no
+      failure.)
+    - **The time a whole master takes** on the GTX 1070 (`image remove-stars`, one view, the process's start
+      included, from the plates' write times): about 20 s for the Tarantula's and Sagittarius's 9 Mpx masters,
+      against 15 to 16 s for R4m's net of R4h's size in the same session.
+  - **Against the prediction.** It said both seeds gain 1 to 2.5 points over R4h's mean (91.2 and 91.7), short of
+    the bars, so "neither". They gained 1.6 and 2.0 on the crowded flat and 2.3 and 2.4 on BP 17-19, short of both
+    bars: the prediction held on the question. It did not foresee the guards: the run is killed, not "neither".
+  - **What it says, and what it does not.**
+    - Width moved both seeds alike, unlike R4m's scenes (one seed of two). On the crowded rows it bought about two
+      points of the five to six that separate R4h from StarXTerminator.
+    - On the faint stars on bright nebula it moved further than any arm on both seeds at once: the Lagoon's real
+      stars 25.0 and 21.4 % left against the parent's 34.5 and 33.3 (StarXTerminator 15.5), the bright plants 57.1
+      and 54.6 against 67.8 and 70.7. R4j and R4k each moved one seed (R4j 72.2 and 64.4, R4k 67.3 and 57.6).
+    - The cost is nebula taken with them: the Lagoon's broad light at about twice the parent's as trained (4.52 and
+      3.89 against 1.91 and 1.70), the bright Hourglass flatter on the sheets, and the Tarantula's field light a
+      point over its bar. Whether a wider net can keep the stars it gains and give the nebula back is not measured.
+  - **Next, the owner's.** Route B's free check (below, "Depth pairs: the free check") and the crowding weight are
+    the go's remaining routes; the field-light guard's role is the owner's question, asked here: the guard reads
+    the field's level, not its stars, and sits at R4d's 81 and 82 plus two points (StarXTerminator reads 98 and
+    106 on it). R4l's 85 on a whole-percent figure is a one-point miss
+    against R4h's 84, so this kill stands on the Lagoon's broad-light guard alone (4.52 and 3.89 against 2.67).
+    Should a level guard of that kind gate an arm at all?
+  - **Nothing is adopted;** adoption is the owner's.
 - **How crowded the training data stand against the fields the crowded rows are scored on, 2026-11-26 (a measurement:
   no training, no arm).** The same count on both sides: the star layer's local maxima (3 x 3) at 3 sigma or more in the
   33 px square about each pixel. On a training draw the star layer is the draw less its answer, in the draw's own noise
@@ -11183,11 +11309,12 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     - **The Lagoon's 84 real faint stars on bright nebula, left as trained** (the repo's `nebula_stars_row.py`, its
       magnitude check keeping 84 of 180; re-read the same day on R4h's and StarXTerminator's plates, which give
       34.5, 33.3 and 15.5 % as before): **27.4 and 28.6 %**, a gain on the parent's 34.5 and 33.3 (7.1 and 4.7 points fewer of the stars left).
-    - **Route A's four scenes** (`cluster_models_band.py`): not read yet. They need the GTX 1070, which is scoring
-      R4l; they are owed with R4l's read.
+    - **Route A's four scenes** (`cluster_models_band.py`): with R4l's, in its read above.
     - **The extra cache's held-out objective at the best step:** 7.58e-6 and 7.59e-6, beside the main cache's
-      8.20e-6 and 8.29e-6 (the same two best steps as the training paragraph's 8.21e-6 and 8.30e-6; the last digit
-      differs by one, and whether that is a re-evaluation or a rounding was not recorded). The trainer prints no training objective per cache.
+      8.20e-6 and 8.29e-6 (the same two best steps as the training paragraph's 8.21e-6 and 8.30e-6: the trainer's
+      log prints, at each check, the held-out reading of that step and the window the plateau rule reads, and the
+      best is the window's. At step 208,000 the reading is 8.200824e-6 and the window 8.214762e-6; at 215,000,
+      8.288329e-6 and 8.304563e-6). The trainer prints no training objective per cache.
     - **The best step's weights, through the chain:** seed 0 (step 208,000) 94.4 and 95.1 on the question's rows,
       field light 82 and 87 %; seed 1 (step 215,000) 90.4 and 91.1, field light 79 and 82 %.
   - **Against the prediction.** It said both seeds gain 1 to 2.5 points over R4h's mean (91.2 and 91.7). Seed 0
@@ -11205,11 +11332,105 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
       "For this arm purity is therefore reported" above). Its bar is R4d's 81 and 82 plus two points.
     - Whether seed 0's gain is stars or level, these rows do not separate. The BP row with the level set aside gains
       as well (95.8), and the field-light row says more level is taken. Not measured.
-    - Both seeds' gain on the Lagoon's 84 real stars (about 6 points) agrees, where the planted rows moved on seed
-      0 alone.
+    - Both seeds gain on the Lagoon's 84 real stars (7.1 and 4.7 points), where the planted rows moved on seed 0
+      alone.
   - **Next, the owner's.** The go's next route is the loss weighed up in crowded areas (`--crowd-weight`), on these
-    dense scenes, registered before it trains. R4l's read comes when its seed 0 ends on Batch.
+    dense scenes, registered before it trains. R4l's read is above, after its registration. Asked after this read,
+    the owner chose route B first (below), ahead of the crowding weight, which would most likely push both seeds
+    toward seed 0's behaviour and the same guard.
   - **Nothing is adopted;** adoption is the owner's.
+- **Depth pairs: the free check, 2026-11-27 (a measurement: no training, no arm; route B, the owner's choice after
+  R4m's read).** Route B was to show the model a stack of a quarter of a session's subs as the input, with the whole
+  stack's starless plate as the answer, so that it sees faint stars at the depth where the builder cannot find them
+  while the answer, built at four times the exposure, has them taken. Before building it for every session: does the
+  answer built at full depth take, on bright nebula, the faint stars a quarter-depth plate leaves?
+  - **How.** Two training sessions (neither a Lagoon, Tarantula or Sagittarius id) stacked twice from one manifest
+    with main's build: whole, then with only every fourth matched frame and the reference left matched (the
+    manifest's frame list drives the second run, so both land on the reference frame's grid; points agree within 0.1
+    px through the two plate solves, and the quarter's canvas can be a pixel short at the far edge). Both stacks take
+    the same integration (BayerDrizzle off: a quarter of a session is under its 60-frame floor, so one stack would
+    otherwise be drizzled and the other not). The builder's plate of each (`dataset starless-plates`). The depth
+    pair's answer is the quarter stack less the whole stack's star layer (the whole stack less its plate), put on the
+    quarter's scale by a per-channel least-squares fit (0.987 and 1.005 to 1.007), so it keeps the quarter's own
+    noise and nebula. The stars counted are the ones the whole stack's builder took (its star list; the Gaia
+    database stops at magnitude 17.1 in these Milky Way fields, all far over the row's range at this depth), read
+    by `nebula_stars_row.py` on the quarter stack (its sky noise, its nebula level, no magnitude check), against the
+    quarter's own plate (what a real pair at that depth would teach) and against the depth pair's answer. **The
+    last column is near-tautological and is not a measurement of the answer's quality:** the answer is the quarter
+    stack less the whole stack's own star layer, and the counted stars are the ones that builder took, so it has them
+    removed by construction. It says nothing about the answer's own artefacts (scale-fit residue, registration
+    error, PSF mismatch); only the quarter-plate column is measured.
+
+    | session | stars, light in the quarter's sky sigma | quarter's own plate leaves | depth answer leaves |
+    |---|---|---|---|
+    | the Running Chicken Nebula, QHY294C, 55 of 59 subs of 60 s | 20-150, on bright nebula (109) | 12.8 % | 1.8 % |
+    | | 5-20, on bright nebula (15) | 66.7 % | 13.3 % |
+    | | 5-20, on dark sky (2,953) | 94.4 % | 0.7 % |
+    | eta Carinae, ASI533MC at 135 mm, 77 of 83 subs of 120 s | 20-150, on bright nebula (66) | 1.5 % | 0.0 % |
+    | | 5-20, on bright nebula | none | none |
+    | | 5-20, on dark sky (3,212) | 53.5 % | 0.7 % |
+
+  - **What it says.** On bright nebula the quarter-depth plate already takes nearly every faint star the whole
+    stack's builder takes (87 and 98.5 % at 20 to 150 sky sigma). At 5 to 20 sky sigma on bright nebula there is one
+    session with any such stars, and there the case is not small in effect: 15 stars, of which the quarter's own
+    plate leaves 10 (66.7 %) against 2 for the depth answer (13.3 %, by construction, see above). That is the one
+    place a depth pair would differ on bright nebula, on 15 stars in one session, too few to call. The whole stack's
+    builder finds 30 and 12 % more stars than the quarter's, almost all of them on dark sky, so the depth pair would
+    mostly teach very faint dark-sky stars. Whether our models are behind there is not shown by this check: the
+    205 dark plants (R4h leaves 6.8 and 7.3 %) are planted stars, which the injector teaches by construction, not
+    real faint dark-sky stars. The real ones on the held-out Lagoon master (30,215 catalogued stars of 20 to 150 sky
+    sigma on dark sky, `nebula_stars_row.py`) say the gap is small at that brightness: R4h leaves 4.4 and 4.6 %,
+    StarXTerminator 0.2 %. The stars a depth pair would add are fainter, 5 to 20 sky sigma (2,953 and 3,212 above, the
+    quarter plate leaving 94.4 and 53.5 %), and that band is unmeasured for the models: this control does not speak
+    to it. The limit looks like the builder finding stars on bright nebula at all, and four times
+    the exposure barely lifts it.
+  - **What it does not.** A star neither builder finds is invisible to this check, and those are the case at issue
+    (on the held-out Lagoon master the builder takes about a third of the planted faint stars on the faintest
+    nebula, a tenth at 40 to 80 sky sigma of nebula and a fiftieth above that, and about a third of the 84 real
+    ones: the status at the head of this plan). Two sessions only. The judge's check below reads those stars.
+  - **The judge's check, the same evening** (StarXTerminator run on the two quarter stacks as a JUDGE only: its
+    plate is read here and is never a training target, the owner's rule of 2026-11-26). The stars counted are the
+    judge's: the local maxima (3 x 3) of its star layer (the quarter stack less its plate, the channels' mean,
+    through a 1 px Gaussian) at 3 or more of the quarter's sky sigma (`judge_peaks.py`, a scratch script not in the
+    tree, like `seeds_look.py`), read by `nebula_stars_row.py` on the quarter stack as above. Unlike the deep
+    builder's list, this one is not the answer's own, so the depth answer's column is measured here. **The 'judge
+    leaves' column is near-tautological:** the counted stars are the peaks of the judge's own star layer, so its plate
+    has them removed by construction (0.0 to 5.9 %); it is there as a reference, only the other two columns are
+    measured.
+
+    | session | the judge's stars, light in the quarter's sky sigma | judge leaves | quarter's own plate leaves | depth answer leaves |
+    |---|---|---|---|---|
+    | the Running Chicken Nebula | 20-150, on bright nebula (90) | 0.0 % | 15.6 % | 11.1 % |
+    | | 20-150, on dark sky (11,247) | 0.0 % | 2.2 % | 1.4 % |
+    | eta Carinae | 20-150, on bright nebula (170) | 4.7 % | 49.4 % | 56.5 % |
+    | | 5-20, on bright nebula (17) | 5.9 % | 82.4 % | 94.1 % |
+    | | 20-150, on dark sky (25,207) | 0.0 % | 1.4 % | 1.1 % |
+
+    On eta Carinae's bright nebula, the case at issue, the answer built at four times the exposure leaves more than
+    half of the faint stars the judge takes (56.5 % of 170), no fewer than the quarter's own plate does. A depth pair
+    from that session would show the model those stars as kept, as the builder's answers already do for the share
+    of such stars they leave (31 % in R4k's own training sessions, where the builder took 69 %: the head of this
+    plan). The Running Chicken does not show it: its answer leaves 11.1 % of 90. Some of the judge's points on bright
+    nebula may be small knots of the nebula rather than stars; with no catalogue that deep here they cannot be told
+    apart, and it is the judge's taking, not ours, that the scorecard's rows reward.
+  - **Not registered, and the session's reading is that the evidence does not yet support building it:** at the one
+    depth measured (four times the exposure), the depth answer leaves 56.5 % of the judge's 170 bright-nebula stars on
+    eta Carinae, but only 11.1 % of the Running Chicken's 90 (better than the quarter plate's 15.6 %), so one session
+    of two shows the failure; other depths are unmeasured. Answers made by StarXTerminator are ruled out. Building
+    route B (every session stacked twice, an exporter mode, the plates) would add mostly faint dark-sky stars, a
+    5 to 20 sigma band where the models' real gap is unmeasured (the 20 to 150 band's is small). Whether to close it is
+    the owner's (closed the same evening, next).
+  - **Nothing is adopted;** adoption is the owner's.
+- **The owner's two answers, 2026-11-27 (evening), after R4l's read and route B's checks:** "well if SXT takes more
+  we can do so too, and close route b".
+  - **The field-light guard.** From the next arm on, the light taken from the Tarantula field (green, the densest
+    tenth of cells and the whole frame) is guarded at StarXTerminator's own reading, **at most 98 % and 106 %**, not
+    at R4d's 81 and 82 plus two points. The reads already made stand as registered. Under the new bar R4m's
+    field-light failure would not fire, and R4m would read "neither", since its seed 1 misses the question. R4l's
+    kill stands on the Lagoon's broad-light guard either way. This answers the question R4l's read asks under
+    "Next, the owner's".
+  - **Route B (depth pairs): closed**, on the checks above (at the one depth measured, the depth answer fails on
+    one session of two; the 5 to 20 sigma dark-sky band it would mostly add is unmeasured for the models).
 
 #### The dig floor inside bright nebula: floor4, and what it leaves (2026-11-20)
 
