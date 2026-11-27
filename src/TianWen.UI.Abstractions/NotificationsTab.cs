@@ -177,7 +177,7 @@ namespace TianWen.UI.Abstractions
             if (appState.DesktopAlerts is { IsAvailable: true } alerts)
             {
                 var segmentActive = GuiTheme.Mix(HeaderBg, GuiTheme.Palette.Accent, 0.55f);
-                var segmentInactive = GuiTheme.Palette.Separator;
+                var segmentInactive = GuiTheme.Mix(HeaderBg, BodyText, 0.14f);
                 var style = new Layout.ButtonGroupStyle(segmentActive, segmentInactive, BodyText, BodyText, GuiTheme.Hover(segmentInactive))
                 {
                     Gap = 1f,
