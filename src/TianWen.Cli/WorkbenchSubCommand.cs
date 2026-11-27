@@ -25,7 +25,7 @@ internal sealed class WorkbenchSubCommand(IConsoleHost consoleHost, OperationCat
         "Run a project's edit lists without a window: a folder holding project.json (the original files and the edits made to each) "
         + "beside the step store. A step whose result is in the store is not run again.")
     {
-        Subcommands = { BuildStatusCommand(), BuildRunCommand(), BuildOperationsCommand(), BuildChainCommand(), BuildNewCommand(), BuildDetectedCommand(), BuildReassignCommand(), BuildProcessCommand() },
+        Subcommands = { BuildStatusCommand(), BuildRunCommand(), BuildOperationsCommand(), BuildChainCommand(), BuildNewCommand(), BuildDetectedCommand(), BuildReassignCommand(), BuildWorkflowsCommand(), BuildApplyCommand(), BuildProcessCommand() },
     };
 
     private Command BuildDetectedCommand()
@@ -57,6 +57,96 @@ internal sealed class WorkbenchSubCommand(IConsoleHost consoleHost, OperationCat
             foreach (var line in CaptureDetection.Describe(detected))
             {
                 consoleHost.WriteScrollable(line.StartsWith("  ", StringComparison.Ordinal) || line.StartsWith("note:", StringComparison.Ordinal) ? line : $"[workbench] {line}");
+            }
+
+            return 0;
+        });
+        return cmd;
+    }
+
+    private static async Task<WorkflowFacts> FactsOfAsync(string frames, CancellationToken ct)
+        => WorkflowFacts.From(await CaptureDetection.DetectAsync(frames, new CaptureDetectionOptions
+        {
+            Reassigned = await WorkbenchProjects.ReassignmentsAsync(frames, ct),
+            GradeLights = false,
+        }, ct));
+
+    private Command BuildWorkflowsCommand()
+    {
+        var framesArg = new Argument<string>("folder") { Description = "The capture folder." };
+        var cmd = new Command("workflows",
+            "List the built-in workflows for a capture folder, each with whether it fits these frames and one line saying why or why not "
+            + "(colour camera, one filter, a comet track), the best fit marked. workbench apply makes one the project's steps.")
+        {
+            Arguments = { framesArg },
+        };
+        cmd.SetAction(async (parseResult, ct) =>
+        {
+            var frames = parseResult.Required(framesArg);
+            if (!Directory.Exists(frames))
+            {
+                consoleHost.WriteError($"[workbench] the capture folder {frames} does not exist");
+                return 1;
+            }
+
+            foreach (var answer in BuiltInWorkflows.Answer(await FactsOfAsync(frames, ct)))
+            {
+                consoleHost.WriteScrollable($"[workbench] {answer.Template.Id}: {(answer.Fit.Fits ? "fits" : "does not fit")}{(answer.Best ? " (best)" : string.Empty)}, {answer.Fit.Why}");
+                consoleHost.WriteScrollable($"  {answer.Template.Title}: {answer.Template.Summary}");
+            }
+
+            return 0;
+        });
+        return cmd;
+    }
+
+    private Command BuildApplyCommand()
+    {
+        var framesArg = new Argument<string>("folder") { Description = "The capture folder." };
+        var workflowArg = new Argument<string>("workflow") { Description = $"A workflow's id ({string.Join(", ", BuiltInWorkflows.All.Select(static each => each.Id))}), or best for the best fit." };
+        var replaceOpt = new Option<bool>("--replace") { Description = "Replace the steps although they were changed by hand since the last workflow was applied." };
+        var cmd = new Command("apply",
+            "Write a workflow's steps into the capture's project (made in its workdir where there is none). Results already made are kept and reused by their keys; "
+            + "the frames' reassignments are kept. Steps changed by hand since the last workflow are replaced only with --replace.")
+        {
+            Arguments = { framesArg, workflowArg },
+            Options = { replaceOpt },
+        };
+        cmd.SetAction(async (parseResult, ct) =>
+        {
+            var frames = parseResult.Required(framesArg);
+            if (!Directory.Exists(frames))
+            {
+                consoleHost.WriteError($"[workbench] the capture folder {frames} does not exist");
+                return 1;
+            }
+
+            var facts = await FactsOfAsync(frames, ct);
+            var word = parseResult.Required(workflowArg);
+            if (string.Equals(word, "best", StringComparison.OrdinalIgnoreCase))
+            {
+                word = BuiltInWorkflows.Answer(facts).First(static each => each.Best).Template.Id;
+            }
+
+            var changes = await WorkbenchWorkflows.HandChangesAsync(frames, ct);
+            if (changes > 0 && !parseResult.GetValue(replaceOpt))
+            {
+                consoleHost.WriteError($"[workbench] your {changes} change(s) to the steps are replaced; results already made are kept. Say --replace to go on");
+                return 1;
+            }
+
+            var done = await WorkbenchWorkflows.ApplyAsync(frames, word, facts, ct);
+            if (done.Project is not { } project)
+            {
+                consoleHost.WriteError($"[workbench] {done.Refusal}");
+                return 1;
+            }
+
+            consoleHost.WriteScrollable($"[workbench] applied {project.Workflow} to {WorkbenchProjects.WorkdirOf(frames)}: {project.Images.Sum(static image => image.Edits.Length)} step(s) in {project.Images.Length} image(s)"
+                + (done.Replaced > 0 ? $"; {done.Replaced} change(s) of yours replaced" : string.Empty));
+            foreach (var row in WorkbenchWorkflows.Tree(project, operations))
+            {
+                consoleHost.WriteScrollable($"  {new string(' ', row.Depth * 2)}{row.Label}{(row.Detail.Length > 0 ? " (" + row.Detail + ")" : string.Empty)}");
             }
 
             return 0;

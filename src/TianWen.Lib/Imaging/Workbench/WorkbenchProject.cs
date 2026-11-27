@@ -28,6 +28,12 @@ public sealed record WorkbenchProject
 
     /// <summary>The images, each an original file and its edit list.</summary>
     public ImmutableArray<ProjectImage> Images { get; set; } = [];
+
+    /// <summary>The id of the built-in workflow the steps were made from (<see cref="BuiltInWorkflows"/>); null for a project that did not start from one.</summary>
+    public string? Workflow { get; set; }
+
+    /// <summary>What that workflow wrote, one line for each edit (<see cref="WorkbenchWorkflows.HandChanges"/> compares the steps to it, so a later switch can tell whether they were changed by hand).</summary>
+    public ImmutableArray<string> WorkflowOrigin { get; set; } = [];
 }
 
 /// <summary>One image of a project: an original file and the edits made to it, in order.</summary>

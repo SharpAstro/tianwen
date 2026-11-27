@@ -67,6 +67,7 @@ public readonly record struct DetectedGrade(float Share, GradeCause Causes);
 /// <param name="Grade">A light's grade; null for another kind, and for a light not graded.</param>
 /// <param name="Note">A thing to look at that is not the kind: no dark matches this light. Null otherwise.</param>
 /// <param name="IsCometTrack">The file is a comet track, not a frame.</param>
+/// <param name="Colour">The camera is colour (a Bayer or colour sensor); false for a mono one; null where the file says none.</param>
 public sealed record DetectedFile(
     string Place,
     string FullPath,
@@ -82,7 +83,8 @@ public sealed record DetectedFile(
     string Camera,
     DetectedGrade? Grade = null,
     string? Note = null,
-    bool IsCometTrack = false)
+    bool IsCometTrack = false,
+    bool? Colour = null)
 {
     /// <summary>A person should look at this file: its kind is a guess, or it has a note.</summary>
     public bool NeedsALook => Unsure || Note is not null;
@@ -93,7 +95,8 @@ public sealed record DetectedFile(
 /// <param name="Title">The group's name: <c>Lights</c>, <c>Darks</c>, <c>Needs a look</c>.</param>
 /// <param name="Detail">What sets the group apart: <c>10P/Tempel 2 · 60 s · IDAS LPS-D3 · gain 1600</c>; empty for a group of one kind.</param>
 /// <param name="Files">The group's files, in the order of their places.</param>
-public sealed record DetectedGroup(DetectedGroupKind Kind, string Title, string Detail, ImmutableArray<DetectedFile> Files)
+/// <param name="Slug">For a lights group: the name the stack gives that group's results (<see cref="LightGroupKey.Slug"/>), which an image that starts from one of them names; empty for another group.</param>
+public sealed record DetectedGroup(DetectedGroupKind Kind, string Title, string Detail, ImmutableArray<DetectedFile> Files, string Slug = "")
 {
     /// <summary>The group as one line: <c>Lights · 10P/Tempel 2 · 60 s · IDAS LPS-D3 · gain 1600</c>.</summary>
     public string Heading => Detail.Length == 0 ? Title : Title + " · " + Detail;
@@ -205,7 +208,8 @@ public static class CaptureDetection
                 place, frame.Path, kind, detected, why, unsure, reassigned,
                 meta.ExposureDuration.TotalSeconds,
                 meta.Filter.IdentityKey.Length > 0 ? meta.Filter.RawName ?? meta.Filter.DisplayName : string.Empty,
-                meta.CCDTemperature, meta.Gain, meta.Instrument ?? string.Empty)));
+                meta.CCDTemperature, meta.Gain, meta.Instrument ?? string.Empty,
+                Colour: meta.SensorType switch { SensorType.Monochrome => false, SensorType.Unknown => null, _ => true })));
         }
 
         var notes = NotesOf(scan);
@@ -240,7 +244,8 @@ public static class CaptureDetection
 
             var first = setFrames[0].Meta;
             groups.Add(new DetectedGroup(DetectedGroupKind.Lights, "Lights", Join(
-                first.ObjectName, Seconds(first.ExposureDuration.TotalSeconds), FilterOf(first), GainOf(first.Gain), first.Instrument), members));
+                first.ObjectName, Seconds(first.ExposureDuration.TotalSeconds), FilterOf(first), GainOf(first.Gain), first.Instrument), members,
+                LightGroupKey.FromFrame(setFrames[0]).Slug()));
         }
 
         AddCalibration(groups, files, FrameType.Dark, DetectedGroupKind.Darks, "Darks");
