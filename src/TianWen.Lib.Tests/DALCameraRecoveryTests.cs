@@ -190,6 +190,42 @@ public class DALCameraRecoveryTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task ACameraFoundAgainAfterItsResetRunsItsVendorsSdkStepBeforeItIsUsed()
+    {
+        // #1759: the reset's reopen took a fresh handle and set the camera up on it without the vendor's own step, so a
+        // QHY or ZWO body was asked and exposed on a handle never initialised.
+        var (camera, state, time) = await NewConnectedCameraAsync(canReset: true);
+        camera.SdkInits.ShouldBe(1, "the connect ran it once");
+        state.LoseNext = 2;
+        await LoseOneExposureAsync(camera, time);
+        await LoseOneExposureAsync(camera, time);
+
+        await camera.StartExposureAsync(Exposure, cancellationToken: TestContext.Current.CancellationToken);
+
+        state.ResetCount.ShouldBe(1);
+        camera.SdkInits.ShouldBe(2, "the handle found after the reset was initialised by the vendor's step");
+        state.StartCount.ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task ACameraWhoseSdkRefusesItsInitAfterItsResetIsLeftInErrorAndSaysSo()
+    {
+        var (camera, state, time) = await NewConnectedCameraAsync(canReset: true);
+        state.LoseNext = 2;
+        await LoseOneExposureAsync(camera, time);
+        await LoseOneExposureAsync(camera, time);
+        state.RefuseSdkInit = true;
+
+        var refused = await Should.ThrowAsync<InvalidOperationException>(
+            camera.StartExposureAsync(Exposure, cancellationToken: TestContext.Current.CancellationToken).AsTask());
+
+        refused.Message.ShouldContain("refused to initialise");
+        state.ResetCount.ShouldBe(1);
+        state.StartCount.ShouldBe(2, "no exposure is started on a handle its SDK refused");
+        (await camera.GetCameraStateAsync(TestContext.Current.CancellationToken)).ShouldBe(CameraState.Error);
+    }
+
+    [Fact]
     public async Task ACameraThatAnswersNoPixelFormatFailsItsConnectAndClosesWhatItOpened()
     {
         // A miniCAM8 that lost its 12 V answered no pixel format through the handle it was opened with (2026-10-29). The
@@ -306,8 +342,12 @@ internal sealed class TestDalCameraDriver(FakeDevice device, IServiceProvider sp
     public short? GainMaxAtSdkInit { get; private set; }
 
     /// <summary>A vendor's own step, overridden as every vendor camera driver overrides it.</summary>
+    /// <summary>How often the vendor's SDK step ran: once per connect, and again for every handle found after a reset or a reopen.</summary>
+    public int SdkInits { get; private set; }
+
     protected override ValueTask<bool> InitSdkAsync(CancellationToken cancellationToken)
     {
+        SdkInits++;
         GainMaxAtSdkInit = GainMax;
         return ValueTask.FromResult(!state.RefuseSdkInit);
     }
