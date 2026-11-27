@@ -36,12 +36,12 @@ public class SessionNotesTests
     [Fact]
     public void ARunsEndCarriesItsFailureInTheWordsItGave()
     {
-        SessionNotes.ForRunEnd(SessionPhase.Complete, null).ShouldBe(new SessionNote(NotificationSeverity.Info, "Session complete"));
-        SessionNotes.ForRunEnd(SessionPhase.Aborted, null).ShouldBe(new SessionNote(NotificationSeverity.Warning, "Session aborted"));
+        SessionNotes.ForRunEnd(SessionPhase.Complete, null).ShouldBe(new SessionNote(NotificationSeverity.Info, "Session complete", NoteKind.SessionComplete));
+        SessionNotes.ForRunEnd(SessionPhase.Aborted, null).ShouldBe(new SessionNote(NotificationSeverity.Warning, "Session aborted", NoteKind.SessionAborted));
         SessionNotes.ForRunEnd(SessionPhase.Failed, "Check the mount's cable").ShouldBe(
-            new SessionNote(NotificationSeverity.Error, "Session failed: Check the mount's cable"));
-        SessionNotes.ForRunEnd(SessionPhase.Failed, null).ShouldBe(new SessionNote(NotificationSeverity.Error, "Session failed"));
-        SessionNotes.ForFlatRunEnd(SessionPhase.Aborted, null).ShouldBe(new SessionNote(NotificationSeverity.Warning, "Flat run cancelled"));
+            new SessionNote(NotificationSeverity.Error, "Session failed: Check the mount's cable", NoteKind.SessionFailed));
+        SessionNotes.ForRunEnd(SessionPhase.Failed, null).ShouldBe(new SessionNote(NotificationSeverity.Error, "Session failed", NoteKind.SessionFailed));
+        SessionNotes.ForFlatRunEnd(SessionPhase.Aborted, null).ShouldBe(new SessionNote(NotificationSeverity.Warning, "Flat run cancelled", NoteKind.FlatRunCancelled));
     }
 
     [Fact]
