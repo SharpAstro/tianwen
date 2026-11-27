@@ -179,10 +179,12 @@ public class NotificationsTabAlertSettingTests(ITestOutputHelper output)
             tab.Render(app, new ViewContexts().Local, new RectF32(0, 0, renderer.Width, renderer.Height));
 
             ChoiceRegions(tab).Length.ShouldBe(3);
-            if (Environment.GetEnvironmentVariable("TIANWEN_KEEP_TEST_OUTPUT") == "1")
+            if (TestOutput.KeepRequested)
             {
+                // The test's own dated folder under the original temp, kept because it was asked for; never beside the binary.
+                var dir = SharedTestData.CreateTempTestOutputDir("NotificationsAlerts");
                 System.IO.File.WriteAllBytes(
-                    System.IO.Path.Combine(AppContext.BaseDirectory, $"notifications-alerts-{state}-{width}-{dpiScale:0.0}.png"),
+                    System.IO.Path.Combine(dir, $"notifications-alerts-{state}-{width}-{dpiScale:0.0}.png"),
                     PngWriter.Encode(renderer.Surface.Pixels, renderer.Surface.Width, renderer.Surface.Height));
             }
         }
@@ -207,10 +209,10 @@ public class NotificationsTabAlertSettingTests(ITestOutputHelper output)
             var edge = NotificationsTab<RgbaImage>.AlertChoiceEdge;
             var style = NotificationsTab<RgbaImage>.AlertChoiceStyle(80f);
             var rest = style.UnselectedFill.ShouldNotBeNull();
-            var textFloor = state == UiThemeState.Night ? 3.4 : 4.5;
+            var textFloor = state == UiThemeState.Night ? 3.4f : 4.5f;
 
-            RGBAColor32.ContrastRatio(edge, header).ShouldBeGreaterThanOrEqualTo(3.0, $"{state}: the ring on the header");
-            RGBAColor32.ContrastRatio(style.SelectedContent, style.SelectedFill).ShouldBeGreaterThanOrEqualTo(4.5, $"{state}: the chosen word");
+            RGBAColor32.ContrastRatio(edge, header).ShouldBeGreaterThanOrEqualTo(3.0f, $"{state}: the ring on the header");
+            RGBAColor32.ContrastRatio(style.SelectedContent, style.SelectedFill).ShouldBeGreaterThanOrEqualTo(4.5f, $"{state}: the chosen word");
             RGBAColor32.ContrastRatio(style.UnselectedContent, rest).ShouldBeGreaterThanOrEqualTo(textFloor, $"{state}: a word at rest");
             RGBAColor32.ContrastRatio(style.UnselectedContent, style.HoverFill).ShouldBeGreaterThanOrEqualTo(textFloor, $"{state}: a word hovered");
             if (state == UiThemeState.Night)
