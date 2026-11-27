@@ -11111,13 +11111,15 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     and an eighth of the draw may be too little to move a net trained on the rest.
   - **Nothing is adopted;** adoption is the owner's.
 - **R4m's read, 2026-11-27: KILLED. Both seeds trained as the others, and seed 0 fails one guard: the light taken
-  from the Tarantula field (88 % of the whole frame, bar at most 84).** The question is missed as well: seed 0 passes
-  both of its rows through the chain (94.8 and 95.8), and seed 1 reads at the parent's level (91.4 and 92.1).
+  from the Tarantula field (88 % of the whole frame, bar at most 84).** The question is not cleared, for two reasons:
+  seed 0 passes both of its rows through the chain (94.8 and 95.8) but fails that guard, and seed 1 misses both rows,
+  reading at the parent's level (91.4 and 92.1).
   - **In plain words.** One of the two runs on the denser scenes took the Tarantula's crowded stars nearly as
     StarXTerminator does. It also took more of the faint field light between the stars than the guard allows, and
     kept less of the compact clusters' glow than the parent. The other run, trained the same way on the same
-    data, stands where the parent stood. Both runs left about 6 points fewer of the Lagoon's real faint stars on
-    bright nebula than the parent did.
+    data, stands where the parent stood. One thing is better than the parent on both runs: they left fewer of the
+    Lagoon's real faint stars on bright nebula (27.4 and 28.6 % left against the parent's 34.5 and 33.3, which is 7.1
+    and 4.7 points fewer).
   - **Looked at first**, before any row was read: both seeds beside R4h's two and StarXTerminator, through the chain
     and as trained, the Tarantula's crowded field first (`seeds_look.py` beside the scoring scripts, arm_look.py's
     crops and stretch with any columns; `r4-look/r4m/r4m-{chain,trained}-{crowded,others}.png`). What they show:
@@ -11180,11 +11182,12 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
       and 70.7, StarXTerminator 42.4); on the psf stamp 64.4 and 70.0, on the donor stamp 58.8 and 64.3.
     - **The Lagoon's 84 real faint stars on bright nebula, left as trained** (the repo's `nebula_stars_row.py`, its
       magnitude check keeping 84 of 180; re-read the same day on R4h's and StarXTerminator's plates, which give
-      34.5, 33.3 and 15.5 % as before): **27.4 and 28.6 %**, both seeds some 6 points under the parent.
+      34.5, 33.3 and 15.5 % as before): **27.4 and 28.6 %**, a gain on the parent's 34.5 and 33.3 (7.1 and 4.7 points fewer of the stars left).
     - **Route A's four scenes** (`cluster_models_band.py`): not read yet. They need the GTX 1070, which is scoring
       R4l; they are owed with R4l's read.
     - **The extra cache's held-out objective at the best step:** 7.58e-6 and 7.59e-6, beside the main cache's
-      8.20e-6 and 8.29e-6. The trainer prints no training objective per cache.
+      8.20e-6 and 8.29e-6 (the same two best steps as the training paragraph's 8.21e-6 and 8.30e-6; the last digit
+      differs by one, and whether that is a re-evaluation or a rounding was not recorded). The trainer prints no training objective per cache.
     - **The best step's weights, through the chain:** seed 0 (step 208,000) 94.4 and 95.1 on the question's rows,
       field light 82 and 87 %; seed 1 (step 215,000) 90.4 and 91.1, field light 79 and 82 %.
   - **Against the prediction.** It said both seeds gain 1 to 2.5 points over R4h's mean (91.2 and 91.7). Seed 0
