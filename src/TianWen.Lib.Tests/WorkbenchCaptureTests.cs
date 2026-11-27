@@ -283,9 +283,11 @@ public sealed class WorkbenchCaptureTests : IDisposable
             {
                 e2e.FakeFolderPicks(capture);
                 e2e.Click(e2e.RegionOfLabel("New project"));
-                await e2e.PumpUntilAsync(() => e2e.State.View is { Image: not null } && !e2e.State.IsReading, "the new project", ct);
-                await e2e.PumpUntilAsync(() => e2e.Actions.RunToHereOffer().CanRun, "the offer to run the stack", ct);
-                e2e.StepCells().Length.ShouldBe(1);
+                // New project now stops at the Import page; the capture of the workbench with a new project goes on through the
+                // Workflow page with the empty workflow (the pages themselves are WorkbenchImportScreenTests').
+                await e2e.PumpUntilAsync(() => e2e.State.Stage == WorkbenchStage.Import && e2e.State.Import is { Detecting: false }, "the Import page", ct);
+                e2e.Actions.UseWorkflow(BuiltInWorkflows.Empty);
+                await e2e.PumpUntilAsync(() => e2e.State.Stage == WorkbenchStage.Workbench && e2e.State.View is not null && !e2e.State.IsReading, "the new project", ct);
             }
 
             Keep(e2e, $"workbench-new-{scenario}-{width}x{height}-{theme}-dpi{dpi:0.0}");

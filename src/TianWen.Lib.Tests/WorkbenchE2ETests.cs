@@ -662,7 +662,7 @@ public sealed class WorkbenchE2ETests : IDisposable
     [Theory(Timeout = 120_000)]
     [InlineData(1f)]
     [InlineData(1.5f)]
-    public async Task PressingNewProjectWithOneFolderPickWritesTheLibRoutinesProjectInItsWorkdirAndShowsTheStackStepSelected(float dpi)
+    public async Task PressingNewProjectWithOneFolderPickWritesTheLibRoutinesProjectInItsWorkdirAndShowsTheImportPage(float dpi)
     {
         var ct = TestContext.Current.CancellationToken;
         var capture = CaptureFolder();
@@ -673,21 +673,12 @@ public sealed class WorkbenchE2ETests : IDisposable
         e2e.FakeFolderPicks(capture);
 
         e2e.Click(e2e.RegionOfLabel("New project"));
-        await e2e.PumpUntilAsync(() => e2e.State.View is { Image: not null } && !e2e.State.IsReading, "the new project's status", ct);
+        await e2e.PumpUntilAsync(() => e2e.State.Stage == WorkbenchStage.Import && e2e.State.Import is { Detecting: false }, "the Import page", ct);
 
         File.ReadAllText(WorkbenchProjectFile.PathIn(made)).ShouldBe(File.ReadAllText(WorkbenchProjectFile.PathIn(reference)),
             "the window writes what the Lib routine writes");
-        e2e.State.View!.Folder.ShouldBe(Path.GetFullPath(made));
-        var cells = e2e.StepCells();
-        cells.Length.ShouldBe(1, "the capture's one step");
-        e2e.TextsIn(cells[0]).ShouldContain("1  Stack");
-        e2e.State.SelectedStep.ShouldBe(0, "selected");
-        var answer = e2e.State.View.Image!.Steps[0];
-        e2e.TextsIn(cells[0]).ShouldContain(answer.Words, "its state is the runner's answer");
+        e2e.State.View.ShouldBeNull("the workbench opens after the workflow is chosen (WorkbenchImportScreenTests)");
         e2e.State.NewProjectRefusal.ShouldBeNull();
-
-        // Run to here is W2's: here only that the offer for the stack step is to run it.
-        await e2e.PumpUntilAsync(() => e2e.Actions.RunToHereOffer().CanRun, "the offer to run the stack step", ct);
         e2e.Actions.Jobs.IsRunning.ShouldBeFalse("a press of New project starts no run");
     }
 
