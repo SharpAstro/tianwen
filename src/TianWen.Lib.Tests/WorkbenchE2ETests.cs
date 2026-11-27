@@ -159,11 +159,12 @@ public sealed class WorkbenchE2ETests : IDisposable
         var panel = Normalise(e2e.PanelText());
         panel.ShouldContain("2 Add", Case.Insensitive);
         panel.ShouldContain(Normalise(_add.Description.Summary), Case.Insensitive, "what the operation does");
-        panel.ShouldContain("Settings");
+        panel.ShouldContain("Settings", Case.Insensitive);
         panel.ShouldContain("amount", Case.Insensitive, "a setting by its name");
         panel.ShouldContain(Normalise(_add.Description.Settings[0].Summary), Case.Insensitive, "and what it does");
-        e2e.TextsIn(PanelRect(e2e)).ShouldContain("2", "its value as the operation reads it");
+        e2e.Actions.SettingControls().Single().Value.ShouldBe("2", "its value as the operation reads it, in its field");
         panel.ShouldContain("Command line");
+        e2e.ClickText("Command line \u2304");
         // A long argument is broken into pieces that each fit, so every character is painted: without the spaces between
         // pieces the panel holds the whole line, and no word lies outside the panel.
         Compact(e2e.PanelText()).ShouldContain(Compact(StepCommandLine.Display(report.Steps[1].CommandLine)), Case.Insensitive,
@@ -173,10 +174,10 @@ public sealed class WorkbenchE2ETests : IDisposable
             .Where(t => t.Bounds.X < panelRect.X + panelRect.Width)
             .ShouldAllBe(t => t.Bounds.X + t.Bounds.Width <= panelRect.X + panelRect.Width + 0.5f, "no word of the panel runs past its edge");
 
-        // Shown, not edited: no field and nothing to press beside the settings but the Copy button.
+        // A number is a field of its own now (the panel edits settings).
         var inputs = new System.Collections.Generic.List<TextInputState>();
         e2e.Host.Screen.CollectRegisteredTextInputs(inputs);
-        inputs.ShouldBeEmpty("a setting is shown and not edited in W2");
+        inputs.Count.ShouldBe(1, "the one number setting is a field");
 
         // The third step is served: the panel says by what.
         e2e.Click(e2e.StepCells()[2]);
@@ -197,6 +198,7 @@ public sealed class WorkbenchE2ETests : IDisposable
         var report = Image(await Runner().StatusAsync(folder, "m", ct));
         e2e.Click(e2e.StepCells()[1]);
 
+        e2e.ClickText("Command line \u2304");
         e2e.Click(e2e.Region("Copy"));
 
         e2e.Clipboard.ShouldBe([StepCommandLine.Display(report.Steps[1].CommandLine)], "the whole line, not what the panel could show");

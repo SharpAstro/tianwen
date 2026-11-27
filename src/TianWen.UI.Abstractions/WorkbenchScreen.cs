@@ -278,7 +278,7 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
         var onStyle = CheckboxStyleNow();
         var waits = actions.Jobs.IsRunning ? "A run is going: the step can be switched when it ends" : null;
         var on = Layout.Builder.Checkbox("On", step.State is not StepState.Off, actions.SetStepEnabled, onStyle, BaseFontSize,
-                new HitResult.ButtonHit("Step:On"))
+                new HitResult.ButtonHit(StepSwitchHit))
             .WithTooltip(waits ?? "Switch this step off; the steps after it take its input").WAuto();
         rows.Add(Layout.Builder.HStack(
                 Words(step.Label, palette.BodyText, FlowRoom.Panel, BaseFontSize * 1.15f).WStar(),
@@ -391,6 +391,9 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
 
     /// <summary>The hit of a setting's control is this followed by the setting's name (a dropdown's, by its key).</summary>
     internal const string SettingHitPrefix = "Setting:";
+
+    /// <summary>The hit of the selected step's on/off (not a step row's hit, which begins with Step:).</summary>
+    internal const string StepSwitchHit = "StepSwitch:On";
 
     private readonly Dictionary<string, DropdownMenuState<string>> _settingMenus = new(StringComparer.Ordinal);
     private readonly Dictionary<string, TextInputState> _settingInputs = new(StringComparer.Ordinal);
