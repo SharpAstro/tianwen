@@ -1,6 +1,6 @@
 {
   "id": "integrate",
-  "title": "Guided: jump to integrate",
+  "title": "Workbench: step not made yet",
   "root": {
     "kind": "dock",
     "background": "ContentBg",
@@ -8,60 +8,127 @@
       {
         "kind": "dock", "side": "top", "padding": 8, "background": "HeaderBg", "size": 44,
         "children": [
-          {"kind": "text", "side": "left", "size": 180, "text": "M42 · 2026-11-19", "fontSize": 16, "color": "HeaderText"},
+          {"kind": "text", "side": "left", "size": 250, "text": "M42 · C:\\astro\\m42_bench", "fontSize": 16, "color": "HeaderText", "tooltip": "Project folder C:\\astro\\m42_bench"},
           {"kind": "text", "side": "left", "size": 80, "text": "Guided", "align": "center", "background": "Selection", "color": "SelectionText", "borderRadius": 4, "action": "goto:guided"},
           {"kind": "text", "side": "left", "size": 80, "text": "Stack", "align": "center", "color": "BodyText", "action": "goto:home"},
           {"kind": "text", "side": "left", "size": 80, "text": "Process", "align": "center", "color": "BodyText", "action": "goto:process"},
           {"kind": "text", "side": "left", "size": 90, "text": "Workflow", "align": "center", "color": "BodyText", "action": "goto:workflow"},
-          {"kind": "text", "text": "Workflow: tianwen viewer", "color": "DimText", "align": "far"}
+          {"kind": "text", "side": "right", "size": 120, "text": "Open project", "align": "center", "background": "PanelBg", "color": "BodyText", "borderRadius": 4},
+          {"kind": "spacer"}
         ]
       },
       {
-        "kind": "grid", "side": "top", "size": 44, "columns": 10, "gap": 4, "padding": 6, "background": "PanelBg",
+        "kind": "dock", "side": "top", "padding": 6, "background": "PanelBg", "size": 42, "border": "Separator", "borderWidth": 1,
         "children": [
-          {"kind": "text", "text": "1 Load ✓", "color": "BodyText", "align": "center", "padding": 4, "tooltip": "Done and still valid: reused"},
-          {"kind": "text", "text": "2 Calibrate ↻", "color": "Warn", "align": "center", "padding": 4, "tooltip": "Done, but the flats changed: runs again"},
-          {"kind": "text", "text": "3 Analyse ○", "color": "BodyText", "align": "center", "padding": 4, "tooltip": "Not done yet: runs first"},
-          {"kind": "text", "text": "4 Register ○", "color": "BodyText", "align": "center", "padding": 4, "tooltip": "Not done yet: runs first"},
-          {"kind": "text", "text": "5 Integrate", "color": "SelectionText", "background": "Selection", "align": "center", "padding": 4, "borderRadius": 4},
-          {"kind": "text", "text": "6 Crop", "color": "DimText", "align": "center", "padding": 4},
-          {"kind": "text", "text": "7 Plate solve", "color": "DimText", "align": "center", "padding": 4},
-          {"kind": "text", "text": "8 SPCC", "color": "DimText", "align": "center", "padding": 4},
-          {"kind": "text", "text": "9 Gradient", "color": "DimText", "align": "center", "padding": 4},
-          {"kind": "text", "text": "10 Stretch", "color": "DimText", "align": "center", "padding": 4}
+          {"kind": "text", "side": "left", "size": 170, "text": "▶ Run to here", "align": "center", "background": "Accent", "color": "SelectionText", "borderRadius": 4, "tooltip": "Make step 5; runs steps 2 to 4 first"},
+          {"kind": "spacer", "side": "left", "size": 6},
+          {"kind": "text", "side": "left", "size": 120, "text": "Run on", "align": "center", "background": "HeaderBg", "color": "BodyText", "borderRadius": 4, "tooltip": "Make every step, stopping only where one needs you"},
+          {"kind": "spacer", "side": "left", "size": 6},
+          {"kind": "text", "side": "left", "size": 70, "text": "■ Stop", "align": "center", "color": "DimText", "tooltip": "Nothing is running"},
+          {"kind": "checkbox", "side": "left", "size": 150, "bind": "pauseEach", "label": "Pause each step"},
+          {"kind": "buttonGroup", "side": "right", "size": 240, "bind": "view", "options": ["Original", "Result", "Split"]},
+          {"kind": "text", "text": "1 of 12 made", "color": "BodyText", "align": "center"}
         ]
       },
       {
-        "kind": "vstack", "side": "left", "size": 360, "gap": 8, "padding": 10, "background": "PanelBg",
+        "kind": "vstack", "side": "left", "size": 240, "gap": 2, "padding": 8, "background": "PanelBg",
         "children": [
-          {"kind": "text", "text": "Step 5 of 10: Integrate", "fontSize": 15, "color": "HeaderText"},
-          {"kind": "text", "text": "Stacks the registered frames into one master.", "color": "DimText"},
+          {"kind": "text", "text": "Steps · tianwen viewer", "fontSize": 15, "color": "HeaderText", "padding": 2},
+          {"kind": "text", "text": "Stacking", "color": "DimText", "padding": 2},
+          {"kind": "dock", "height": 26, "padding": 3, "children": [
+            {"kind": "text", "side": "left", "size": 22, "text": "✓", "color": "Success"},
+            {"kind": "text", "side": "right", "size": 50, "text": "made", "color": "DimText", "align": "far"},
+            {"kind": "text", "text": "1  Load", "color": "BodyText"}
+          ]},
+          {"kind": "dock", "height": 26, "padding": 3, "children": [
+            {"kind": "text", "side": "left", "size": 22, "text": "↻", "color": "Warn"},
+            {"kind": "text", "side": "right", "size": 50, "text": "stale", "color": "Warn", "align": "far", "tooltip": "Made, but the flats changed since"},
+            {"kind": "text", "text": "2  Calibrate", "color": "BodyText"}
+          ]},
+          {"kind": "dock", "height": 26, "padding": 3, "children": [
+            {"kind": "text", "side": "left", "size": 22, "text": "○", "color": "DimText"},
+            {"kind": "text", "side": "right", "size": 50, "text": "", "color": "DimText", "align": "far"},
+            {"kind": "text", "text": "3  Analyse", "color": "BodyText"}
+          ]},
+          {"kind": "dock", "height": 26, "padding": 3, "children": [
+            {"kind": "text", "side": "left", "size": 22, "text": "○", "color": "DimText"},
+            {"kind": "text", "side": "right", "size": 50, "text": "", "color": "DimText", "align": "far"},
+            {"kind": "text", "text": "4  Register", "color": "BodyText"}
+          ]},
+          {"kind": "dock", "height": 26, "padding": 3, "background": "Selection", "borderRadius": 4, "children": [
+            {"kind": "text", "side": "left", "size": 22, "text": "○", "color": "SelectionText"},
+            {"kind": "text", "side": "right", "size": 50, "text": "", "color": "SelectionText", "align": "far"},
+            {"kind": "text", "text": "5  Integrate", "color": "SelectionText"}
+          ]},
+          {"kind": "text", "text": "Image", "color": "DimText", "padding": 2},
+          {"kind": "dock", "height": 26, "padding": 3, "children": [
+            {"kind": "text", "side": "left", "size": 22, "text": "○", "color": "DimText"},
+            {"kind": "text", "text": "6  Crop", "color": "BodyText"}
+          ]},
+          {"kind": "dock", "height": 26, "padding": 3, "children": [
+            {"kind": "text", "side": "left", "size": 22, "text": "○", "color": "DimText"},
+            {"kind": "text", "text": "7  Plate solve", "color": "BodyText"}
+          ]},
+          {"kind": "dock", "height": 26, "padding": 3, "children": [
+            {"kind": "text", "side": "left", "size": 22, "text": "○", "color": "DimText"},
+            {"kind": "text", "text": "8  SPCC", "color": "BodyText"}
+          ]},
+          {"kind": "dock", "height": 26, "padding": 3, "children": [
+            {"kind": "text", "side": "left", "size": 22, "text": "○", "color": "DimText"},
+            {"kind": "text", "text": "9  Gradient", "color": "BodyText"}
+          ]},
+          {"kind": "dock", "height": 26, "padding": 3, "children": [
+            {"kind": "text", "side": "left", "size": 22, "text": "○", "color": "DimText"},
+            {"kind": "text", "text": "10  Remove stars", "color": "BodyText"}
+          ]},
+          {"kind": "dock", "height": 26, "padding": 3, "children": [
+            {"kind": "text", "side": "left", "size": 22, "text": "○", "color": "DimText"},
+            {"kind": "text", "text": "11  Stretch", "color": "BodyText"}
+          ]},
+          {"kind": "dock", "height": 26, "padding": 3, "children": [
+            {"kind": "text", "side": "left", "size": 22, "text": "○", "color": "DimText"},
+            {"kind": "text", "text": "12  Add stars", "color": "BodyText"}
+          ]},
+          {"kind": "text", "text": "✓ made · ↻ stale · ○ not made", "color": "DimText", "padding": 4}
+        ]
+      },
+      {
+        "kind": "vstack", "side": "right", "size": 300, "gap": 8, "padding": 10, "background": "PanelBg",
+        "children": [
+          {"kind": "text", "text": "5  Integrate", "fontSize": 16, "color": "HeaderText"},
+          {"kind": "text", "text": "Stacks the frames into one master.", "color": "DimText"},
+          {"kind": "text", "text": "○ Not made yet", "color": "BodyText"},
+          {"kind": "text", "text": "Settings", "fontSize": 15, "color": "HeaderText", "padding": 2},
           {"kind": "dropdown", "bind": "gRejection", "label": "Rejection: Winsorized σ-clip", "options": ["Winsorized σ-clip", "Linear fit", "ESD", "None"]},
           {"kind": "dropdown", "bind": "gWeighting", "label": "Weighting: PSF signal", "options": ["PSF signal", "SNR", "Noise", "Equal"]},
-          {"kind": "text", "text": "Before it integrates, it will:", "fontSize": 15, "color": "HeaderText", "padding": 2},
+          {"kind": "text", "text": "Run to here will first", "fontSize": 15, "color": "HeaderText", "padding": 2},
           {"kind": "grid", "columns": 2, "gap": 4, "children": [
-            {"kind": "text", "text": "✓ Load", "color": "BodyText"},
+            {"kind": "text", "text": "1  Load", "color": "BodyText"},
             {"kind": "text", "text": "reuse", "color": "DimText"},
-            {"kind": "text", "text": "↻ Calibrate", "color": "Warn"},
-            {"kind": "text", "text": "re-run: new flats", "color": "Warn"},
-            {"kind": "text", "text": "○ Analyse", "color": "BodyText"},
-            {"kind": "text", "text": "run: not done", "color": "DimText"},
-            {"kind": "text", "text": "○ Register", "color": "BodyText"},
-            {"kind": "text", "text": "run: not done", "color": "DimText"}
-          ]},
-          {"kind": "checkbox", "bind": "runOn2", "label": "Run on until a step needs me"},
-          {"kind": "dock", "height": 34, "children": [
-            {"kind": "text", "side": "right", "size": 200, "text": "Integrate (runs 2–4 first)", "padding": 8, "background": "Accent", "color": "SelectionText", "borderRadius": 4, "align": "center"},
-            {"kind": "spacer"}
+            {"kind": "text", "text": "2  Calibrate", "color": "BodyText"},
+            {"kind": "text", "text": "redo: new flats", "color": "Warn"},
+            {"kind": "text", "text": "3  Analyse", "color": "BodyText"},
+            {"kind": "text", "text": "make", "color": "DimText"},
+            {"kind": "text", "text": "4  Register", "color": "BodyText"},
+            {"kind": "text", "text": "make", "color": "DimText"}
           ]},
           {"kind": "text", "text": "About 22 min in all", "color": "DimText"}
         ]
       },
       {
-        "kind": "dock", "side": "bottom", "size": 36, "padding": 8, "background": "PanelBg",
+        "kind": "dock", "side": "bottom", "size": 130, "background": "PanelBg", "border": "Separator", "borderWidth": 1,
         "children": [
-          {"kind": "text", "side": "right", "size": 220, "text": "Open as workflow to change ↗", "color": "Accent", "align": "far", "action": "goto:workflow"},
-          {"kind": "text", "text": "✓ reused · ↻ runs again · ○ not done yet", "color": "BodyText"}
+          {"kind": "dock", "side": "top", "size": 30, "padding": 4, "children": [
+            {"kind": "text", "side": "left", "size": 70, "text": "Job", "align": "center", "background": "Selection", "color": "SelectionText", "borderRadius": 4},
+            {"kind": "text", "side": "left", "size": 100, "text": "Histogram", "align": "center", "color": "BodyText"},
+            {"kind": "text", "side": "left", "size": 70, "text": "Log", "align": "center", "color": "BodyText"},
+            {"kind": "text", "side": "left", "size": 130, "text": "Command line", "align": "center", "color": "BodyText", "tooltip": "tianwen stack integrate --lights store\\lights.list --reject wsc --weight psf -o store\\master.fits"},
+            {"kind": "spacer"}
+          ]},
+          {"kind": "vstack", "gap": 4, "padding": 8, "children": [
+            {"kind": "text", "text": "Last run was cancelled at step 2 (Calibrate), 14:02", "color": "BodyText"},
+            {"kind": "text", "text": "Nothing running now", "color": "DimText"}
+          ]}
         ]
       },
       {
@@ -69,10 +136,10 @@
         "children": [
           {"kind": "box", "color": "#0b0d12"},
           {"kind": "dock", "padding": 10, "children": [
-            {"kind": "dock", "side": "top", "size": 32, "children": [
-              {"kind": "text", "text": "Nothing integrated yet: showing L_0002 as loaded", "color": "#c8ccd4"}
+            {"kind": "dock", "side": "top", "size": 28, "children": [
+              {"kind": "text", "text": "Original: L_0002, the first light frame", "color": "#c8ccd4"}
             ]},
-            {"kind": "text", "text": "image canvas: one raw light frame", "align": "center", "color": "#8a90a0"}
+            {"kind": "text", "text": "Step 5 has no result yet. Run to here makes it, after steps 2 to 4.", "align": "center", "color": "#c8ccd4"}
           ]}
         ]
       }

@@ -8,19 +8,32 @@
       {
         "kind": "dock", "side": "top", "padding": 8, "background": "HeaderBg", "size": 44,
         "children": [
-          {"kind": "text", "side": "left", "size": 180, "text": "M42 · 2026-11-18", "fontSize": 16, "color": "HeaderText"},
+          {"kind": "text", "side": "left", "size": 250, "text": "M42 · C:\\astro\\m42_bench", "fontSize": 16, "color": "HeaderText", "tooltip": "Project folder C:\\astro\\m42_bench"},
           {"kind": "text", "side": "left", "size": 80, "text": "Guided", "align": "center", "color": "BodyText", "action": "goto:guided"},
           {"kind": "text", "side": "left", "size": 80, "text": "Stack", "align": "center", "background": "Selection", "color": "SelectionText", "borderRadius": 4},
           {"kind": "text", "side": "left", "size": 80, "text": "Process", "align": "center", "color": "BodyText", "action": "goto:process"},
           {"kind": "text", "side": "left", "size": 90, "text": "Workflow", "align": "center", "color": "BodyText", "action": "goto:workflow"},
-          {"kind": "text", "side": "left", "size": 160, "text": "tianwen preview ↗", "align": "center", "color": "Accent", "action": "goto:session", "tooltip": "How the live stack looks inside the tianwen GUI's frame preview"},
-          {"kind": "text", "text": "312 lights · 40 darks · 30 flats", "color": "DimText", "align": "far"}
+          {"kind": "text", "side": "right", "size": 120, "text": "Open project", "align": "center", "background": "PanelBg", "color": "BodyText", "borderRadius": 4},
+          {"kind": "text", "side": "right", "size": 160, "text": "tianwen preview ↗", "align": "center", "color": "Accent", "action": "goto:session", "tooltip": "How the live stack looks inside the tianwen GUI's frame preview"},
+          {"kind": "spacer"}
         ]
       },
       {
-        "kind": "vstack", "side": "left", "size": 380, "gap": 6, "padding": 8, "background": "PanelBg",
+        "kind": "dock", "side": "top", "padding": 6, "background": "PanelBg", "size": 42, "border": "Separator", "borderWidth": 1,
         "children": [
-          {"kind": "text", "text": "Frames", "fontSize": 15, "color": "HeaderText"},
+          {"kind": "text", "side": "left", "size": 170, "text": "▶ Run on 311 frames", "align": "center", "background": "Accent", "color": "SelectionText", "borderRadius": 4, "tooltip": "Run the chosen workflow on the ticked frames; steps still valid are reused"},
+          {"kind": "spacer", "side": "left", "size": 6},
+          {"kind": "text", "side": "left", "size": 70, "text": "■ Stop", "align": "center", "color": "DimText", "tooltip": "Nothing is running"},
+          {"kind": "dropdown", "side": "left", "size": 230, "bind": "stackWorkflow", "label": "Workflow: Deep sky (auto)", "options": ["tianwen viewer (guided)", "Deep sky (auto)", "Mono LRGB", "Narrowband SHO", "Quick look"]},
+          {"kind": "text", "side": "left", "size": 70, "text": "Edit ↗", "align": "center", "color": "Accent", "action": "goto:workflow"},
+          {"kind": "buttonGroup", "side": "right", "size": 260, "bind": "stretch", "options": ["Linear", "Auto STF", "Histogram"]},
+          {"kind": "spacer"}
+        ]
+      },
+      {
+        "kind": "vstack", "side": "left", "size": 360, "gap": 4, "padding": 8, "background": "PanelBg",
+        "children": [
+          {"kind": "text", "text": "Frames · 312 lights", "fontSize": 15, "color": "HeaderText", "padding": 2},
           {"kind": "dock", "height": 30, "children": [
             {"kind": "dropdown", "side": "left", "size": 110, "bind": "frameFilter", "label": "Lights", "options": ["Lights", "Darks", "Flats", "Bias"]},
             {"kind": "textInput", "bind": "frameSearch", "placeholder": "Filter by name"}
@@ -31,52 +44,73 @@
             {"kind": "text", "side": "left", "size": 70, "text": "Stars", "color": "DimText"},
             {"kind": "text", "text": "Weight", "color": "DimText"}
           ]},
-          {"kind": "dock", "height": 22, "children": [
+          {"kind": "dock", "height": 24, "children": [
             {"kind": "checkbox", "side": "left", "size": 130, "bind": "f1", "label": "L_0001"},
             {"kind": "text", "side": "left", "size": 70, "text": "2.31", "color": "BodyText"},
             {"kind": "text", "side": "left", "size": 70, "text": "1 842", "color": "BodyText"},
             {"kind": "text", "text": "0.94", "color": "BodyText"}
           ]},
-          {"kind": "dock", "height": 22, "background": "Selection", "children": [
+          {"kind": "dock", "height": 24, "background": "Selection", "children": [
             {"kind": "checkbox", "side": "left", "size": 130, "bind": "f2", "label": "L_0002"},
             {"kind": "text", "side": "left", "size": 70, "text": "2.28", "color": "SelectionText"},
             {"kind": "text", "side": "left", "size": 70, "text": "1 870", "color": "SelectionText"},
             {"kind": "text", "text": "0.96", "color": "SelectionText"}
           ]},
-          {"kind": "dock", "height": 22, "children": [
+          {"kind": "dock", "height": 24, "children": [
             {"kind": "checkbox", "side": "left", "size": 130, "bind": "f3", "label": "L_0003"},
-            {"kind": "text", "side": "left", "size": 70, "text": "4.90", "color": "Warn"},
+            {"kind": "text", "side": "left", "size": 70, "text": "4.90 ▲", "color": "Warn", "tooltip": "FWHM over 2σ: left out"},
             {"kind": "text", "side": "left", "size": 70, "text": "611", "color": "Warn"},
             {"kind": "text", "text": "0.21", "color": "Warn"}
           ]},
-          {"kind": "dock", "height": 22, "children": [
+          {"kind": "dock", "height": 24, "children": [
             {"kind": "checkbox", "side": "left", "size": 130, "bind": "f4", "label": "L_0004"},
             {"kind": "text", "side": "left", "size": 70, "text": "2.35", "color": "BodyText"},
             {"kind": "text", "side": "left", "size": 70, "text": "1 815", "color": "BodyText"},
             {"kind": "text", "text": "0.92", "color": "BodyText"}
           ]},
           {"kind": "text", "text": "… 308 more", "color": "DimText"},
-          {"kind": "text", "text": "L_0003 left out: FWHM 4.90 is over 2σ", "color": "Warn"},
-          {"kind": "text", "text": "Workflow", "fontSize": 15, "color": "HeaderText", "padding": 4},
-          {"kind": "dropdown", "bind": "stackWorkflow", "label": "Deep sky (auto)", "options": ["tianwen viewer (guided)", "Deep sky (auto)", "Mono LRGB", "Narrowband SHO", "Quick look"]},
-          {"kind": "text", "text": "On these frames it will:", "color": "DimText"},
-          {"kind": "text", "text": "1  Calibrate (darks, flats, bias)", "color": "BodyText"},
-          {"kind": "text", "text": "2  Bayer drizzle 2× (311 > 60 frames)", "color": "BodyText"},
-          {"kind": "text", "text": "3  Integrate (Winsorized σ-clip)", "color": "BodyText"},
-          {"kind": "text", "text": "…  then 5 processing steps", "color": "DimText"},
-          {"kind": "dock", "height": 34, "children": [
-            {"kind": "text", "side": "left", "size": 130, "text": "Edit workflow ↗", "color": "Accent", "action": "goto:workflow"},
-            {"kind": "text", "side": "right", "size": 170, "text": "Run on 311 frames", "padding": 8, "background": "Accent", "color": "SelectionText", "borderRadius": 4, "align": "center"},
-            {"kind": "spacer"}
-          ]}
+          {"kind": "text", "text": "1 left out: L_0003, FWHM over 2σ", "color": "Warn", "padding": 2}
         ]
       },
       {
-        "kind": "dock", "side": "bottom", "size": 36, "padding": 8, "background": "PanelBg",
+        "kind": "vstack", "side": "right", "size": 300, "gap": 8, "padding": 10, "background": "PanelBg",
         "children": [
-          {"kind": "text", "side": "left", "size": 90, "text": "Histogram", "color": "DimText"},
-          {"kind": "text", "side": "right", "size": 300, "text": "x 2104  y 1388  R 0.071 G 0.083 B 0.064", "color": "DimText", "align": "far"},
-          {"kind": "progress", "value": 0.18, "label": "Median 0.18"}
+          {"kind": "text", "text": "L_0002", "fontSize": 16, "color": "HeaderText"},
+          {"kind": "text", "text": "✓ Kept · weight 0.96", "color": "BodyText"},
+          {"kind": "grid", "columns": 2, "gap": 4, "children": [
+            {"kind": "text", "text": "Exposure", "color": "DimText"},
+            {"kind": "text", "text": "120 s · gain 100", "color": "BodyText"},
+            {"kind": "text", "text": "Filter", "color": "DimText"},
+            {"kind": "text", "text": "L-eXtreme", "color": "BodyText"},
+            {"kind": "text", "text": "Sensor", "color": "DimText"},
+            {"kind": "text", "text": "−10 °C", "color": "BodyText"},
+            {"kind": "text", "text": "FWHM", "color": "DimText"},
+            {"kind": "text", "text": "2.28″", "color": "BodyText"},
+            {"kind": "text", "text": "Eccentricity", "color": "DimText"},
+            {"kind": "text", "text": "0.41", "color": "BodyText"},
+            {"kind": "text", "text": "Background", "color": "DimText"},
+            {"kind": "text", "text": "0.071", "color": "BodyText"}
+          ]},
+          {"kind": "text", "text": "The workflow will", "fontSize": 15, "color": "HeaderText", "padding": 2},
+          {"kind": "text", "text": "1  Calibrate (darks, flats)", "color": "BodyText"},
+          {"kind": "text", "text": "2  Bayer drizzle 2× (> 60 frames)", "color": "BodyText"},
+          {"kind": "text", "text": "3  Integrate (σ-clip)", "color": "BodyText"},
+          {"kind": "text", "text": "then 5 processing steps", "color": "DimText"}
+        ]
+      },
+      {
+        "kind": "dock", "side": "bottom", "size": 100, "background": "PanelBg", "border": "Separator", "borderWidth": 1,
+        "children": [
+          {"kind": "dock", "side": "top", "size": 30, "padding": 4, "children": [
+            {"kind": "text", "side": "left", "size": 70, "text": "Job", "align": "center", "color": "BodyText"},
+            {"kind": "text", "side": "left", "size": 100, "text": "Histogram", "align": "center", "background": "Selection", "color": "SelectionText", "borderRadius": 4},
+            {"kind": "text", "side": "left", "size": 70, "text": "Log", "align": "center", "color": "BodyText"},
+            {"kind": "spacer"}
+          ]},
+          {"kind": "vstack", "gap": 4, "padding": 8, "children": [
+            {"kind": "progress", "value": 0.18, "label": "Median 0.18"},
+            {"kind": "text", "text": "x 2104  y 1388 · R 0.071  G 0.083  B 0.064", "color": "DimText"}
+          ]}
         ]
       },
       {
@@ -84,9 +118,9 @@
         "children": [
           {"kind": "box", "color": "#0b0d12"},
           {"kind": "dock", "padding": 10, "children": [
-            {"kind": "dock", "side": "top", "size": 32, "children": [
-              {"kind": "buttonGroup", "side": "right", "size": 260, "bind": "stretch", "options": ["Linear", "Auto STF", "Histogram"]},
-              {"kind": "text", "text": "Preview: L_0002 (auto-stretched)", "color": "#c8ccd4"}
+            {"kind": "dock", "side": "top", "size": 28, "children": [
+              {"kind": "text", "side": "right", "size": 120, "text": "Fit · 18 %", "color": "#c8ccd4", "align": "far"},
+              {"kind": "text", "text": "L_0002, auto-stretched", "color": "#c8ccd4"}
             ]},
             {"kind": "text", "text": "image canvas", "align": "center", "color": "#8a90a0"}
           ]}

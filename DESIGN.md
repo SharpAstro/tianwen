@@ -4,25 +4,33 @@
 
 **Principle: non-destructive editing.** An image is its original plus a list of edits (the Image class): crop, gradient removal, a stretch are each an edit that can be switched off, changed or reordered later, and later edits re-run. Nothing is written over. When many images are open (five masters, starless and star copies, masks), images not being worked on are kept on disk in a cache folder and load back on demand; the app says which ones and how much memory is in use.
 
+**Principle: a workbench, not a form.** Every workspace has the same five places, and each holds one kind of thing:
+
+- **Run toolbar** (under the header): the actions and their state: the main run button, Stop, the run mode, the view switch, "7 of 12 made". Run buttons never sit in a side panel.
+- **Navigator** (left): where you are: the steps, the frames or the processes, one line each, with a mark and a word for their state.
+- **Canvas** (middle, the biggest): the image, with a one-line caption saying what it shows.
+- **Inspector** (right): only the selected item: its name, one line on what it does, its state, its settings, its result.
+- **Dock** (under the canvas): tabs for Job, Histogram, Log and Command line, the things you glance at, not work in.
+
 ## Guided
 
-**Objective:** Shows the pre-built "tianwen viewer" workflow one step at a time, like Astro Pixel Processor: load, calibrate, analyse, register, integrate, crop, plate solve, SPCC, gradient, stretch.
+**Objective:** Shows the pre-built "tianwen viewer" workflow as a workbench: the steps down the left, the selected step's settings and result on the right, its output on the canvas, run controls on the toolbar.
 
 ```screen id=guided
-Step 7 of 10: plate solve the cropped master
+Step 7 (plate solve) selected after a run made steps 1 to 7
 ```
 
-**Notes:** The step bar is the workflow itself, laid out flat: done steps carry ✓, the current one is selected, later ones are dim, so the state is in words and marks, not colour alone. Each step has one panel (what it does, its few settings, its result) and Back / Next; the canvas shows that step's output (here the solved sky grid). Plate solve and SPCC use the same code as the tianwen viewer so a master looks the same in both. "Open as workflow" leads to the Workflow editor, where gates and extra steps live: Guided is the easy road, Workflow and Process the flexible ones. Guided is always one image (SDI); it has no Windows switch. Crop sits before plate solving so the solve and SPCC never see the ragged stacking edges. "Run on until a step needs me" (on by default) carries on through the steps and stops only where one asks for something, such as a failed solve; off, it stops after every step.
+**Notes:** The steps are a vertical list, grouped Stacking / Image, so twelve or twenty steps with long names still fit; each line has a mark and a word (✓ made, ↻ stale, ○ not made). The inspector holds only the selected step: what it does, whether it is made and still valid, its settings, its result. The command line, job progress, log and histogram moved to the dock tabs so the inspector stays short; the command line is one click away and copyable there. The toolbar's main button follows the state: "Run on from step 8" when the selected step is made, "Run to here" when it is not. Plate solve and SPCC use the same code as the tianwen viewer so a master looks the same in both. "Open as workflow" leads to the Workflow editor, where gates and extra steps live: Guided is the easy road, Workflow and Process the flexible ones. Guided is always one image (SDI); it has no Windows switch. Crop sits before plate solving so the solve and SPCC never see the ragged stacking edges. Runs go on until a step needs you (such as a failed solve); "Pause each step" on the toolbar stops after every step instead.
 
 ## Jump ahead
 
-**Objective:** Shows going straight to a later step, as in APP: click 5 Integrate on a new session and press Integrate; steps 1–4 that are not done, or no longer match their input, run first.
+**Objective:** Shows a step that is not made yet, chosen directly as in APP: the inspector says what Run to here will reuse, redo and make first, and the canvas says plainly that there is no result yet.
 
 ```screen id=integrate
-Step 5 chosen directly: what runs first and why
+Step 5 (integrate) selected on a project whose flats changed
 ```
 
-**Notes:** Every step keeps what it made together with the inputs it made it from. Picking a later step checks the earlier ones: ✓ still valid and reused, ↻ done but its input changed (here new flats) so it runs again, ○ not done yet so it runs. The marks are in the step bar and spelt out in the panel, and the button says what it will do ("Integrate (runs 2–4 first)"). This is the non-destructive principle applied to stacking: nothing has to be redone by hand, and nothing is redone that is still good.
+**Notes:** Every step keeps what it made together with the inputs it made it from. Picking a later step checks the earlier ones: ✓ still valid and reused, ↻ made but its input changed (here new flats) so it runs again, ○ not made yet so it runs. The marks are in the step list with a legend under it, and spelt out in the inspector. The empty canvas says what is missing and what makes it, in one line, instead of an error about a missing file; the last run's outcome ("cancelled at step 2") is in the Job tab, not the inspector. This is the non-destructive principle applied to stacking: nothing has to be redone by hand, and nothing is redone that is still good.
 
 ## Stack
 
@@ -32,7 +40,7 @@ Step 5 chosen directly: what runs first and why
 Stack workspace: frames, chosen workflow, preview
 ```
 
-**Notes:** One workspace switch (Guided · Stack · Process · Workflow) in the header instead of a menu tree. Stack does not have its own pipeline settings any more: it runs a workflow. The panel picks one and lists, in words, what it will do with these frames (the gates already decided), with "Edit workflow ↗" for changing it. Frames over 2σ on FWHM are unticked automatically and the reason is said in words, not only by the amber colour. The image canvas is a placeholder.
+**Notes:** One workspace switch (Guided · Stack · Process · Workflow) in the header instead of a menu tree. Same workbench frame: the frames are the navigator, the selected frame's details are the inspector. Stack has no pipeline settings of its own: it runs a workflow, picked on the toolbar next to the run button; the inspector lists in words what that workflow will do with these frames (the gates already decided), and "Edit ↗" opens it. Frames over 2σ on FWHM are unticked automatically and the reason is said in words, not only by the amber colour. The image canvas is a placeholder.
 
 ## Process
 

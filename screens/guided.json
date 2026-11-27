@@ -1,6 +1,6 @@
 {
   "id": "guided",
-  "title": "Guided",
+  "title": "Workbench: step made",
   "root": {
     "kind": "dock",
     "background": "ContentBg",
@@ -8,63 +8,141 @@
       {
         "kind": "dock", "side": "top", "padding": 8, "background": "HeaderBg", "size": 44,
         "children": [
-          {"kind": "text", "side": "left", "size": 180, "text": "M42 · 2026-11-18", "fontSize": 16, "color": "HeaderText"},
+          {"kind": "text", "side": "left", "size": 250, "text": "M42 · C:\\astro\\m42_bench", "fontSize": 16, "color": "HeaderText", "tooltip": "Project folder C:\\astro\\m42_bench"},
           {"kind": "text", "side": "left", "size": 80, "text": "Guided", "align": "center", "background": "Selection", "color": "SelectionText", "borderRadius": 4},
           {"kind": "text", "side": "left", "size": 80, "text": "Stack", "align": "center", "color": "BodyText", "action": "goto:home"},
           {"kind": "text", "side": "left", "size": 80, "text": "Process", "align": "center", "color": "BodyText", "action": "goto:process"},
           {"kind": "text", "side": "left", "size": 90, "text": "Workflow", "align": "center", "color": "BodyText", "action": "goto:workflow"},
-          {"kind": "text", "text": "Workflow: tianwen viewer", "color": "DimText", "align": "far"}
+          {"kind": "text", "side": "right", "size": 120, "text": "Open project", "align": "center", "background": "PanelBg", "color": "BodyText", "borderRadius": 4},
+          {"kind": "spacer"}
         ]
       },
       {
-        "kind": "grid", "side": "top", "size": 44, "columns": 10, "gap": 4, "padding": 6, "background": "PanelBg",
+        "kind": "dock", "side": "top", "padding": 6, "background": "PanelBg", "size": 42, "border": "Separator", "borderWidth": 1,
         "children": [
-          {"kind": "text", "text": "1 Load ✓", "color": "BodyText", "align": "center", "padding": 4, "tooltip": "312 lights, 40 darks, 30 flats"},
-          {"kind": "text", "text": "2 Calibrate ✓", "color": "BodyText", "align": "center", "padding": 4},
-          {"kind": "text", "text": "3 Analyse ✓", "color": "BodyText", "align": "center", "padding": 4, "tooltip": "1 frame left out: FWHM over 2σ"},
-          {"kind": "text", "text": "4 Register ✓", "color": "BodyText", "align": "center", "padding": 4},
-          {"kind": "text", "text": "5 Integrate ✓", "color": "BodyText", "align": "center", "padding": 4, "action": "goto:integrate"},
-          {"kind": "text", "text": "6 Crop ✓", "color": "BodyText", "align": "center", "padding": 4, "tooltip": "Quick auto-crop (GPU, same as the viewer): 6193×4136 px", "action": "goto:crop"},
-          {"kind": "text", "text": "7 Plate solve", "color": "SelectionText", "background": "Selection", "align": "center", "padding": 4, "borderRadius": 4},
-          {"kind": "text", "text": "8 SPCC", "color": "DimText", "align": "center", "padding": 4},
-          {"kind": "text", "text": "9 Gradient", "color": "DimText", "align": "center", "padding": 4},
-          {"kind": "text", "text": "10 Stretch", "color": "DimText", "align": "center", "padding": 4}
+          {"kind": "text", "side": "left", "size": 170, "text": "▶ Run on from step 8", "align": "center", "background": "Accent", "color": "SelectionText", "borderRadius": 4, "tooltip": "Make steps 8 to 12, stopping only where a step needs you"},
+          {"kind": "spacer", "side": "left", "size": 6},
+          {"kind": "text", "side": "left", "size": 120, "text": "Run to here", "align": "center", "background": "HeaderBg", "color": "BodyText", "borderRadius": 4, "tooltip": "Make the selected step, running any earlier step that is missing or stale"},
+          {"kind": "spacer", "side": "left", "size": 6},
+          {"kind": "text", "side": "left", "size": 70, "text": "■ Stop", "align": "center", "color": "DimText", "tooltip": "Nothing is running"},
+          {"kind": "checkbox", "side": "left", "size": 150, "bind": "pauseEach", "label": "Pause each step"},
+          {"kind": "buttonGroup", "side": "right", "size": 240, "bind": "view", "options": ["Original", "Result", "Split"]},
+          {"kind": "text", "text": "7 of 12 made", "color": "BodyText", "align": "center"}
         ]
       },
       {
-        "kind": "vstack", "side": "left", "size": 360, "gap": 8, "padding": 10, "background": "PanelBg",
+        "kind": "vstack", "side": "left", "size": 240, "gap": 2, "padding": 8, "background": "PanelBg",
         "children": [
-          {"kind": "text", "text": "Step 7 of 10: Plate solve", "fontSize": 15, "color": "HeaderText"},
-          {"kind": "text", "text": "Finds where the master points on the sky.", "color": "DimText"},
-          {"kind": "dropdown", "bind": "solver", "label": "Built-in solver", "options": ["Built-in solver", "ASTAP", "astrometry.net"]},
-          {"kind": "text", "text": "Hint from FITS header", "color": "DimText"},
+          {"kind": "text", "text": "Steps · tianwen viewer", "fontSize": 15, "color": "HeaderText", "padding": 2},
+          {"kind": "text", "text": "Stacking", "color": "DimText", "padding": 2},
+          {"kind": "dock", "height": 26, "padding": 3, "children": [
+            {"kind": "text", "side": "left", "size": 22, "text": "✓", "color": "Success"},
+            {"kind": "text", "side": "right", "size": 44, "text": "made", "color": "DimText", "align": "far"},
+            {"kind": "text", "text": "1  Load", "color": "BodyText"}
+          ]},
+          {"kind": "dock", "height": 26, "padding": 3, "children": [
+            {"kind": "text", "side": "left", "size": 22, "text": "✓", "color": "Success"},
+            {"kind": "text", "side": "right", "size": 44, "text": "made", "color": "DimText", "align": "far"},
+            {"kind": "text", "text": "2  Calibrate", "color": "BodyText"}
+          ]},
+          {"kind": "dock", "height": 26, "padding": 3, "children": [
+            {"kind": "text", "side": "left", "size": 22, "text": "✓", "color": "Success"},
+            {"kind": "text", "side": "right", "size": 44, "text": "made", "color": "DimText", "align": "far"},
+            {"kind": "text", "text": "3  Analyse", "color": "BodyText"}
+          ]},
+          {"kind": "dock", "height": 26, "padding": 3, "children": [
+            {"kind": "text", "side": "left", "size": 22, "text": "✓", "color": "Success"},
+            {"kind": "text", "side": "right", "size": 44, "text": "made", "color": "DimText", "align": "far"},
+            {"kind": "text", "text": "4  Register", "color": "BodyText"}
+          ]},
+          {"kind": "dock", "height": 26, "padding": 3, "action": "goto:integrate", "children": [
+            {"kind": "text", "side": "left", "size": 22, "text": "✓", "color": "Success"},
+            {"kind": "text", "side": "right", "size": 44, "text": "made", "color": "DimText", "align": "far"},
+            {"kind": "text", "text": "5  Integrate", "color": "BodyText"}
+          ]},
+          {"kind": "text", "text": "Image", "color": "DimText", "padding": 2},
+          {"kind": "dock", "height": 26, "padding": 3, "action": "goto:crop", "children": [
+            {"kind": "text", "side": "left", "size": 22, "text": "✓", "color": "Success"},
+            {"kind": "text", "side": "right", "size": 44, "text": "made", "color": "DimText", "align": "far"},
+            {"kind": "text", "text": "6  Crop", "color": "BodyText"}
+          ]},
+          {"kind": "dock", "height": 26, "padding": 3, "background": "Selection", "borderRadius": 4, "children": [
+            {"kind": "text", "side": "left", "size": 22, "text": "✓", "color": "SelectionText"},
+            {"kind": "text", "side": "right", "size": 44, "text": "made", "color": "SelectionText", "align": "far"},
+            {"kind": "text", "text": "7  Plate solve", "color": "SelectionText"}
+          ]},
+          {"kind": "dock", "height": 26, "padding": 3, "children": [
+            {"kind": "text", "side": "left", "size": 22, "text": "○", "color": "DimText"},
+            {"kind": "text", "side": "right", "size": 44, "text": "", "color": "DimText", "align": "far"},
+            {"kind": "text", "text": "8  SPCC", "color": "BodyText"}
+          ]},
+          {"kind": "dock", "height": 26, "padding": 3, "children": [
+            {"kind": "text", "side": "left", "size": 22, "text": "○", "color": "DimText"},
+            {"kind": "text", "side": "right", "size": 44, "text": "", "color": "DimText", "align": "far"},
+            {"kind": "text", "text": "9  Gradient", "color": "BodyText"}
+          ]},
+          {"kind": "dock", "height": 26, "padding": 3, "children": [
+            {"kind": "text", "side": "left", "size": 22, "text": "○", "color": "DimText"},
+            {"kind": "text", "side": "right", "size": 44, "text": "", "color": "DimText", "align": "far"},
+            {"kind": "text", "text": "10  Remove stars", "color": "BodyText"}
+          ]},
+          {"kind": "dock", "height": 26, "padding": 3, "children": [
+            {"kind": "text", "side": "left", "size": 22, "text": "○", "color": "DimText"},
+            {"kind": "text", "side": "right", "size": 44, "text": "", "color": "DimText", "align": "far"},
+            {"kind": "text", "text": "11  Stretch", "color": "BodyText"}
+          ]},
+          {"kind": "dock", "height": 26, "padding": 3, "children": [
+            {"kind": "text", "side": "left", "size": 22, "text": "○", "color": "DimText"},
+            {"kind": "text", "side": "right", "size": 44, "text": "", "color": "DimText", "align": "far"},
+            {"kind": "text", "text": "12  Add stars", "color": "BodyText"}
+          ]},
+          {"kind": "text", "text": "Open as workflow ↗", "color": "Accent", "padding": 4, "action": "goto:workflow"}
+        ]
+      },
+      {
+        "kind": "vstack", "side": "right", "size": 300, "gap": 8, "padding": 10, "background": "PanelBg",
+        "children": [
+          {"kind": "text", "text": "7  Plate solve", "fontSize": 16, "color": "HeaderText"},
+          {"kind": "text", "text": "Finds where it points on the sky.", "color": "DimText"},
+          {"kind": "text", "text": "✓ Made 2 min ago, still valid", "color": "BodyText"},
+          {"kind": "text", "text": "Settings", "fontSize": 15, "color": "HeaderText", "padding": 2},
+          {"kind": "dropdown", "bind": "solver", "label": "Solver: built-in", "options": ["Built-in", "ASTAP", "astrometry.net"]},
           {"kind": "grid", "columns": 2, "gap": 4, "children": [
-            {"kind": "text", "text": "Position", "color": "DimText"},
+            {"kind": "text", "text": "Hint", "color": "DimText"},
             {"kind": "text", "text": "05h 35m, −05° 23′", "color": "BodyText"},
             {"kind": "text", "text": "Focal length", "color": "DimText"},
-            {"kind": "text", "text": "800 mm", "color": "BodyText"},
-            {"kind": "text", "text": "Pixel size", "color": "DimText"},
-            {"kind": "text", "text": "3.76 µm (drizzled 2×)", "color": "BodyText"}
+            {"kind": "text", "text": "800 mm", "color": "BodyText"}
           ]},
-          {"kind": "vstack", "gap": 4, "padding": 8, "border": "Success", "borderWidth": 1, "borderRadius": 4, "children": [
-            {"kind": "text", "text": "✓ Solved in 3.2 s", "color": "Success"},
-            {"kind": "text", "text": "Centre 05h 35m 17s, −05° 23′ 28″", "color": "BodyText"},
-            {"kind": "text", "text": "0.48″/px · 92.3° · 1 204 stars", "color": "BodyText"}
-          ]},
-          {"kind": "checkbox", "bind": "runOn", "label": "Run on until a step needs me", "tooltip": "Off: stop after every step so you can look"},
-          {"kind": "dock", "height": 34, "children": [
-            {"kind": "text", "side": "left", "size": 80, "text": "← Back", "padding": 8, "background": "HeaderBg", "color": "BodyText", "borderRadius": 4, "align": "center"},
-            {"kind": "text", "side": "right", "size": 130, "text": "Next: SPCC →", "padding": 8, "background": "Accent", "color": "SelectionText", "borderRadius": 4, "align": "center"},
-            {"kind": "spacer"}
-          ]},
-          {"kind": "text", "text": "Same solver and SPCC as the viewer.", "color": "DimText"}
+          {"kind": "text", "text": "Result", "fontSize": 15, "color": "HeaderText", "padding": 2},
+          {"kind": "grid", "columns": 2, "gap": 4, "children": [
+            {"kind": "text", "text": "Centre", "color": "DimText"},
+            {"kind": "text", "text": "05h 35m 17s", "color": "BodyText"},
+            {"kind": "text", "text": "", "color": "DimText"},
+            {"kind": "text", "text": "−05° 23′ 28″", "color": "BodyText"},
+            {"kind": "text", "text": "Scale", "color": "DimText"},
+            {"kind": "text", "text": "0.48″/px", "color": "BodyText"},
+            {"kind": "text", "text": "Rotation", "color": "DimText"},
+            {"kind": "text", "text": "92.3°", "color": "BodyText"},
+            {"kind": "text", "text": "Stars matched", "color": "DimText"},
+            {"kind": "text", "text": "1 204", "color": "BodyText"}
+          ]}
         ]
       },
       {
-        "kind": "dock", "side": "bottom", "size": 36, "padding": 8, "background": "PanelBg",
+        "kind": "dock", "side": "bottom", "size": 130, "background": "PanelBg", "border": "Separator", "borderWidth": 1,
         "children": [
-          {"kind": "text", "side": "right", "size": 220, "text": "Open as workflow to change ↗", "color": "Accent", "align": "far", "action": "goto:workflow"},
-          {"kind": "text", "text": "Steps 1–6 done in 18 min · 311 frames, Bayer drizzle 2×", "color": "BodyText"}
+          {"kind": "dock", "side": "top", "size": 30, "padding": 4, "children": [
+            {"kind": "text", "side": "left", "size": 70, "text": "Job", "align": "center", "background": "Selection", "color": "SelectionText", "borderRadius": 4},
+            {"kind": "text", "side": "left", "size": 100, "text": "Histogram", "align": "center", "color": "BodyText"},
+            {"kind": "text", "side": "left", "size": 70, "text": "Log", "align": "center", "color": "BodyText"},
+            {"kind": "text", "side": "left", "size": 130, "text": "Command line", "align": "center", "color": "BodyText", "tooltip": "tianwen image plate-solve --in store\\4CDA7288.fits --hint 83.82,-5.39 --focal 800"},
+            {"kind": "spacer"}
+          ]},
+          {"kind": "vstack", "gap": 4, "padding": 8, "children": [
+            {"kind": "text", "text": "Last run: steps 1–7 made in 19 min 40 s · nothing running now", "color": "BodyText"},
+            {"kind": "progress", "value": 1, "label": "7 of 7 steps", "color": "Success"},
+            {"kind": "text", "text": "Next: Run on from step 8 makes SPCC to Add stars (about 6 min)", "color": "DimText"}
+          ]}
         ]
       },
       {
@@ -72,11 +150,11 @@
         "children": [
           {"kind": "box", "color": "#0b0d12"},
           {"kind": "dock", "padding": 10, "children": [
-            {"kind": "dock", "side": "top", "size": 32, "children": [
-              {"kind": "buttonGroup", "side": "right", "size": 260, "bind": "overlayMode", "options": ["Image", "Grid", "Stars"]},
-              {"kind": "text", "text": "Cropped master, with the solved sky grid", "color": "#c8ccd4"}
+            {"kind": "dock", "side": "top", "size": 28, "children": [
+              {"kind": "text", "side": "right", "size": 120, "text": "Fit · 18 %", "color": "#c8ccd4", "align": "far"},
+              {"kind": "text", "text": "Result of step 7: master with the solved sky grid", "color": "#c8ccd4"}
             ]},
-            {"kind": "text", "text": "image canvas: RA/Dec grid and matched catalogue stars", "align": "center", "color": "#8a90a0"}
+            {"kind": "text", "text": "image canvas", "align": "center", "color": "#8a90a0"}
           ]}
         ]
       }
