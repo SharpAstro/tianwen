@@ -195,6 +195,9 @@ internal sealed class WorkbenchE2E : IAsyncDisposable
         Frame();
     }
 
+    /// <summary>A left click in the middle of a painted region.</summary>
+    internal void Click(ClickableRegion region) => Click(new RectF32(region.X, region.Y, region.Width, region.Height));
+
     /// <summary>Clicks where the last frame painted this text, which a button or a choice declares as its label.</summary>
     internal void ClickText(string text)
     {
