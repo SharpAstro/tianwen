@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Immutable;
 using System.Numerics;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Enhancement;
@@ -318,6 +319,13 @@ public sealed record StackingOptions(
     // change with altitude do not fringe the stars. ON by default; off integrates every colour by the frame's transform alone.
     bool AlignColours = true)
 {
+    /// <summary>
+    /// Files the person says are another kind of frame than the scan took them for (#2553, <see cref="FrameReassignment"/>):
+    /// the scan sets each one's kind before any group or calibration is made. Empty (the default) leaves every file as the
+    /// cards and the folder named it.
+    /// </summary>
+    public ImmutableArray<FrameReassignment> Reassigned { get; init; } = ImmutableArray<FrameReassignment>.Empty;
+
     /// <summary>
     /// Judge cloud against the clear nights this computer keeps (<c>LightGradeReferenceStore</c>, #1976), where the
     /// host hands the pipeline its data folder. ON by default. Off judges on the group's own baselines alone, so the

@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>New project: choose a workflow</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#101318}
+button{font:inherit}
+.btn{height:30px;padding:0 14px;border-radius:4px;border:1px solid #3c444f;background:#262c36;color:#e2e6ec;cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-size:13px;text-decoration:none}
+.btn-accent{background:#ff5e00;border-color:#ff5e00;color:#101318;font-weight:600}
+.label{font-size:11px;font-weight:600;letter-spacing:.04em;color:#8b939f;text-transform:uppercase}
+.dim{color:#8b939f}
+.card{display:block;width:100%;text-align:left;padding:14px 16px;border-radius:6px;border:1px solid #2a3039;background:#171b22;color:#e2e6ec;cursor:pointer}
+.card:hover{background:#1e232c}
+.card.sel{border-color:#ff5e00;background:#302820}
+.card.no{opacity:.55;cursor:default}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; display: grid; grid-template-rows: 40px 56px 1fr 64px; background: #101318; color: #e2e6ec; font-family: Inter, system-ui, sans-serif; font-size: 13px">
+  <div style="display: flex; align-items: center; gap: 12px; padding: 0 12px; background: #1e232c; border-bottom: 1px solid #2a3039">
+    <span style="font-weight: 600">TianWen Edit</span><span class="dim" style="font-size: 12px">New project</span>
+  </div>
+  <div style="display: flex; align-items: center; gap: 24px; padding: 0 24px; border-bottom: 1px solid #2a3039; background: #171b22">
+    <span style="display: flex; align-items: center; gap: 8px; color: #4cc38a">✓ <span style="color: #e2e6ec">What is in the folder</span></span>
+    <span class="dim">›</span>
+    <span style="display: flex; align-items: center; gap: 8px"><span style="width: 22px; height: 22px; border-radius: 11px; background: #ff5e00; color: #101318; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; font-size: 12px">2</span><b>Choose a workflow</b></span>
+    <span class="dim">›</span>
+    <span class="dim" style="display: flex; align-items: center; gap: 8px"><span style="width: 22px; height: 22px; border-radius: 11px; border: 1px solid #3c444f; display: inline-flex; align-items: center; justify-content: center; font-size: 12px">3</span>Workbench</span>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 1fr 460px; min-height: 0">
+    <div style="padding: 20px 24px; display: flex; flex-direction: column; gap: 10px; overflow: auto">
+      <div class="label">Fits these frames</div>
+      <sc-for list="{{fit}}" as="w" hint-placeholder-count="3">
+        <button class="{{w.cls}}" onClick="{{w.pick}}">
+          <div style="display: flex; justify-content: space-between; align-items: baseline">
+            <span style="font-size: 15px; font-weight: 600">{{w.name}}</span>
+            <span class="dim" style="font-size: 12px">{{w.steps}}</span>
+          </div>
+          <div class="dim" style="margin-top: 4px; line-height: 1.45">{{w.why}}</div>
+        </button>
+      </sc-for>
+      <div class="label" style="margin-top: 14px">Does not fit</div>
+      <sc-for list="{{nofit}}" as="w" hint-placeholder-count="2">
+        <div class="card no">
+          <span style="font-weight: 600">{{w.name}}</span>
+          <div class="dim" style="margin-top: 4px">{{w.why}}</div>
+        </div>
+      </sc-for>
+      <button class="btn" style="align-self: flex-start; margin-top: 8px">Start from an empty workflow</button>
+    </div>
+
+    <!-- Preview of the chosen workflow as the tree it becomes -->
+    <div style="background: #171b22; border-left: 1px solid #2a3039; padding: 20px; overflow: auto">
+      <div class="label">What it will do</div>
+      <div style="font-size: 15px; font-weight: 600; margin: 6px 0 12px">{{chosen.name}}</div>
+      <sc-for list="{{chosen.tree}}" as="n" hint-placeholder-count="10">
+        <div style="{{n.style}}">
+          <span class="dim" style="width: 14px">{{n.mark}}</span>
+          <span>{{n.title}}</span>
+          <span class="dim" style="margin-left: auto; font-size: 11px">{{n.note}}</span>
+        </div>
+      </sc-for>
+      <div class="dim" style="margin-top: 14px; font-size: 12px; line-height: 1.5">Every step can be changed, switched off or removed in the workbench, and steps added anywhere.</div>
+    </div>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 12px; padding: 0 24px; border-top: 1px solid #2a3039; background: #171b22">
+    <a href="Import.dc.html" class="btn">‹ Back</a>
+    <div style="flex: 1"></div>
+    <span class="dim" style="font-size: 12px">Or double-click a workflow, or press Enter</span>
+    <a href="Main.dc.html" class="btn btn-accent">Use selected workflow ›</a>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { w: 'comet' }; }
+  renderVals() {
+    const T = (title, depth, note, mark) => ({ title, note: note || '', mark: mark || '•', style: 'display:flex;align-items:center;gap:8px;height:26px;padding-left:' + (depth * 18) + 'px' });
+    const flows = [
+      { id: 'comet', name: 'Comet, colour camera', steps: '12 steps', why: 'Fits: a one-shot colour camera (RGGB), one filter, and a comet named in the headers (OBJECT = 10P) with its track. Stacks twice, on the stars and on the nucleus.',
+        tree: [T('Calibrate', 0, 'darks, flats, bias'), T('Stack on the stars', 0, 'master “night”'), T('Crop', 1), T('Gradient', 1), T('Deblur', 1), T('Remove stars', 1, 'splits', '⑂'), T('Denoise', 2, 'starless'), T('Add stars', 1, 'joins', '⑃'), T('Stack on the comet', 0, 'comet master'), T('Crop', 1), T('Remove stars', 1, 'starless comet'), T('Blend comet onto the stars', 0, 'joins', '⑃')] },
+      { id: 'deep', name: 'Deep sky, colour camera', steps: '9 steps', why: 'Fits: a one-shot colour camera, one filter. Treats the comet as any object, so it smears.',
+        tree: [T('Calibrate', 0), T('Stack', 0, 'master'), T('Crop', 1), T('Gradient', 1), T('White balance (SPCC)', 1), T('Deblur', 1), T('Remove stars', 1, 'splits', '⑂'), T('Denoise', 2, 'starless'), T('Add stars', 1, 'joins', '⑃')] },
+      { id: 'quick', name: 'Quick look', steps: '4 steps', why: 'Fits anything: stack, crop, stretch and save a preview. No AI steps.',
+        tree: [T('Calibrate', 0), T('Stack', 0), T('Crop', 1), T('Stretch and save', 1)] }
+    ];
+    const nofit = [
+      { name: 'Mono LRGB', why: 'Needs a mono camera and L, R, G, B filters; these frames are colour.' },
+      { name: 'Narrowband SHO', why: 'Needs Ha, OIII and SII frames; these are through one broadband filter.' }
+    ];
+    const chosen = flows.find((f) => f.id === this.state.w);
+    return {
+      fit: flows.map((f) => ({ ...f, cls: f.id === this.state.w ? 'card sel' : 'card', pick: () => this.setState({ w: f.id }) })),
+      nofit, chosen
+    };
+  }
+}
+</script>
+</body>
+</html>

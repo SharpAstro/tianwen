@@ -184,6 +184,58 @@ internal sealed class WorkbenchE2E : IAsyncDisposable
         }
 
         public override void ReleaseBeforeImageTextures() => _retained = false;
+
+        /// <summary>True to paint the picture on the canvas (<see cref="RenderImageQuad"/>), for a capture to be looked at.</summary>
+        internal bool PaintsPicture { get; set; }
+
+        /// <summary>
+        /// Paints the picture as the shader would show it, so a capture of the canvas has the picture on it: the source's pixels
+        /// stretched on the CPU with the rendition's own uniforms (<see cref="TianWen.Lib.Imaging.Image.RenderStretchedRgba"/>,
+        /// the shader's CPU twin), each pixel filled as a block over the quad, inside the clip the viewer pushed. The base surface
+        /// draws nothing here, which left every workbench capture's canvas empty. A one-channel (CFA) source shows grey, undebayered.
+        /// Off unless <see cref="PaintsPicture"/>: a block per pixel on every frame is a capture's cost, not every test's.
+        /// </summary>
+        protected override void RenderImageQuad(IPreviewSource? source, ViewerState state,
+            in DisplayRendition rendition, TianWen.Lib.Astrometry.WCS? wcs,
+            float left, float top, float right, float bottom, uint projW, uint projH,
+            RenditionSlot slot, bool sampleBeforeChannels)
+        {
+            if (!PaintsPicture || source is null || source.Width <= 0 || source.Height <= 0 || source.ChannelCount <= 0 || right <= left || bottom <= top)
+            {
+                return;
+            }
+
+            var (width, height) = (source.Width, source.Height);
+            var channels = new float[Math.Min(source.ChannelCount, 3)][,];
+            for (var c = 0; c < channels.Length; c++)
+            {
+                var data = source.GetChannelData(c);
+                var plane = new float[height, width];
+                for (var y = 0; y < height; y++)
+                {
+                    for (var x = 0; x < width; x++)
+                    {
+                        plane[y, x] = data[(y * width) + x];
+                    }
+                }
+
+                channels[c] = plane;
+            }
+
+            var image = new TianWen.Lib.Imaging.Image(channels, TianWen.Lib.Imaging.BitDepth.Float32, 1f, 0f, 0f, default);
+            var rgba = new byte[width * height * 4];
+            image.RenderStretchedRgba(rendition.Stretch, rgba, rendition.CurvesBoost, rendition.CurvesMode, rendition.CurveSpan,
+                hdrAmount: rendition.HdrAmount, hdrKnee: rendition.HdrKnee);
+            var (cellW, cellH) = ((right - left) / width, (bottom - top) / height);
+            for (var y = 0; y < height; y++)
+            {
+                for (var x = 0; x < width; x++)
+                {
+                    var i = ((y * width) + x) * 4;
+                    FillRect(left + (x * cellW), top + (y * cellH), MathF.Ceiling(cellW), MathF.Ceiling(cellH), new RGBAColor32(rgba[i], rgba[i + 1], rgba[i + 2], 0xff));
+                }
+            }
+        }
     }
 
     /// <summary>Opens a project folder and pumps frames until the runner's answer is on screen.</summary>
@@ -206,6 +258,9 @@ internal sealed class WorkbenchE2E : IAsyncDisposable
     internal void Click(ClickableRegion region) => Click(new RectF32(region.X, region.Y, region.Width, region.Height));
 
     /// <summary>Clicks where the last frame painted this text, which a button or a choice declares as its label.</summary>
+    /// <summary>Presses the toolbar's Run to the selected step (the topmost painted "▶ Run", the canvas's empty state having another below it).</summary>
+    internal void ClickRun() => Click(Texts().Where(static t => t.Text.StartsWith("▶ Run", StringComparison.Ordinal)).OrderBy(static t => t.Bounds.Y).First().Bounds);
+
     internal void ClickText(string text)
     {
         var found = Texts().Where(t => t.Text == text).ToArray();
@@ -256,10 +311,14 @@ internal sealed class WorkbenchE2E : IAsyncDisposable
         => [.. Regions().Where(static r => r.Result is HitResult.ListItemHit { ListId: DropdownMenuState<string>.ListId })
             .OrderBy(static r => ((HitResult.ListItemHit)r.Result).Index).Select(static r => new RectF32(r.X, r.Y, r.Width, r.Height))];
 
-    /// <summary>The step cells of the step bar, left to right, as painted.</summary>
+    /// <summary>The rows of the current image's steps in the project tree, top to bottom, as painted.</summary>
     internal ImmutableArray<RectF32> StepCells()
         => [.. Regions().Where(r => r.Result is HitResult.ButtonHit hit && hit.Action.StartsWith("Step:", StringComparison.Ordinal))
-            .OrderBy(static r => r.X).Select(static r => new RectF32(r.X, r.Y, r.Width, r.Height))];
+            .OrderBy(static r => r.Y).Select(static r => new RectF32(r.X, r.Y, r.Width, r.Height))];
+
+    /// <summary>The runner's state words the tree shows for step <paramref name="index"/> of the image on show (the row's hover carries them).</summary>
+    internal string StepWords(int index)
+        => Actions.Tree().First(row => row.Row.EditIndex == index && row.Row.Image == State.View?.ImageName).Words;
 
     /// <summary>Every text leaf the last frame painted, with where it was arranged.</summary>
     internal ImmutableArray<(string Text, RectF32 Bounds)> Texts()
@@ -291,13 +350,7 @@ internal sealed class WorkbenchE2E : IAsyncDisposable
             .OrderBy(static t => t.Bounds.Y).ThenBy(static t => t.Bounds.X).Select(static t => t.Text);
 
     /// <summary>The words painted in the step panel, in reading order, joined by a space.</summary>
-    internal string PanelText()
-    {
-        var canvas = Host.Screen.CanvasRect;
-        var cells = StepCells();
-        var top = cells.IsEmpty ? 0f : cells.Max(static c => c.Y + c.Height);
-        return string.Join(' ', TextsIn(new RectF32(0, top, canvas.X, _renderer.Height - top)));
-    }
+    internal string PanelText() => string.Join(' ', TextsIn(Host.Screen.PanelRect));
 
     public async ValueTask DisposeAsync()
     {

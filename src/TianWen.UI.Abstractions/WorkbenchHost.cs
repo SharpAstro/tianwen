@@ -56,6 +56,10 @@ public sealed class WorkbenchHost<TSurface>
         Actions = actions;
 
         viewerState.ShowFileList = false;
+        // The workbench's own toolbar has the view, Fit, 1:1 and the stretch, and the panel beside the tree has a file's details: the
+        // viewer draws the picture alone, with none of its own toolbar, info panel or status bar.
+        viewerState.HideChrome = true;
+        viewerState.ShowInfoPanel = false;
         viewer.Offer = ViewerOffer;
         viewer.AppToken = appToken;
         Screen = new WorkbenchScreen<TSurface>(renderer, viewer) { Bus = bus };

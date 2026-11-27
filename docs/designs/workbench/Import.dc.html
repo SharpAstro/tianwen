@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>New project: what is in the folder</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#101318}
+button{font:inherit}
+.btn{height:30px;padding:0 14px;border-radius:4px;border:1px solid #3c444f;background:#262c36;color:#e2e6ec;cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-size:13px}
+.btn:hover{background:#2f3642}
+.btn-accent{background:#ff5e00;border-color:#ff5e00;color:#101318;font-weight:600}
+.dd{height:26px;padding:0 8px;border-radius:4px;border:1px solid #3c444f;background:#262c36;color:#e2e6ec;font-size:12px;display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+.dd.warn{border-color:#ccac18}
+.label{font-size:11px;font-weight:600;letter-spacing:.04em;color:#8b939f;text-transform:uppercase}
+.dim{color:#8b939f}
+.grp{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:4px;border:0;background:transparent;color:#e2e6ec;width:100%;text-align:left;cursor:pointer;font-size:13px}
+.grp:hover{background:#1e232c}
+.grp.sel{background:#302820;box-shadow:inset 2px 0 0 #ff5e00}
+th{font-size:11px;font-weight:600;color:#8b939f;text-align:left;padding:8px 10px;border-bottom:1px solid #2a3039;text-transform:uppercase;letter-spacing:.04em}
+td{padding:6px 10px;border-bottom:1px solid #1e232c;font-size:13px;white-space:nowrap}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; display: grid; grid-template-rows: 40px 56px 1fr 64px; background: #101318; color: #e2e6ec; font-family: Inter, system-ui, sans-serif; font-size: 13px">
+  <div style="display: flex; align-items: center; gap: 12px; padding: 0 12px; background: #1e232c; border-bottom: 1px solid #2a3039">
+    <span style="font-weight: 600">TianWen Edit</span><span class="dim" style="font-size: 12px">New project</span>
+  </div>
+
+  <!-- Where we are in making the project -->
+  <div style="display: flex; align-items: center; gap: 24px; padding: 0 24px; border-bottom: 1px solid #2a3039; background: #171b22">
+    <span style="display: flex; align-items: center; gap: 8px"><span style="width: 22px; height: 22px; border-radius: 11px; background: #ff5e00; color: #101318; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; font-size: 12px">1</span><b>What is in the folder</b></span>
+    <span class="dim">›</span>
+    <span class="dim" style="display: flex; align-items: center; gap: 8px"><span style="width: 22px; height: 22px; border-radius: 11px; border: 1px solid #3c444f; display: inline-flex; align-items: center; justify-content: center; font-size: 12px">2</span>Choose a workflow</span>
+    <span class="dim">›</span>
+    <span class="dim" style="display: flex; align-items: center; gap: 8px"><span style="width: 22px; height: 22px; border-radius: 11px; border: 1px solid #3c444f; display: inline-flex; align-items: center; justify-content: center; font-size: 12px">3</span>Workbench</span>
+    <div style="flex: 1"></div>
+    <span class="dim" style="font-size: 12px">C:\temp\10p_tempel</span>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 300px 1fr; min-height: 0">
+    <!-- Groups found -->
+    <div style="background: #171b22; border-right: 1px solid #2a3039; padding: 16px 12px; display: flex; flex-direction: column; gap: 4px; overflow: auto">
+      <div class="label" style="padding: 0 8px 8px">Found</div>
+      <sc-for list="{{groups}}" as="g" hint-placeholder-count="6">
+        <button class="{{g.cls}}" onClick="{{g.pick}}">
+          <span style="{{g.markStyle}}">{{g.mark}}</span>
+          <span style="flex: 1">
+            <span style="display: block">{{g.name}}</span>
+            <span class="dim" style="display: block; font-size: 11px">{{g.detail}}</span>
+          </span>
+          <span class="dim">{{g.count}}</span>
+        </button>
+      </sc-for>
+      <div style="margin-top: 16px; padding: 10px; border-radius: 6px; background: #1e232c; font-size: 12px; line-height: 1.5">
+        <div style="color: #ccac18">⚠ 2 files need a look</div>
+        <div class="dim">One has no IMAGETYP card and could be a flat or a light. One light matches no dark by temperature.</div>
+      </div>
+    </div>
+
+    <!-- Files in the chosen group -->
+    <div style="display: flex; flex-direction: column; min-width: 0; min-height: 0">
+      <div style="display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid #2a3039">
+        <div style="font-size: 16px; font-weight: 600">{{group.name}}</div>
+        <span class="dim">{{group.detail}}</span>
+        <div style="flex: 1"></div>
+        <span class="dim" style="font-size: 12px">Detected from the FITS cards first, then the folder names, then the pixels</span>
+      </div>
+      <div style="overflow: auto; flex: 1">
+        <table style="border-collapse: collapse; width: 100%">
+          <thead><tr><th>File</th><th>Is</th><th>Because</th><th>Exposure</th><th>Filter</th><th>Sensor</th><th>Grade</th></tr></thead>
+          <tbody>
+            <sc-for list="{{files}}" as="f" hint-placeholder-count="10">
+              <tr>
+                <td>{{f.name}}</td>
+                <td><button class="{{f.ddCls}}">{{f.kind}} <span class="dim">⌄</span></button></td>
+                <td class="dim">{{f.why}}</td>
+                <td>{{f.exp}}</td>
+                <td>{{f.filter}}</td>
+                <td>{{f.temp}}</td>
+                <td style="{{f.gradeStyle}}">{{f.grade}}</td>
+              </tr>
+            </sc-for>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 12px; padding: 0 24px; border-top: 1px solid #2a3039; background: #171b22">
+    <span class="dim" style="font-size: 12px">The project and every result are kept in <b style="color: #e2e6ec">C:\temp\10p_tempel\workdir\</b>; your frames are read, never written.</span>
+    <div style="flex: 1"></div>
+    <button class="btn">Cancel</button>
+    <a href="Workflow.dc.html" class="btn btn-accent" style="text-decoration: none">Choose a workflow ›</a>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { g: 'lights' }; }
+  renderVals() {
+    const groups = [
+      { id: 'lights', name: 'Lights', detail: '10P/Tempel 2 · 60 s · IDAS LPS-D3 · gain 1600', count: '[n]', mark: '✓', c: '#4cc38a' },
+      { id: 'darks', name: 'Darks', detail: '60 s · −5 °C · matched to the lights', count: '[n]', mark: '✓', c: '#4cc38a' },
+      { id: 'flats', name: 'Flats', detail: 'IDAS LPS-D3 · one run', count: '[n]', mark: '✓', c: '#4cc38a' },
+      { id: 'bias', name: 'Bias', detail: 'from the dark library', count: '[n]', mark: '✓', c: '#4cc38a' },
+      { id: 'track', name: 'Comet track', detail: '10P.track.json · for a comet stack', count: '1', mark: '◆', c: '#7cc4ff' },
+      { id: 'check', name: 'Needs a look', detail: 'not sure what these are', count: '2', mark: '⚠', c: '#ccac18' }
+    ];
+    const files = {
+      lights: [
+        ['10PTempel2_light_60s_-5C_0001.fits', 'Light', 'IMAGETYP = Light', '60 s', 'LPS-D3', '−5 °C', 'good'],
+        ['10PTempel2_light_60s_-5C_0002.fits', 'Light', 'IMAGETYP = Light', '60 s', 'LPS-D3', '−5 °C', 'good'],
+        ['10PTempel2_light_60s_-5C_0003.fits', 'Light', 'IMAGETYP = Light', '60 s', 'LPS-D3', '−5 °C', 'maybe cloud'],
+        ['10PTempel2_light_60s_-5C_0004.fits', 'Light', 'IMAGETYP = Light', '60 s', 'LPS-D3', '−5 °C', 'good'],
+        ['10PTempel2_light_60s_-2C_0005.fits', 'Light', 'IMAGETYP = Light', '60 s', 'LPS-D3', '−2 °C', 'no dark at −2 °C']
+      ],
+      check: [
+        ['IMG_0412.fits', 'Flat?', 'no IMAGETYP; even field at 48 % of full scale', '2 s', 'LPS-D3', '—', '—'],
+        ['10PTempel2_light_60s_-2C_0005.fits', 'Light', 'IMAGETYP = Light, but no dark at −2 °C', '60 s', 'LPS-D3', '−2 °C', 'no dark']
+      ]
+    };
+    const sel = groups.find((x) => x.id === this.state.g);
+    const rows = (files[this.state.g] || files.lights).map((r) => ({
+      name: r[0], kind: r[1], why: r[2], exp: r[3], filter: r[4], temp: r[5], grade: r[6],
+      ddCls: r[1].endsWith('?') || r[6] === 'no dark' ? 'dd warn' : 'dd',
+      gradeStyle: r[6] === 'good' ? 'color:#4cc38a' : (r[6] === '—' ? 'color:#8b939f' : 'color:#ccac18')
+    }));
+    return {
+      groups: groups.map((x) => ({ ...x, cls: x.id === this.state.g ? 'grp sel' : 'grp', markStyle: 'color:' + x.c + ';width:14px;text-align:center', pick: () => this.setState({ g: x.id }) })),
+      group: sel,
+      files: rows
+    };
+  }
+}
+</script>
+</body>
+</html>

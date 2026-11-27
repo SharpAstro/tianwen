@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using DIR.Lib;
 using Shouldly;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Workbench;
 using TianWen.UI.Abstractions;
 using Xunit;
@@ -79,6 +80,9 @@ public sealed class WorkbenchCaptureTests : IDisposable
         { 1280, 800, 1f, UiThemeState.Night, "comparison" },
         { 2000, 1100, 1f, UiThemeState.Dark, "comparison" },
         { 2000, 1100, 1f, UiThemeState.Night, "result" },
+        { 1280, 800, 1f, UiThemeState.Light, "refused" },
+        { 2000, 1100, 1f, UiThemeState.Light, "running" },
+        { 2000, 1100, 1f, UiThemeState.Light, "comparison" },
     };
 
     [Theory(Timeout = 180_000)]
@@ -92,6 +96,7 @@ public sealed class WorkbenchCaptureTests : IDisposable
         try
         {
             await using var e2e = WorkbenchE2E.Start(dpi, Runner(), Catalog(), width, height);
+            e2e.Viewer.PaintsPicture = true;
             await e2e.OpenProjectAsync(folder, ct);
             var cells = e2e.StepCells();
             cells.Length.ShouldBe(14, "the whole edit list is on the bar");
@@ -103,12 +108,11 @@ public sealed class WorkbenchCaptureTests : IDisposable
                 steps[8].State.ShouldBe(StepState.Refused);
                 steps[8].Message.ShouldNotBeNullOrWhiteSpace();
 
-                // The capture is of the settled screen: the plan read has landed, so the run button says it cannot run, and why.
-                // The reason is words in a flow (nothing to press), so it is read from the panel's text, not from one text.
+                // The capture is of the settled screen: the plan read has landed, so the offer says it cannot run (the toolbar's Run is
+                // dimmed with that reason on hover).
                 await e2e.PumpUntilAsync(
-                    () => string.Join(' ', e2e.PanelText().Split(' ', StringSplitOptions.RemoveEmptyEntries))
-                        .Contains("Cannot run to here", StringComparison.Ordinal),
-                    "the refused step's run line saying it cannot run", ct);
+                    () => e2e.Actions.RunToHereOffer().Label.StartsWith("Cannot run to here", StringComparison.Ordinal),
+                    "the refused step's run offer saying it cannot run", ct);
                 e2e.Actions.RunToHereOffer().CanRun.ShouldBeFalse("a refused step offers no run");
             }
             else if (scenario is "result" or "comparison")
@@ -117,8 +121,8 @@ public sealed class WorkbenchCaptureTests : IDisposable
                 _gradient.Release.TrySetResult();
                 e2e.Click(cells[2]);
                 await e2e.PumpUntilAsync(
-                    () => e2e.Texts().Any(static t => t.Text.StartsWith("Run to here", StringComparison.Ordinal)), "the run button for step 3", ct);
-                e2e.Click(e2e.Texts().Single(static t => t.Text.StartsWith("Run to here", StringComparison.Ordinal)).Bounds);
+                    () => e2e.Texts().Any(static t => t.Text.StartsWith("▶ Run", StringComparison.Ordinal)), "the run button for step 3", ct);
+                e2e.ClickRun();
                 await e2e.PumpFramesUntilAsync(
                     () => !e2e.Actions.Jobs.IsRunning && e2e.Actions.Jobs.State.Outcome is WorkbenchJobOutcome.Finished
                         && e2e.State.View!.Image!.Steps[2].State is StepState.Kept, "step 3 kept", ct);
@@ -132,8 +136,8 @@ public sealed class WorkbenchCaptureTests : IDisposable
             {
                 e2e.Click(cells[2]);
                 await e2e.PumpUntilAsync(
-                    () => e2e.Texts().Any(static t => t.Text.StartsWith("Run to here", StringComparison.Ordinal)), "the run button for step 3", ct);
-                e2e.Click(e2e.Texts().Single(static t => t.Text.StartsWith("Run to here", StringComparison.Ordinal)).Bounds);
+                    () => e2e.Texts().Any(static t => t.Text.StartsWith("▶ Run", StringComparison.Ordinal)), "the run button for step 3", ct);
+                e2e.ClickRun();
                 await e2e.PumpFramesUntilAsync(
                     () => _gradient.Started.Task.IsCompleted && e2e.Actions.Jobs.State.Fraction is not null, "the gradient at its gate", ct);
             }
@@ -157,6 +161,92 @@ public sealed class WorkbenchCaptureTests : IDisposable
         }
     }
 
+    public static TheoryData<uint, uint, UiThemeState, string> PanelCases => new()
+    {
+        { 1280, 800, UiThemeState.Light, "settings" },
+        { 1280, 800, UiThemeState.Dark, "settings" },
+        { 2000, 1100, UiThemeState.Night, "settings" },
+        { 1280, 800, UiThemeState.Light, "frames" },
+        { 1280, 800, UiThemeState.Dark, "frames" },
+        { 2000, 1100, UiThemeState.Night, "frames" },
+    };
+
+    // The panel beside the tree as controls (#2553 section 3): a step with a checkbox, a dropdown and fields of every kind, and a frame group's
+    // file list with its kind dropdowns, with the capture's groups read. The PNGs are kept for a look; the checks are that nothing is cut
+    // silently (the whole text is on hover) and that no word of the panel runs past its edge.
+    [Theory(Timeout = 180_000)]
+    [MemberData(nameof(PanelCases))]
+    public async Task ThePanelsControlsAndFileListCutNothingSilently(uint width, uint height, UiThemeState theme, string scenario)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        GuiTheme.Apply(theme, desktopIsDark: true);
+        try
+        {
+            var catalog = new OperationCatalog([new KnobOperation(), new StackOperation()]);
+            string folder;
+            if (scenario == "settings")
+            {
+                folder = _folders.Create("workbench-settings-capture-").FullName;
+                var master = WorkbenchFixtures.WriteMaster(folder, "master", WorkbenchFixtures.Master(seed: 1));
+                await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(WorkbenchFixtures.Picture("m", master,
+                    WorkbenchFixtures.Edit(KnobOperation.Id, new JsonObject { ["flag"] = true, ["mode"] = "Thorough", ["count"] = 12, ["extra"] = 0.25 }),
+                    WorkbenchFixtures.Edit(KnobOperation.Id))), ct);
+            }
+            else
+            {
+                var capture = Path.Combine(_folders.Create("capture-").FullName, "10p_tempel_night_with_a_long_folder_name");
+                for (var i = 1; i <= 6; i++)
+                {
+                    WorkbenchSettingsEditTests.WriteFrame(capture, $"10PTempel2_ASI2600MC_IDAS-LPS-D3_light_60s_gain100_-5C_000{i}.fits", FrameType.Light, 60);
+                }
+
+                WorkbenchSettingsEditTests.WriteFrame(capture, "dark_60s_-5C_0001.fits", FrameType.Dark, 60);
+                WorkbenchSettingsEditTests.WriteFrame(capture, "dark_60s_-5C_0002.fits", FrameType.Dark, 60);
+                (await WorkbenchProjects.NewAsync(capture, ct)).Refusal.ShouldBeNull();
+                folder = WorkbenchProjects.WorkdirOf(capture);
+            }
+
+            await using var e2e = WorkbenchE2E.Start(1f, new WorkbenchRunner(catalog), catalog, width, height);
+            e2e.Viewer.PaintsPicture = true;
+            await e2e.OpenProjectAsync(folder, ct);
+            if (scenario == "settings")
+            {
+                e2e.Click(e2e.StepCells()[0]);
+                await e2e.PumpUntilAsync(() => e2e.State.Plan is { Index: 0 }, "step 1 selected", ct);
+            }
+            else
+            {
+                await e2e.PumpUntilAsync(() => e2e.State.Frames is { Groups.IsEmpty: false }, "the capture folder read", ct);
+                e2e.Click(e2e.Region("Frames:Lights"));
+                await e2e.PumpUntilAsync(() => e2e.State.Frames?.Groups.First(static g => g.Name == "Lights").Details.Length == 6, "the lights", ct);
+                e2e.Frame();
+                var first = e2e.State.Frames!.Groups.First(static g => g.Name == "Lights").Details[0];
+                e2e.Click(e2e.Region("Frame:" + first.Place));
+                await e2e.PumpUntilAsync(() => e2e.Controller.Document is not null, "the file shown", ct);
+                // The picture is painted on the frame after the document arrives, so the capture is of that frame.
+                e2e.Frame();
+                e2e.Frame();
+            }
+
+            Keep(e2e, $"workbench-panel-{scenario}-{width}x{height}-{theme}");
+            NothingIsCutAtThePanelsEdge(e2e);
+            var regions = e2e.Regions();
+            foreach (var (full, shown, bounds) in e2e.Host.Screen.CutTexts())
+            {
+                var (cx, cy) = (bounds.X + (bounds.Width / 2f), bounds.Y + (bounds.Height / 2f));
+                if (cx < e2e.Host.Screen.CanvasRect.X)
+                {
+                    regions.Any(r => cx >= r.X && cx <= r.X + r.Width && cy >= r.Y && cy <= r.Y + r.Height && r.Tooltip is not null
+                        && r.Tooltip.Contains(full, StringComparison.Ordinal)).ShouldBeTrue($"'{full}' is shown as '{shown}' and carries its whole text on hover");
+                }
+            }
+        }
+        finally
+        {
+            GuiTheme.Apply(UiThemeState.Dark, desktopIsDark: true);
+        }
+    }
+
     private static void NothingIsCutSilently(WorkbenchE2E e2e)
     {
         var regions = e2e.Regions();
@@ -172,6 +262,13 @@ public sealed class WorkbenchCaptureTests : IDisposable
                 continue;
             }
 
+            // A tree row below the list's own viewport (the legend and the status strip lie there) is reached by scrolling the list: its
+            // hover region is clipped with it, so it is judged when it is scrolled into view.
+            if (cx < canvas.X && cy >= e2e.Renderer.Height - (92f * e2e.Host.Screen.DpiScale))
+            {
+                continue;
+            }
+
             regions.Where(r => cx >= r.X && cx <= r.X + r.Width && cy >= r.Y && cy <= r.Y + r.Height && r.Tooltip is not null)
                 .ShouldContain(r => r.Tooltip!.Contains(full, StringComparison.Ordinal),
                     $"'{full}' is shown as '{shown}' and carries its whole text on hover");
@@ -182,11 +279,10 @@ public sealed class WorkbenchCaptureTests : IDisposable
     // painted texts may end beyond where the canvas begins, so a long unbroken word is broken, never cut at the edge.
     private static void NothingIsCutAtThePanelsEdge(WorkbenchE2E e2e)
     {
-        var steps = e2e.StepCells();
-        var below = steps[0].Y + steps[0].Height;
-        var edge = e2e.Host.Screen.CanvasRect.X;
+        var canvas = e2e.Host.Screen.CanvasRect;
+        var edge = canvas.X;
         edge.ShouldBeGreaterThan(0f);
-        foreach (var t in e2e.Texts().Where(t => t.Bounds.Y >= below && t.Bounds.X < edge))
+        foreach (var t in e2e.Texts().Where(t => t.Bounds.Y >= canvas.Y && t.Bounds.Y + t.Bounds.Height <= canvas.Y + canvas.Height && t.Bounds.X < edge))
         {
             (t.Bounds.X + t.Bounds.Width).ShouldBeLessThanOrEqualTo(edge + 0.5f, $"'{t.Text}' ends inside the panel");
         }
@@ -274,18 +370,20 @@ public sealed class WorkbenchCaptureTests : IDisposable
             await using var e2e = WorkbenchE2E.Start(dpi, new WorkbenchRunner(catalog), catalog, width, height);
             if (scenario == "refused")
             {
-                (await WorkbenchProjects.NewAsync(project, capture, ct)).Refusal.ShouldBeNull();
-                e2e.FakeFolderPicks(project, capture);
+                (await WorkbenchProjects.NewAsync(capture, ct)).Refusal.ShouldBeNull();
+                e2e.FakeFolderPicks(capture);
                 e2e.Click(e2e.RegionOfLabel("New project"));
                 await e2e.PumpUntilAsync(() => e2e.State.NewProjectRefusal is not null, "the refusal", ct);
             }
             else if (scenario != "empty")
             {
-                e2e.FakeFolderPicks(project, capture);
+                e2e.FakeFolderPicks(capture);
                 e2e.Click(e2e.RegionOfLabel("New project"));
-                await e2e.PumpUntilAsync(() => e2e.State.View is { Image: not null } && !e2e.State.IsReading, "the new project", ct);
-                await e2e.PumpUntilAsync(() => e2e.Actions.RunToHereOffer().CanRun, "the offer to run the stack", ct);
-                e2e.StepCells().Length.ShouldBe(1);
+                // New project now stops at the Import page; the capture of the workbench with a new project goes on through the
+                // Workflow page with the empty workflow (the pages themselves are WorkbenchImportScreenTests').
+                await e2e.PumpUntilAsync(() => e2e.State.Stage == WorkbenchStage.Import && e2e.State.Import is { Detecting: false }, "the Import page", ct);
+                e2e.Actions.UseWorkflow(BuiltInWorkflows.Empty);
+                await e2e.PumpUntilAsync(() => e2e.State.Stage == WorkbenchStage.Workbench && e2e.State.View is not null && !e2e.State.IsReading, "the new project", ct);
             }
 
             Keep(e2e, $"workbench-new-{scenario}-{width}x{height}-{theme}-dpi{dpi:0.0}");
@@ -423,7 +521,7 @@ public sealed class WorkbenchCaptureTests : IDisposable
             // Each master's name against the panel's fill beside it, and on one middle with its button.
             var floor = theme == UiThemeState.Night ? 3.0 : 4.5;
             var names = e2e.TextInks().Where(t => groups.Any(g => t.Text.StartsWith(g[..Math.Min(g.Length, 3)], StringComparison.Ordinal)) && t.Bounds.X < canvas.X
-                && t.Bounds.Y > e2e.StepCells()[0].Y + e2e.StepCells()[0].Height).OrderBy(static t => t.Bounds.Y).ToArray();
+                && t.Bounds.X >= e2e.Host.Screen.PanelRect.X).OrderBy(static t => t.Bounds.Y).ToArray();
             names.Length.ShouldBeGreaterThanOrEqualTo(groups.Length);
             foreach (var (text, bounds, ink) in names)
             {
@@ -447,9 +545,10 @@ public sealed class WorkbenchCaptureTests : IDisposable
         string? worstText = null;
         foreach (var cell in cells)
         {
-            var fill = PixelAt(e2e, (int)cell.X + 2, (int)cell.Y + 2);
-            foreach (var (text, _, ink) in e2e.TextInks().Where(t => Inside(cell, t.Bounds)))
+            foreach (var (text, bounds, ink) in e2e.TextInks().Where(t => Inside(cell, t.Bounds) && t.Text.Length > 0))
             {
+                // The fill under the text itself: the row's, or the ▶'s own when the pointer or the selection makes it the accent.
+                var fill = PixelAt(e2e, (int)(bounds.X + (bounds.Width / 2f)), (int)bounds.Y + 1);
                 var ratio = Contrast(ink, fill);
                 if (ratio < worst)
                 {
@@ -468,12 +567,26 @@ public sealed class WorkbenchCaptureTests : IDisposable
         var steps = e2e.StepCells();
         foreach (var cell in steps)
         {
-            cell.Y.ShouldBe(steps[0].Y, 0.5f);
-            cell.Height.ShouldBe(steps[0].Height, 0.5f);
+            cell.X.ShouldBe(steps[0].X, 0.5f, "the tree's rows are one column");
+            cell.Height.ShouldBeLessThanOrEqualTo(steps[0].Height + 0.5f, "of one height (the last may be cut by the list's edge)");
         }
 
+        var dpi = e2e.Host.Screen.DpiScale;
         var buttons = e2e.Regions().Where(static r => r.Result is HitResult.ButtonHit).ToArray();
-        var topBar = buttons.Where(r => r.Y < steps[0].Y).ToArray();
+        var topBar = buttons.Where(r => r.Y + (r.Height / 2f) < 44f * dpi).ToArray();
+        // The toolbar's controls (Run, Stop, the picture choice, Fit, 1:1, the stretch) share one height and one middle too.
+        var toolbar = buttons.Where(r => !(r.Result is HitResult.ButtonHit h && (h.Action.StartsWith("Play:", StringComparison.Ordinal) || h.Action.StartsWith("Step:", StringComparison.Ordinal)))
+            && r.Y + (r.Height / 2f) > 44f * dpi && r.Y + (r.Height / 2f) < 88f * dpi).ToArray();
+        toolbar.Length.ShouldBeGreaterThan(3, "the toolbar holds its controls");
+        foreach (var r in toolbar)
+        {
+            (r.Y + (r.Height / 2f)).ShouldBe(toolbar[0].Y + (toolbar[0].Height / 2f), 1f, "one middle in the toolbar");
+            if (!(r.Result is HitResult.ButtonHit view && view.Action.StartsWith("View:", StringComparison.Ordinal)))
+            {
+                r.Height.ShouldBe(toolbar[0].Height, 1f, "one height in the toolbar (the picture choice's segments are the engine's own height, checked among themselves below)");
+            }
+        }
+
         topBar.Length.ShouldBeGreaterThan(0, "the top bar holds a control");
         foreach (var r in topBar)
         {
@@ -491,7 +604,7 @@ public sealed class WorkbenchCaptureTests : IDisposable
         // Within a cell the mark and its words stand on one middle.
         foreach (var cell in steps)
         {
-            var row = e2e.Texts().Where(t => Inside(cell, t.Bounds) && t.Bounds.Y > cell.Y + (cell.Height / 2f) - 1f).ToArray();
+            var row = e2e.Texts().Where(t => Inside(cell, t.Bounds) && t.Text.Length > 0).ToArray();
             foreach (var t in row)
             {
                 (t.Bounds.Y + (t.Bounds.Height / 2f)).ShouldBe(row[0].Bounds.Y + (row[0].Bounds.Height / 2f), 1.5f, "the state row has one middle");

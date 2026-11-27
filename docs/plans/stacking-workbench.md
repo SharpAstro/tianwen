@@ -616,6 +616,32 @@ as for any step, W6 and W12), processing every master in one press, and a stack'
 by its run has no single file to show). How it works: [workbench-app.md](../architecture/workbench-app.md), "New project"
 and "The stack's masters and Process this master".
 
+**Redesign, #2553, headless half built (2026-11-27):** the owner's mockup is kept in `docs/designs/workbench/` (Import,
+Workflow, Main). New project now takes the capture folder alone and keeps the project and every result in `<folder>\workdir`
+(the stack never reads it); `CaptureDetection` says what the folder holds (groups, each file's kind and why, an unsure mark,
+Needs a look) over the stack's own scan and matching; a per-file reassignment is a stack-step setting (`reassign`, `tianwen
+stack --reassign`) that changes the step's key and is taken by the stack. Verbs: `workbench new <folder>`, `workbench
+detected`, `workbench reassign`. Workflows, headless (second leg): six built-in templates (comet colour, deep sky colour, mono LRGB,
+narrowband SHO, quick look, empty; the two mono ones only stack, there is no combine step yet) with a fit rule and one line of why each, the best fit chosen by order, apply into `workdir\project.json` with
+hand-change detection, add and remove a step, the tree of splits and joins; verbs `workbench workflows` and `workbench apply`.
+**Screens built (2026-11-28):** New project, the Import page, the Workflow page, the project tree with a run to each step, the toolbar,
+the canvas with its empty state and the status strip (legs three and four), and the panel beside the tree (leg five): a selected
+step's name with an on/off, what it does, its state with what fixes it, its settings as controls derived from the settings type's
+JSON contract (`OperationSettingsForm`; a dropdown for an enum, a checkbox for a bool, a field for a number), what it gives, what
+serves it and the command line folded away; a selected frame group's file list with the reassign dropdown and the grade, a press
+showing the file. **Brought forward from W6:** editing a step's settings as controls saved into the project (W6 keeps the
+drawn edits: exclusion polygons, a crop rectangle, the colour looks with before and after). **Brought forward from W4:** the
+frame groups with their file lists, per-file reassignment and the grade (W4 keeps calibration inspection: the coverage of
+darks, flats and bias against the lights). **Brought forward from W9:** switching a step on or off and changing one setting
+through the Lib, `WorkbenchWorkflows.SetStepEnabledAsync` and `SetStepSettingAsync` (W9 keeps the workflow file and gates). Left
+for when DIR.Lib has them: a switch (DIR.Lib#156) and a slider with a numeric field (DIR.Lib#330). After the controller's look at the
+captures: the panel has no run button (one accent per view, the toolbar's Run to <step>), the viewer is drawn without its own
+toolbar and info panel, the ▶ shows on the selected and the hovered row only, a list setting reads in words until it has a
+control (a list of entries with add and remove is still missing), the grade is a word on each file row with the selected file's
+details under the list, and the comet template builds the comet stack (one run gives the comet and the stars), each finished,
+and the blend (no remove-stars split: the run itself gives the star layer). See
+[workbench-app.md](../architecture/workbench-app.md), "What is in the folder" and "The step's panel".
+
 ### W3 The planetary steps
 
 Tracked as #1643. Import to Export for planetary, at parity with the viewer's Full view (the same master to the bit for the same capture and options),
@@ -651,6 +677,11 @@ Tracked as #2236. The workflow file (steps, gates, for each), the facts in Lib e
 ([The facts](#the-facts-a-gate-may-test)), the dry run, and `tianwen workbench run <workflow> <inputs>`. The built-in deep-sky
 workflow, with its parity test against `tianwen stack --enhance`. A built-in gate calls the pipeline's own decider
 ([A gate shows a decision](#a-gate-shows-a-decision-it-does-not-replace-one)). No window.
+
+**Brought forward by #2553:** the fixed templates with a fit rule (no gates), applying one to a project, and adding and removing a
+step. **Stays W9:** the workflow file, gates, for each, the facts beyond the scan, the dry run, saving a user's edit list as a
+workflow, and the deep-sky parity test (the template follows the enhance's order, not yet proven bit for bit against `tianwen stack
+--enhance`).
 
 **The enhance as the first built-in workflow: one routine per step (2026-11-26).** Measured on the 10P master on
 2026-11-24, a chain of the single steps (deblur, gradient, remove-stars, denoise, add-stars) was not the one-step enhance:

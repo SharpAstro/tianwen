@@ -103,6 +103,11 @@ public record StackSettings
 
     /// <summary>Let the stack choose a drizzle where the frames allow one (off: <c>--no-bayer-drizzle</c>).</summary>
     public bool BayerDrizzle { get; set; } = !Defaults.DisableBayerDrizzle;
+
+    /// <summary>Files the person says are another kind of frame than the scan took them for (<c>--reassign path=kind</c>,
+    /// #2553): the scan sets each one's kind before any group is made, so a dark taken for a light is stacked as the dark it
+    /// is. The step's key holds them, so a reassignment makes the stack run again.</summary>
+    public ImmutableArray<FrameReassignment> Reassign { get; set; } = [];
 }
 
 /// <summary>
@@ -176,6 +181,7 @@ public sealed class StackOperation(ILogger<StackingPipeline>? logger = null) : R
             new OperationSetting("drizzlePixfrac", "A drizzle drop's size, 0 to 1."),
             new OperationSetting("drizzleMinFrames", "The least matched frames a drizzle runs on."),
             new OperationSetting("bayerDrizzle", "Let the stack choose a drizzle where the frames allow one."),
+            new OperationSetting("reassign", "Files the person says are another kind of frame than the scan took them for, each as a place inside the folder and a kind (light, dark, flat, bias, darkflat, or ignore to leave the file out)."),
         ];
 
     /// <inheritdoc/>
@@ -189,6 +195,11 @@ public sealed class StackOperation(ILogger<StackingPipeline>? logger = null) : R
     public static string? RefusalOf(StackSettings settings)
     {
         ArgumentNullException.ThrowIfNull(settings);
+        if (FrameReassignment.RefusalOf(settings.Reassign) is { } reassignment)
+        {
+            return reassignment;
+        }
+
         // Each thing is said one way: a filter that filters nothing is left out, not written empty.
         if (settings.GroupFilter is { Length: 0 })
         {
@@ -318,6 +329,8 @@ public sealed class StackOperation(ILogger<StackingPipeline>? logger = null) : R
             RejectCloud: settings.RejectCloud,
             AlignColours: settings.ColourAlign)
         {
+            // The kinds the person set, taken by the scan before any group is made.
+            Reassigned = FrameReassignment.Sorted(settings.Reassign),
             // Never the clear nights this computer keeps: a step follows from its frames and its settings.
             ClearNightReferences = false,
             // The strategy by the frames alone, never by this computer's free memory.
@@ -498,6 +511,12 @@ public sealed class StackOperation(ILogger<StackingPipeline>? logger = null) : R
         if (settings.DrizzleMinFrames != Defaults.DrizzleMinFrames)
         {
             line.AddRange("--drizzle-min-frames", StepCommandLine.Number(settings.DrizzleMinFrames));
+        }
+
+        // One option for each file, in the one order the step's key has them.
+        foreach (var each in FrameReassignment.Sorted(settings.Reassign))
+        {
+            line.AddRange("--reassign", each.Format());
         }
 
         if (!settings.BayerDrizzle)

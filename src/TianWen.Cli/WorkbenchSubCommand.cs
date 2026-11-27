@@ -1,9 +1,11 @@
+using System;
 using System.CommandLine;
 using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Stacking;
 using TianWen.Lib.Imaging.Workbench;
 
 namespace TianWen.Cli;
@@ -23,8 +25,174 @@ internal sealed class WorkbenchSubCommand(IConsoleHost consoleHost, OperationCat
         "Run a project's edit lists without a window: a folder holding project.json (the original files and the edits made to each) "
         + "beside the step store. A step whose result is in the store is not run again.")
     {
-        Subcommands = { BuildStatusCommand(), BuildRunCommand(), BuildOperationsCommand(), BuildChainCommand(), BuildNewCommand(), BuildProcessCommand() },
+        Subcommands = { BuildStatusCommand(), BuildRunCommand(), BuildOperationsCommand(), BuildChainCommand(), BuildNewCommand(), BuildDetectedCommand(), BuildReassignCommand(), BuildWorkflowsCommand(), BuildApplyCommand(), BuildProcessCommand() },
     };
+
+    private Command BuildDetectedCommand()
+    {
+        var framesArg = new Argument<string>("folder") { Description = "The capture folder." };
+        var noGradeOpt = new Option<bool>("--no-grade") { Description = "Do not grade the lights (grading finds the stars of each light, which takes a second or so a frame)." };
+        var cmd = new Command("detected",
+            "List what a capture folder holds: the groups (lights, darks, flats, bias, a comet track), and for each file the kind it is taken for, why "
+            + "(its IMAGETYP, its folder's name, or its pixels; a guess from the pixels is marked with a ?), its exposure, filter, sensor temperature, gain, camera and "
+            + "grade. A Needs a look group gathers the guesses and the lights no dark matches. What the project's reassignments (workbench reassign) set is shown as set.")
+        {
+            Arguments = { framesArg },
+            Options = { noGradeOpt },
+        };
+        cmd.SetAction(async (parseResult, ct) =>
+        {
+            var frames = parseResult.Required(framesArg);
+            if (!Directory.Exists(frames))
+            {
+                consoleHost.WriteError($"[workbench] the capture folder {frames} does not exist");
+                return 1;
+            }
+
+            var detected = await CaptureDetection.DetectAsync(frames, new CaptureDetectionOptions
+            {
+                Reassigned = await WorkbenchProjects.ReassignmentsAsync(frames, ct),
+                GradeLights = !parseResult.GetValue(noGradeOpt),
+            }, ct);
+            foreach (var line in CaptureDetection.Describe(detected))
+            {
+                consoleHost.WriteScrollable(line.StartsWith("  ", StringComparison.Ordinal) || line.StartsWith("note:", StringComparison.Ordinal) ? line : $"[workbench] {line}");
+            }
+
+            return 0;
+        });
+        return cmd;
+    }
+
+    private static async Task<WorkflowFacts> FactsOfAsync(string frames, CancellationToken ct)
+        => WorkflowFacts.From(await CaptureDetection.DetectAsync(frames, new CaptureDetectionOptions
+        {
+            Reassigned = await WorkbenchProjects.ReassignmentsAsync(frames, ct),
+            GradeLights = false,
+        }, ct));
+
+    private Command BuildWorkflowsCommand()
+    {
+        var framesArg = new Argument<string>("folder") { Description = "The capture folder." };
+        var cmd = new Command("workflows",
+            "List the built-in workflows for a capture folder, each with whether it fits these frames and one line saying why or why not "
+            + "(colour camera, one filter, a comet track), the best fit marked. workbench apply makes one the project's steps.")
+        {
+            Arguments = { framesArg },
+        };
+        cmd.SetAction(async (parseResult, ct) =>
+        {
+            var frames = parseResult.Required(framesArg);
+            if (!Directory.Exists(frames))
+            {
+                consoleHost.WriteError($"[workbench] the capture folder {frames} does not exist");
+                return 1;
+            }
+
+            foreach (var answer in BuiltInWorkflows.Answer(await FactsOfAsync(frames, ct)))
+            {
+                consoleHost.WriteScrollable($"[workbench] {answer.Template.Id}: {(answer.Fit.Fits ? "fits" : "does not fit")}{(answer.Best ? " (best)" : string.Empty)}, {answer.Fit.Why}");
+                consoleHost.WriteScrollable($"  {answer.Template.Title}: {answer.Template.Summary}");
+            }
+
+            return 0;
+        });
+        return cmd;
+    }
+
+    private Command BuildApplyCommand()
+    {
+        var framesArg = new Argument<string>("folder") { Description = "The capture folder." };
+        var workflowArg = new Argument<string>("workflow") { Description = $"A workflow's id ({string.Join(", ", BuiltInWorkflows.All.Select(static each => each.Id))}), or best for the best fit." };
+        var replaceOpt = new Option<bool>("--replace") { Description = "Replace the steps although they were changed by hand since the last workflow was applied." };
+        var cmd = new Command("apply",
+            "Write a workflow's steps into the capture's project (made in its workdir where there is none). Results already made are kept and reused by their keys; "
+            + "the frames' reassignments are kept. Steps changed by hand since the last workflow are replaced only with --replace.")
+        {
+            Arguments = { framesArg, workflowArg },
+            Options = { replaceOpt },
+        };
+        cmd.SetAction(async (parseResult, ct) =>
+        {
+            var frames = parseResult.Required(framesArg);
+            if (!Directory.Exists(frames))
+            {
+                consoleHost.WriteError($"[workbench] the capture folder {frames} does not exist");
+                return 1;
+            }
+
+            var facts = await FactsOfAsync(frames, ct);
+            var word = parseResult.Required(workflowArg);
+            if (string.Equals(word, "best", StringComparison.OrdinalIgnoreCase))
+            {
+                word = BuiltInWorkflows.Answer(facts).First(static each => each.Best).Template.Id;
+            }
+
+            var changes = await WorkbenchWorkflows.HandChangesAsync(frames, ct);
+            if (changes > 0 && !parseResult.GetValue(replaceOpt))
+            {
+                consoleHost.WriteError($"[workbench] your {changes} change(s) to the steps are replaced; results already made are kept. Say --replace to go on");
+                return 1;
+            }
+
+            var done = await WorkbenchWorkflows.ApplyAsync(frames, word, facts, ct);
+            if (done.Project is not { } project)
+            {
+                consoleHost.WriteError($"[workbench] {done.Refusal}");
+                return 1;
+            }
+
+            consoleHost.WriteScrollable($"[workbench] applied {project.Workflow} to {WorkbenchProjects.WorkdirOf(frames)}: {project.Images.Sum(static image => image.Edits.Length)} step(s) in {project.Images.Length} image(s)"
+                + (done.Replaced > 0 ? $"; {done.Replaced} change(s) of yours replaced" : string.Empty));
+            foreach (var row in WorkbenchWorkflows.Tree(project, operations))
+            {
+                consoleHost.WriteScrollable($"  {new string(' ', row.Depth * 2)}{row.Label}{(row.Detail.Length > 0 ? " (" + row.Detail + ")" : string.Empty)}");
+            }
+
+            return 0;
+        });
+        return cmd;
+    }
+
+    private Command BuildReassignCommand()
+    {
+        var framesArg = new Argument<string>("folder") { Description = "The capture folder." };
+        var fileArg = new Argument<string>("file") { Description = "The file: its place inside the capture folder, or its path." };
+        var kindArg = new Argument<string>("kind") { Description = $"What it is: {FrameReassignment.KindWords} (ignore leaves it out of the stack), or auto to take the reassignment back." };
+        var cmd = new Command("reassign",
+            "Take a file for another kind of frame than its cards and its folder say. The project (in the capture's workdir) records it in the stack step's settings, "
+            + "so the step's key changes and the stack runs again; the stack takes it as tianwen stack --reassign does. "
+            + "Only a project in the capture's own workdir holds reassignments: one made elsewhere with workbench new --project is refused.")
+        {
+            Arguments = { framesArg, fileArg, kindArg },
+        };
+        cmd.SetAction(async (parseResult, ct) =>
+        {
+            var word = parseResult.Required(kindArg);
+            FrameType? kind = null;
+            if (!string.Equals(word, "auto", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!FrameReassignment.TryParseKind(word, out var parsed))
+                {
+                    consoleHost.WriteError($"[workbench] '{word}' is not a kind: say one of {FrameReassignment.KindWords}, or auto");
+                    return 1;
+                }
+
+                kind = parsed;
+            }
+
+            var done = await WorkbenchProjects.ReassignAsync(parseResult.Required(framesArg), parseResult.Required(fileArg), kind, ct);
+            if (done.Refusal is { } refusal)
+            {
+                consoleHost.WriteError($"[workbench] {refusal}");
+                return 1;
+            }
+
+            consoleHost.WriteScrollable($"[workbench] {done.Reassigned.Length} file(s) reassigned{(done.Reassigned.IsEmpty ? string.Empty : ": " + string.Join(", ", done.Reassigned.Select(static each => each.Format())))}");
+            return 0;
+        });
+        return cmd;
+    }
 
     private Command BuildChainCommand()
     {
@@ -56,19 +224,23 @@ internal sealed class WorkbenchSubCommand(IConsoleHost consoleHost, OperationCat
 
     private Command BuildNewCommand()
     {
-        var projectArg = ProjectArgument();
-        var framesArg = new Argument<string>("frames") { Description = "The capture folder: a night's lights (and calibration frames, which the stack finds itself)." };
+        var framesArg = new Argument<string>("folder") { Description = "The capture folder: a night's lights (and calibration frames, which the stack finds itself). The project and every result are kept in its workdir folder; the frames are read, never written." };
+        var projectOpt = new Option<string?>("--project") { Description = "Keep the project in this folder instead of the capture's workdir (it must be outside the capture folder)." };
         var cmd = new Command("new",
-            "Make a project for a capture: a project.json holding one image, the capture folder, whose one edit is the stack at its defaults. "
-            + "Nothing is run (workbench run stacks it). Refused where the project folder already holds a project, the capture folder is not "
-            + "there, or it is the project folder or inside its step store.")
+            "Make a project for a capture: <folder>/workdir/project.json holding one image, the capture folder, whose one edit is the stack at its defaults. "
+            + "Nothing is run (workbench run stacks it); workbench detected says what the folder holds. Refused where the workdir already holds a project, "
+            + "the capture folder is not there, or it is inside the project's step store.")
         {
-            Arguments = { projectArg, framesArg },
+            Arguments = { framesArg },
+            Options = { projectOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
-            var folder = parseResult.Required(projectArg);
-            var made = await WorkbenchProjects.NewAsync(folder, parseResult.Required(framesArg), ct);
+            var frames = parseResult.Required(framesArg);
+            var made = parseResult.GetValue(projectOpt) is { Length: > 0 } elsewhere
+                ? await WorkbenchProjects.NewAsync(elsewhere, frames, ct)
+                : await WorkbenchProjects.NewAsync(frames, ct);
+            var folder = parseResult.GetValue(projectOpt) is { Length: > 0 } kept ? kept : WorkbenchProjects.WorkdirOf(frames);
             if (made.Project is not { } project)
             {
                 consoleHost.WriteError($"[workbench] {made.Refusal}");

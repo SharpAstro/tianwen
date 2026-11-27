@@ -404,12 +404,17 @@ section.
 Two routines in `WorkbenchProjects` (Lib) start and extend a project, and the verbs and the processing app's buttons
 call them and print or show what they answer, so the window and the terminal write the same `project.json`.
 
-- **`tianwen workbench new <project> <frames>`** (`WorkbenchProjects.NewAsync`) writes the project folder's
-  `project.json` with one image: named after the capture folder, whose original is that folder, with one edit, the
-  stack at its defaults (its calibration is found by the stack itself). It runs nothing; `workbench run` stacks it.
-  It creates the project folder when it is missing. It refuses, in words and with exit code 1: a folder that already
-  holds a `project.json`, a capture folder that is not there, a capture folder that is the project's folder, one
-  inside the project's step store, and a project folder inside the capture folder.
+- **`tianwen workbench new <folder> [--project <elsewhere>]`** (`WorkbenchProjects.NewAsync`) writes a `project.json`
+  with one image: named after the capture folder, whose original is that folder, with one edit, the stack at its
+  defaults (its calibration is found by the stack itself). By default the project is the capture's own workdir,
+  `<folder>/workdir`, which the stack's scan leaves out (`StackingPipeline.WorkdirName`, counted in the scan's notes);
+  `--project` puts it in a folder of its own instead. It runs nothing; `workbench run` stacks it. It creates the
+  project folder when it is missing. It refuses, in words and with exit code 1: a folder that already holds a
+  `project.json`, a capture folder that is not there, a capture folder that is the project's folder, one inside the
+  project's step store, and a project folder inside the capture folder other than its own workdir (the one place
+  inside it a project may be). Such a project records no workflow, so every step of it is the person's: a later
+  `workbench apply` asks for `--replace` (`WorkbenchWorkflows.HandChanges` counts each step). Only a project in the
+  workdir holds reassignments of frames (`workbench reassign`); one made with `--project` is refused there.
 - **`tianwen workbench process <project> <image> <group> [--name]`** (`WorkbenchProjects.AddMasterChainAsync`) adds
   the images of the enhance laid out as its chain of single steps (`EnhanceChain`, the same layout as `workbench
   chain`), the first of them starting from `<image>` with `result` `<group>`: the master of that group that the stack

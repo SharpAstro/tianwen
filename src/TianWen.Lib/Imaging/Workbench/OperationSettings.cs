@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text.Json.Serialization;
 using TianWen.Lib.Imaging.BackgroundExtraction;
 using TianWen.Lib.Imaging.Enhancement;
+using TianWen.Lib.Imaging.Stacking;
 using TianWen.Lib.Imaging.StarRemoval;
 
 namespace TianWen.Lib.Imaging.Workbench;
@@ -261,6 +262,7 @@ public sealed record ContinuumSettings
 [JsonSerializable(typeof(PlanetarySharpenSettings))]
 [JsonSerializable(typeof(StackSettings))]
 [JsonSerializable(typeof(CometStackSettings))]
+[JsonSerializable(typeof(ImmutableArray<FrameReassignment>))]
 public sealed partial class OperationSettingsJsonContext : JsonSerializerContext
 {
 }
