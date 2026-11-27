@@ -14,10 +14,11 @@ namespace TianWen.UI.Abstractions
                 {
                     return;
                 }
+                // The level takes effect at once (the tab redraws with it); the save runs off the render thread.
                 alerts.Level = sig.Level;
                 _appState.NeedsRedraw = true;
                 RunTracked("SaveDesktopAlertLevel", "Could not save the desktop alert setting",
-                    ct => DesktopAlertSettings.SaveAsync(_external, sig.Level, ct));
+                    ct => DesktopAlertSettings.ChooseAsync(alerts, sig.Level, _external, ct));
             });
         }
     }

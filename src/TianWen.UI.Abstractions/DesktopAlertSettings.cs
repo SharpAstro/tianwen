@@ -24,6 +24,13 @@ public static class DesktopAlertSettings
             ? saved.Level
             : Default;
 
+    /// <summary>A person's choice: the policy obeys it from now on, then it is saved for the next start.</summary>
+    public static Task ChooseAsync(DesktopAlerts alerts, DesktopAlertLevel level, IExternal external, CancellationToken cancellationToken)
+    {
+        alerts.Level = level;
+        return SaveAsync(external, level, cancellationToken);
+    }
+
     public static Task SaveAsync(IExternal external, DesktopAlertLevel level, CancellationToken cancellationToken)
         => external.AtomicWriteJsonAsync(PathFor(external), new DesktopAlertSettingsDto(level), DesktopAlertSettingsJsonContext.Default.DesktopAlertSettingsDto, cancellationToken);
 }

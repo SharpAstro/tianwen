@@ -1,0 +1,120 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using DIR.Lib;
+using Shouldly;
+using TianWen.Lib.Sequencing;
+using TianWen.UI.Abstractions;
+using Xunit;
+
+namespace TianWen.Lib.Tests;
+
+/// <summary>
+/// #2507: the Notifications tab's desktop alert choice. The tab is rendered on the CPU renderer, a click on the choice's
+/// painted region goes through the <see cref="InputRouter"/> as a real press does, and the level and the save are read
+/// back. In memory, against a fake sink.
+/// </summary>
+public class NotificationsTabAlertSettingTests(ITestOutputHelper output)
+{
+    internal sealed class Sink : IDesktopAlert
+    {
+        public bool IsAvailable { get; set; } = true;
+
+        public string? Refusal { get; set; }
+
+        public DesktopAlertResult Show(DesktopAlert alert) => Refusal is { } why ? DesktopAlertResult.Unavailable(why) : DesktopAlertResult.Ok;
+    }
+
+    private static DesktopAlerts AlertsOn(Sink sink)
+        => new(sink, new FakeTimeProviderWrapper(new DateTimeOffset(2026, 11, 27, 22, 0, 0, TimeSpan.Zero)), () => false);
+
+    private sealed record Painted(NotificationsTab<RgbaImage> Tab, SignalBus Bus, List<DesktopAlertLevel> Chosen);
+
+    private static Painted Paint(RgbaImageRenderer renderer, GuiAppState app, ViewContext view)
+    {
+        var bus = new SignalBus();
+        var chosen = new List<DesktopAlertLevel>();
+        bus.Subscribe<SetDesktopAlertLevelSignal>(s => chosen.Add(s.Level));
+        var tab = new NotificationsTab<RgbaImage>(renderer) { FontPath = FontResolver.ResolveSystemFont(), Bus = bus };
+        tab.Render(app, view, new RectF32(0, 0, renderer.Width, renderer.Height));
+        return new Painted(tab, bus, chosen);
+    }
+
+    private static ClickableRegion[] ChoiceRegions(NotificationsTab<RgbaImage> tab)
+        => [.. tab.GetRegisteredRegions().Where(r => r.Result is HitResult.ButtonHit { Action: var a } && a.StartsWith("DesktopAlert"))];
+
+    private static ClickableRegion Region(NotificationsTab<RgbaImage> tab, string action)
+        => ChoiceRegions(tab).Single(r => r.Result is HitResult.ButtonHit { Action: var a } && a == action);
+
+    private static void Click(Painted painted, ClickableRegion region)
+    {
+        var (x, y) = (region.X + region.Width / 2f, region.Y + region.Height / 2f);
+        var router = new InputRouter(painted.Tab.Ui, new BackgroundTaskTracker(), () => { }) { Widgets = () => [painted.Tab] };
+        router.Handle(new InputEvent.MouseDown(x, y));
+        router.Handle(new InputEvent.MouseUp(x, y));
+        painted.Bus.ProcessPending();
+    }
+
+    [Theory]
+    [InlineData("DesktopAlertOff", DesktopAlertLevel.Off)]
+    [InlineData("DesktopAlertAll", DesktopAlertLevel.AllWarnings)]
+    public void AClickOnASegmentPostsItsLevel(string action, DesktopAlertLevel expected)
+    {
+        using var renderer = new RgbaImageRenderer(1200, 600);
+        var app = new GuiAppState { DesktopAlerts = AlertsOn(new Sink()) };
+        var painted = Paint(renderer, app, new ViewContexts().Local);
+
+        Click(painted, Region(painted.Tab, action));
+
+        painted.Chosen.ShouldBe([expected]);
+    }
+
+    [Fact]
+    public void TheChoiceIsDrawnBesideClearOnThisComputersFeed()
+    {
+        using var renderer = new RgbaImageRenderer(1200, 600);
+        var app = new GuiAppState { DesktopAlerts = AlertsOn(new Sink()) };
+        app.RecordNotification(new DateTimeOffset(2026, 11, 27, 22, 0, 0, TimeSpan.Zero), NotificationSeverity.Error, "A failure");
+
+        var tab = Paint(renderer, app, new ViewContexts().Local).Tab;
+
+        ChoiceRegions(tab).Length.ShouldBe(3);
+        tab.GetRegisteredRegions().ShouldContain(r => r.Result is HitResult.ButtonHit { Action: "NotificationsClear" });
+    }
+
+    [Fact]
+    public void WithAlertsUnavailableOrAbsentTheChoiceIsNotDrawn()
+    {
+        using var renderer = new RgbaImageRenderer(1200, 600);
+
+        ChoiceRegions(Paint(renderer, new GuiAppState { DesktopAlerts = AlertsOn(new Sink { IsAvailable = false }) },
+            new ViewContexts().Local).Tab).ShouldBeEmpty();
+        ChoiceRegions(Paint(renderer, new GuiAppState(), new ViewContexts().Local).Tab).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task AChoiceChangesTheLevelAndIsSavedForTheNextStart()
+    {
+        var external = new FakeExternal(output);
+        var alerts = AlertsOn(new Sink());
+
+        await DesktopAlertSettings.ChooseAsync(alerts, DesktopAlertLevel.AllWarnings, external, TestContext.Current.CancellationToken);
+
+        alerts.Level.ShouldBe(DesktopAlertLevel.AllWarnings);
+        (await DesktopAlertSettings.LoadAsync(external, TestContext.Current.CancellationToken)).ShouldBe(DesktopAlertLevel.AllWarnings);
+    }
+
+    [Fact]
+    public async Task TheTooltipSaysWhyWindowsRefusedTheLastAlert()
+    {
+        var alerts = AlertsOn(new Sink { Refusal = "Disabled: toasts are off for this app" });
+        NotificationsTab<RgbaImage>.AlertTooltip(alerts).ShouldNotContain("did not show");
+
+        alerts.Offer(new NotificationEntry(new DateTimeOffset(2026, 11, 27, 22, 0, 0, TimeSpan.Zero), NotificationSeverity.Error, "A failure", NoteKind.None), null, null);
+        alerts.Complete();
+        await alerts.RunAsync(TestContext.Current.CancellationToken);
+
+        NotificationsTab<RgbaImage>.AlertTooltip(alerts).ShouldContain("toasts are off for this app");
+    }
+}
