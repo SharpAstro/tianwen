@@ -225,7 +225,7 @@ internal sealed class WorkbenchE2E : IAsyncDisposable
             var image = new TianWen.Lib.Imaging.Image(channels, TianWen.Lib.Imaging.BitDepth.Float32, 1f, 0f, 0f, default);
             var rgba = new byte[width * height * 4];
             image.RenderStretchedRgba(rendition.Stretch, rgba, rendition.CurvesBoost, rendition.CurvesMode, rendition.CurveSpan,
-                CurvesMidpoint, rendition.HdrAmount, rendition.HdrKnee);
+                hdrAmount: rendition.HdrAmount, hdrKnee: rendition.HdrKnee);
             var (cellW, cellH) = ((right - left) / width, (bottom - top) / height);
             for (var y = 0; y < height; y++)
             {
