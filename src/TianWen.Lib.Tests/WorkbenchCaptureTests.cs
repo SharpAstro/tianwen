@@ -79,6 +79,9 @@ public sealed class WorkbenchCaptureTests : IDisposable
         { 1280, 800, 1f, UiThemeState.Night, "comparison" },
         { 2000, 1100, 1f, UiThemeState.Dark, "comparison" },
         { 2000, 1100, 1f, UiThemeState.Night, "result" },
+        { 1280, 800, 1f, UiThemeState.Light, "refused" },
+        { 2000, 1100, 1f, UiThemeState.Light, "running" },
+        { 2000, 1100, 1f, UiThemeState.Light, "comparison" },
     };
 
     [Theory(Timeout = 180_000)]

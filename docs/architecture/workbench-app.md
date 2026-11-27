@@ -26,16 +26,55 @@ The pieces it holds:
 
 ## The screen and the layout
 
-One `Layout` tree, built each frame from the state: the top bar (the project's folder, the image choice where the project
-has several, New project and Open project), the step bar, a
-340-wide panel on the left and, beside it, the view row with the viewer's own renderer in a keyed canvas. The viewer's
-toolbar is cut to the controls that are about looking (`ViewerOffer`): no Open file, Enhance, crop or solve, because
-those are operations here, and no file list.
+One `Layout` tree, built each frame from the state, as `docs/designs/workbench/Main.dc.html` draws it (#2553, section 3): the
+top bar (the project's folder, the image choice where the project has several, New project and Open project), the toolbar,
+then left to right the **project tree** (300 wide), the **panel slot** (340 wide: the selected step's panel, or a frame
+group's files) and the canvas with the viewer's own renderer in a keyed fill, and under them the **status strip**. The
+viewer's toolbar is cut to the controls that are about looking (`ViewerOffer`): no Open file, Enhance, crop or solve,
+because those are operations here, and no file list. The layout lives in `WorkbenchScreen.cs` (frame, top bar, panel),
+`WorkbenchScreen.Tree.cs` (toolbar, tree, canvas empty state, status strip) and `WorkbenchScreen.NewProject.cs` (the two
+pages); the actions for the tree are `WorkbenchActions.Tree.cs`.
+
+### The toolbar
+
+One accent **▶ Run to <step>** (a plain, dimmed button, with the reason on hover, while no run can start), **■ Stop**, the
+picture choice **Output / Input / Before and after**, Fit, 1:1 and the stretch (a menu of the viewer's stretch modes; the
+viewer's own state is the one source). The step's title is cut to 28 characters on a button, the whole title on hover.
+The hits keep their old names (`View:Result` is Output, `View:Original` is Input, `View:Comparison` is Before and after).
+Output is always offered; Input is the step's own input where it has a picture, else the image's original; Before and
+after only where the step has a result and an input.
+
+### The project tree
+
+- **Frames**: Lights, Darks, Flats and Bias, each selectable with its count, read once for a project from its capture
+  folder (`CaptureDetection` with no grading, off the render thread; a project not in a `workdir` has none). Selecting one
+  lists its files in the panel slot.
+- **Workflow**: the Lib's tree (`WorkbenchWorkflows.Tree`) of every image of the project, a split's branches one level in
+  and a join back out. Each step row shows its number, a mark from the runner's report (✓ made, ↻ stale, ○ not made, ⚠
+  refused, – off), its title and a ▶. The marks of the images not on show are read with the image on show: the status
+  is asked for every image at once (`WorkbenchView.Reports`). A press selects (a row of another image opens that image
+  first), nothing runs. The ▶ and the toolbar's button are the same run: every step up to the step, the kept ones
+  kept, the stale and the missing ones first (`RunToRow`, `RunToHere`). The ▶ is always drawn, dimly, and takes the
+  accent on the selected row and on hover: the engine has no hover-only reveal, and the room is reserved so nothing moves
+  under the pointer.
+- **Header**: the workflow's name as a dropdown that switches workflow (`SwitchWorkflow`, through
+  `WorkbenchWorkflows.ApplyAsync` with the capture's facts read afresh), + Step › (a menu of the operations that take no
+  other image; `WorkbenchWorkflows.AddStepAsync` after the selected step) and Remove (`RemoveStepAsync`). A switch asks
+  first only when `WorkbenchWorkflows.HandChanges` counts a change by hand, in the Lib's words ("Your 3 changes to the
+  steps are replaced; results already made are kept"), with Switch workflow and Keep my steps; a refusal of any of the
+  three is said under the header.
+
+### The canvas and the status strip
+
+The canvas shows Output, Input or both. A step with no output (and Output or Before and after chosen) says so, says what a
+run will do and which steps are kept ("Runs Remove stars, then Denoise. Steps 1 to 5 are kept."; `EmptyStateWords`, from
+the runner's plan through the step) and offers its ▶. With no project open the canvas holds the one line that says to open
+or make one. The strip under it shows the last run (its words, a bar, "9 of 13 made" for the whole project) and the log
+behind a disclosure.
 
 The look follows `.github/docs/ui-changes.md`. Specifically:
 
-- A step's number and title are one label (`WorkbenchStepItem.Label`), shared by the bar cell, the panel heading and the
-  hover text, so a cut title is cut with an ellipsis and its whole text is on hover.
+- A step's number and title are one label (`WorkbenchStepItem.Label`), shared by the panel heading and the hover text, so a cut title is cut with an ellipsis and its whole text is on hover.
 - Step words and marks use the palette's body or error ink and meet contrast in every palette; Night is judged against a
   lower floor than Light and Dark.
 - The image choice is the engine's dropdown (`Layout.Builder.DropdownBox` and `Dropdown` over a `DropdownMenuState`): the
@@ -50,10 +89,10 @@ The look follows `.github/docs/ui-changes.md`. Specifically:
   the same frame only when one changed (the first frame, a resize, a new DPI), so no width is restated by hand. The pieces
   sit edge to edge (the space between words is a word's own trailing space, not a gap between leaves), so a broken path
   never reads as two words.
-- `WorkbenchCaptureTests` renders the guided screen at 1280x800 and 2000x1100 in Dark and Night, and 2000x1100 at DPI 1.5,
+- `WorkbenchCaptureTests` renders the guided screen at 1280x800 and 2000x1100 in Light, Dark and Night, and 2000x1100 at DPI 1.5,
   with 14 steps, long titles, a refused step with its reason, a long command line and run lines in the job panel. It
   asserts that no text is cut without an ellipsis and its whole text on hover, that step words and marks meet contrast
-  against the cell's painted fill, and that the step row's controls share one height and one middle. With
+  against the fill under each text, and that the toolbar's controls and the tree's rows share one height and one middle. With
   `TIANWEN_KEEP_TEST_OUTPUT=1` it keeps a PNG per case in the test binary's folder. The class is in `ThemeCollection`
   because it applies a theme, which is process-wide.
 - The test host paints the chrome on a CPU surface and **paints no image**: the viewer's draw of a picture is Vulkan's. So
@@ -61,10 +100,10 @@ The look follows `.github/docs/ui-changes.md`. Specifically:
   or Comparison shows which view is chosen and what the panel says, not the picture or the split. The picture in a live
   window is the controller's to look at.
 
-## Step-bar states
+## Step states
 
-Each cell shows the number, the title and a word from the runner's status, never from a click: kept, will run, not needed,
-derived, off, refused, blocked, and a "changed" note when a step's settings (or a step before it) are not what the last run made it from.
+Each tree row shows the number, a mark and the title, with the word from the runner's status on hover, never from a click: kept, will run, not needed,
+derived, off, refused, blocked, and a "changed" note (↻ stale) when a step's settings (or a step before it) are not what the last run made it from.
 A step that is running is not a state of the bar: the job panel shows it. A refused step (the operation is unknown, or its settings are refused) says why in the panel, and the steps after it are
 blocked. Selecting a step shows its panel: the words and reason, Run, the job, Views, Settings and Command line (the line
 the verb would take, to copy; "There is no command line until the step can be planned" when it is refused).
@@ -170,7 +209,7 @@ or Empty workflow; the dialog and refusal rules are unchanged.
   ended meanwhile) the sentence names no cause. The strip is ellipsised with the whole text on hover, and the log says the
   same. `ANewProjectMadeWhileARunStartsIsNotOpenedAndSaysSoInWordsWithTheWholeTextOnHover` pins it.
 - **With no project open the two buttons take the accent**, the colour of an action, since they are all there is to do; with
-  a project open both are standard buttons. The empty step bar says "Open a project, or make a new one from a capture
+  a project open both are standard buttons. The empty canvas says "Open a project, or make a new one from a capture
   folder, to see the steps of an image."
 - **A long name never pushes the buttons off the bar.** The project's folder (cut at its start) and a single image name
   (cut at its end) share the width the buttons leave, each with its whole text on hover.

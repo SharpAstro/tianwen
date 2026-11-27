@@ -19,6 +19,7 @@ public sealed partial class WorkbenchScreen<TSurface>
     private const float ProgressWidth = 200f;
     private const float PlaySize = 22f;
     private const float PlayNumberWidth = 18f;
+    private const float EmptyStateWidth = 420f;
 
     /// <summary>The hit of the stretch choice's box.</summary>
     internal const string StretchChoiceHit = "Stretch:Choose";
@@ -94,14 +95,16 @@ public sealed partial class WorkbenchScreen<TSurface>
         var running = actions.Jobs.IsRunning;
         var offer = actions.RunToHereOffer();
         var title = actions.SelectedStepTitle;
-        var runLabel = title is null ? "▶ Run" : $"▶ Run to {title}";
-        var run = Layout.Builder.Button(runLabel, Layout.ButtonKind.Accent, actions.RunToHere, GuiTheme.Theme,
-            tooltip: offer.CanRun ? "Make this step, taking each step before it from the store where it is kept" : offer.Label).WAuto();
+        var runLabel = title is null ? "▶ Run" : $"▶ Run to {ShortTitle(title)}";
+        // The accent is the colour of an action that can be taken: a run that cannot go is a plain, dimmed button that says why.
+        var canRun = !running && offer.CanRun;
+        var run = Layout.Builder.Button(runLabel, canRun ? Layout.ButtonKind.Accent : Layout.ButtonKind.Standard, actions.RunToHere, GuiTheme.Theme,
+            tooltip: offer.CanRun ? $"Make {title ?? "the selected step"}, taking each step before it from the store where it is kept" : offer.Label).WAuto();
         var stop = Layout.Builder.Button("■ Stop", Layout.ButtonKind.Standard, actions.CancelRun, GuiTheme.Theme,
             tooltip: "End the run; the steps then show what the runner says of them").WAuto();
         var parts = new List<Layout.Node>
         {
-            running || !offer.CanRun ? run.Disabled(running ? "A run is going" : offer.Label) : run,
+            canRun ? run : run.Disabled(running ? "A run is going" : offer.Label),
             running ? stop : stop.Disabled("No run is going"),
             Layout.Builder.Spacer().WStar(),
             ViewChoice(actions),
@@ -134,6 +137,9 @@ public sealed partial class WorkbenchScreen<TSurface>
         return Layout.Builder.Segmented<WorkbenchViewKind>([.. kinds], shown, actions.ChooseView, GuiTheme.Theme,
             _viewCursor, "WorkbenchViews", BaseFontSize).WAuto();
     }
+
+    // A step's title can be a sentence: the buttons carry the start of it, the tooltip and the panel the whole.
+    private static string ShortTitle(string title) => title.Length > 28 ? title[..27] + "…" : title;
 
     private static string StretchLabel(StretchMode mode) => mode switch
     {
@@ -211,8 +217,7 @@ public sealed partial class WorkbenchScreen<TSurface>
         return Layout.Builder.VStack(
                 TreeHeader(state, actions).WStar(),
                 Layout.Builder.VStack([.. rows]).WithGap(1f).Pad(Gap / 2, Gap / 2).WithScroll(_treeScroll).WStar().HStar(),
-                Layout.Builder.Text("✓ made · ↻ stale · ○ not made · ⚠ refused · ▶ runs every step up to it", BaseFontSize * 0.8f, palette.DimText, trim: TextTrim.End)
-                    .WStar().HFixed(BaseFontSize * 2f).Pad(Gap, 0f).WithTooltip("✓ made · ↻ stale · ○ not made · ⚠ refused · ▶ runs every step up to it"))
+                Words("✓ made · ↻ stale · ○ not made · ⚠ refused · ▶ runs every step up to it", palette.DimText, FlowRoom.Tree).Pad(Gap, Gap / 2))
             .Bg(palette.PanelBg);
     }
 
@@ -356,13 +361,21 @@ public sealed partial class WorkbenchScreen<TSurface>
         var palette = GuiTheme.Palette;
         var title = actions.SelectedStepTitle ?? "This step";
         var offer = actions.RunToHereOffer();
-        var run = Layout.Builder.Button($"▶ Run to {title}", Layout.ButtonKind.Accent, actions.RunToHere, GuiTheme.Theme,
-            tooltip: offer.CanRun ? "Make this step, taking each step before it from the store where it is kept" : offer.Label).WAuto();
-        return Layout.Builder.VStack(
-                Layout.Builder.Text($"{title} has no output yet", BaseFontSize * 1.15f, palette.BodyText, TextAlign.Center, trim: TextTrim.End).WStar(),
+        var canRun = offer.CanRun && !actions.Jobs.IsRunning;
+        var run = Layout.Builder.Button($"▶ Run to {ShortTitle(title)}", canRun ? Layout.ButtonKind.Accent : Layout.ButtonKind.Standard, actions.RunToHere,
+            GuiTheme.Theme, tooltip: offer.CanRun ? $"Make {title}, taking each step before it from the store where it is kept" : offer.Label).WAuto();
+        var card = Layout.Builder.VStack(
+                Layout.Builder.Text($"{ShortTitle(title)} has no output yet", BaseFontSize * 1.15f, palette.BodyText, TextAlign.Center, trim: TextTrim.End)
+                    .WStar().WithTooltip($"{title} has no output yet"),
                 Words(actions.EmptyStateWords(), palette.DimText, FlowRoom.Preview),
-                Layout.Builder.HStack(offer.CanRun && !actions.Jobs.IsRunning ? run : run.Disabled(actions.Jobs.IsRunning ? "A run is going" : offer.Label)).WStar().WithGap(Gap))
-            .WithGap(Gap * 1.5f).Pad(Gap * 4).Bg(palette.ContentBg).WStar().HStar();
+                Layout.Builder.HStack(canRun ? run : run.Disabled(actions.Jobs.IsRunning ? "A run is going" : offer.Label)).WStar())
+            .WithGap(Gap * 1.5f);
+        // Centred on the canvas, in a column of its own width so the words wrap rather than run across a wide canvas.
+        return Layout.Builder.VStack(
+                Layout.Builder.Spacer().HStar(),
+                Layout.Builder.HStack(Layout.Builder.Spacer().WStar(), card.WFixed(EmptyStateWidth), Layout.Builder.Spacer().WStar()).WStar(),
+                Layout.Builder.Spacer().HStar())
+            .Bg(palette.ContentBg).WStar().HStar();
     }
 
     // ---- Status strip ----
