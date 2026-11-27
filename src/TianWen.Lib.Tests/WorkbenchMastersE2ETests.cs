@@ -243,6 +243,40 @@ public sealed class WorkbenchMastersE2ETests : IDisposable
     [Theory(Timeout = 300_000)]
     [InlineData(1f)]
     [InlineData(1.5f)]
+    public async Task AChainMadeWhileARunStartsIsNotOpenedAndSaysSoInWordsLeavingTheStackStepSelected(float dpi)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (catalog, runner) = Registered();
+        var project = await StackedProjectAsync(runner, "m31_L");
+        // A second image whose one step waits at the gate: a run of it starts after the press passed its guard.
+        var master = WorkbenchFixtures.WriteMaster(project, "master", WorkbenchFixtures.Master(seed: 1));
+        var read = (await WorkbenchProjectFile.ReadAsync(project, ct)).Project.ShouldNotBeNull();
+        await WorkbenchProjectFile.WriteAsync(project, read with { Images = [.. read.Images, WorkbenchFixtures.Picture("other", master, WorkbenchFixtures.Edit("gate"))] }, ct);
+        await using var e2e = WorkbenchE2E.Start(dpi, runner, catalog);
+        await e2e.OpenProjectAsync(project, ct, "night-1");
+        var button = Buttons(e2e).ShouldHaveSingleItem();
+
+        // The press is let through (no run yet) and its routine goes off the render thread; the run starts at once, before the
+        // routine can finish its file work, and holds at its gate, so the chain's own open meets a run that is going.
+        e2e.Click(button);
+        e2e.Actions.Jobs.TryStart(e2e.State.View!.Folder, "other", 0).ShouldBeTrue();
+        await e2e.PumpFramesUntilAsync(() => e2e.State.MasterRefusal is not null && !e2e.State.IsProcessingMaster, "the refusal", ct);
+
+        var refusal = e2e.State.MasterRefusal.ShouldNotBeNull();
+        refusal.ShouldStartWith("m31_L was processed but its image was not opened: ");
+        refusal.ShouldContain(WorkbenchActions.ChoiceWaitsForTheRun, Case.Sensitive);
+        refusal.ShouldContain("Choose it from the image box.", Case.Sensitive);
+        e2e.State.View!.ImageName.ShouldBe("night-1", "the image on show is still the stack's");
+        e2e.State.SelectedStep.ShouldBe(0, "the stack step stays selected so its panel and the refusal stay on screen");
+        (await WorkbenchProjectFile.ReadAsync(project, ct)).Project.ShouldNotBeNull().Images.Length.ShouldBeGreaterThan(2, "the chain was made on disk");
+
+        _gate.Release.SetResult();
+        await e2e.PumpUntilAsync(() => !e2e.Actions.Jobs.IsRunning, "the run to end", ct);
+    }
+
+    [Theory(Timeout = 300_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
     public async Task TheButtonsAreDimmedWithTheirReasonWhileARunGoes(float dpi)
     {
         var ct = TestContext.Current.CancellationToken;

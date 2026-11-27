@@ -133,6 +133,11 @@ the run's progress and cancel, as for any step.
   chain would land on whatever was chosen meanwhile. `NewProjectIsDimmedWithItsReasonWhileARunGoes` asserts the press
   started no work on the tracker (it fails with the guard dropped). The empty strip carries no tooltip; a refusal's hover
   is its whole text (`TheRefusalRowIsReservedSoItsAppearingMovesNothing`).
+- **A project made but not opened is said in words.** If a run (or a chain) started while the dialogs were open, the project
+  is on disk but the open is refused: the open project stays as it was and `NewProjectRefusal` says "The project was made
+  in <folder> but not opened: <reason>. Use Open project to show it." The reason is read once; when none is left (the run
+  ended meanwhile) the sentence names no cause. The strip is ellipsised with the whole text on hover, and the log says the
+  same. `ANewProjectMadeWhileARunStartsIsNotOpenedAndSaysSoInWordsWithTheWholeTextOnHover` pins it.
 - **With no project open the two buttons take the accent**, the colour of an action, since they are all there is to do; with
   a project open both are standard buttons. The empty step bar says "Open a project, or make a new one from a capture
   folder, to see the steps of an image."
@@ -166,6 +171,10 @@ filter group), by `WorkbenchStepPanel.Masters`.
   same cases. While a press runs, Open project, New project and the image box are dimmed with `ChoiceWaitsForTheChain`
   on hover, and `OpenProject`, `ChooseProject`, `NewProject` and `ChooseImage` refuse, so a choice made meanwhile is not
   landed on by the chain's own open (which goes through a private path that skips that guard).
+- **A chain made but not opened is said in words.** If a run started after the press passed its guard, the chain is on disk
+  but its image is not opened: the stack step stays selected (its panel, the masters list and Cancel stay on screen),
+  `MasterRefusal` says "<group> was processed but its image was not opened: <the run's reason>. Choose it from the image
+  box.", and the log says the same. `AChainMadeWhileARunStartsIsNotOpenedAndSaysSoInWordsLeavingTheStackStepSelected` pins it.
 - **The chain is added under the project file's lock**, re-reading `project.json` there, so a second press or the CLI while
   the app is open never drops the other's images.
 - Tests: `WorkbenchMastersE2ETests` at DPI 1 and 1.5 (no masters before the stack; one row per master after it; a press adds
