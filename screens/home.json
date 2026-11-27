@@ -3,16 +3,18 @@
   "title": "The switch",
   "root": {
     "kind": "dock",
-    "background": "ContentBg",
+    "background": "#101318",
     "children": [
       {
-        "kind": "dock", "side": "top", "size": 48, "padding": 8, "background": "HeaderBg",
+        "kind": "dock", "side": "top", "size": 48, "padding": 8, "background": "#1e232c",
         "children": [
-          {"kind": "text", "side": "left", "size": 160, "text": "tianwen", "fontSize": 16, "color": "HeaderText"},
-          {"kind": "hstack", "side": "right", "size": 420, "gap": 6, "children": [
-            {"kind": "text", "text": "The switch", "width": "star", "height": "star", "align": "center", "background": "Selection", "color": "SelectionText", "borderRadius": 6},
-            {"kind": "text", "text": "Session settings", "width": "star", "height": "star", "align": "center", "background": "PanelBg", "color": "BodyText", "borderRadius": 6, "action": "goto:settings"},
-            {"kind": "text", "text": "Equipment", "width": "star", "height": "star", "align": "center", "background": "PanelBg", "color": "BodyText", "borderRadius": 6, "action": "goto:equipment"}
+          {"kind": "text", "side": "left", "size": 160, "text": "tianwen", "fontSize": 16, "color": "#ff5e00"},
+          {"kind": "hstack", "side": "right", "size": 560, "gap": 6, "children": [
+            {"kind": "text", "text": "Switch", "width": "star", "height": "star", "align": "center", "background": "#302820", "color": "#e2e6ec", "borderRadius": 6},
+            {"kind": "text", "text": "Confirm", "width": "star", "height": "star", "align": "center", "background": "#171b22", "color": "#e2e6ec", "borderRadius": 6, "action": "goto:confirm"},
+            {"kind": "text", "text": "Segments", "width": "star", "height": "star", "align": "center", "background": "#171b22", "color": "#e2e6ec", "borderRadius": 6, "action": "goto:segments"},
+            {"kind": "text", "text": "Settings", "width": "star", "height": "star", "align": "center", "background": "#171b22", "color": "#e2e6ec", "borderRadius": 6, "action": "goto:settings"},
+            {"kind": "text", "text": "Equipment", "width": "star", "height": "star", "align": "center", "background": "#171b22", "color": "#e2e6ec", "borderRadius": 6, "action": "goto:equipment"}
           ]},
           {"kind": "spacer"}
         ]
@@ -20,29 +22,29 @@
       {
         "kind": "vstack", "padding": 20, "gap": 10,
         "children": [
-          {"kind": "text", "text": "States", "fontSize": 15, "color": "HeaderText"},
+          {"kind": "text", "text": "States", "fontSize": 15, "color": "#ff5e00"},
           {"kind": "wrap", "gap": 10, "children": [
-            {"kind": "vstack", "width": 120, "height": 80, "padding": 10, "gap": 10, "background": "PanelBg", "borderRadius": 8, "children": [
+            {"kind": "vstack", "width": 120, "height": 80, "padding": 10, "gap": 10, "background": "#171b22", "borderRadius": 8, "children": [
               {"kind": "hstack", "width": "star", "height": 30, "children": [
                 {"kind": "spacer", "width": "star"},
                 {"kind": "vstack", "width": 40, "height": "star", "children": [
                   {"kind": "spacer", "height": "star"},
-                  {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "HeaderBg", "border": "SeparatorStrong", "borderRadius": 11, "children": [
-                    {"kind": "spacer", "width": 18, "height": 18, "background": "DimText", "borderRadius": 9},
+                  {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "#1e232c", "border": "#3c444f", "borderRadius": 11, "children": [
+                    {"kind": "spacer", "width": 18, "height": 18, "background": "#8b939f", "borderRadius": 9},
                     {"kind": "spacer", "width": "star"}
                   ]},
                   {"kind": "spacer", "height": "star"}
                 ]},
                 {"kind": "spacer", "width": "star"}
               ]},
-              {"kind": "text", "text": "Off", "fontSize": 12, "color": "DimText", "align": "center", "width": "star"}
+              {"kind": "text", "text": "Off", "fontSize": 12, "color": "#8b939f", "align": "center", "width": "star"}
             ]},
-            {"kind": "vstack", "width": 120, "height": 80, "padding": 10, "gap": 10, "background": "PanelBg", "borderRadius": 8, "children": [
+            {"kind": "vstack", "width": 120, "height": 80, "padding": 10, "gap": 10, "background": "#171b22", "borderRadius": 8, "children": [
               {"kind": "hstack", "width": "star", "height": 30, "children": [
                 {"kind": "spacer", "width": "star"},
                 {"kind": "vstack", "width": 40, "height": "star", "children": [
                   {"kind": "spacer", "height": "star"},
-                  {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "Accent", "borderRadius": 11, "children": [
+                  {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "#ff5e00", "borderRadius": 11, "children": [
                     {"kind": "spacer", "width": "star"},
                     {"kind": "spacer", "width": 18, "height": 18, "background": "#ffffff", "borderRadius": 9}
                   ]},
@@ -50,29 +52,29 @@
                 ]},
                 {"kind": "spacer", "width": "star"}
               ]},
-              {"kind": "text", "text": "On", "fontSize": 12, "color": "DimText", "align": "center", "width": "star"}
+              {"kind": "text", "text": "On", "fontSize": 12, "color": "#8b939f", "align": "center", "width": "star"}
             ]},
-            {"kind": "vstack", "width": 120, "height": 80, "padding": 10, "gap": 10, "background": "PanelBg", "borderRadius": 8, "children": [
+            {"kind": "vstack", "width": 120, "height": 80, "padding": 10, "gap": 10, "background": "#171b22", "borderRadius": 8, "children": [
               {"kind": "hstack", "width": "star", "height": 30, "children": [
                 {"kind": "spacer", "width": "star"},
                 {"kind": "vstack", "width": 40, "height": "star", "children": [
                   {"kind": "spacer", "height": "star"},
-                  {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "Separator", "border": "SeparatorStrong", "borderRadius": 11, "children": [
-                    {"kind": "spacer", "width": 18, "height": 18, "background": "BodyText", "borderRadius": 9},
+                  {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "#2a3039", "border": "#3c444f", "borderRadius": 11, "children": [
+                    {"kind": "spacer", "width": 18, "height": 18, "background": "#e2e6ec", "borderRadius": 9},
                     {"kind": "spacer", "width": "star"}
                   ]},
                   {"kind": "spacer", "height": "star"}
                 ]},
                 {"kind": "spacer", "width": "star"}
               ]},
-              {"kind": "text", "text": "Off, hover", "fontSize": 12, "color": "DimText", "align": "center", "width": "star"}
+              {"kind": "text", "text": "Off, hover", "fontSize": 12, "color": "#8b939f", "align": "center", "width": "star"}
             ]},
-            {"kind": "vstack", "width": 120, "height": 80, "padding": 10, "gap": 10, "background": "PanelBg", "borderRadius": 8, "children": [
+            {"kind": "vstack", "width": 120, "height": 80, "padding": 10, "gap": 10, "background": "#171b22", "borderRadius": 8, "children": [
               {"kind": "hstack", "width": "star", "height": 30, "children": [
                 {"kind": "spacer", "width": "star"},
                 {"kind": "vstack", "width": 40, "height": "star", "children": [
                   {"kind": "spacer", "height": "star"},
-                  {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "#7ab2ff", "borderRadius": 11, "children": [
+                  {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "#ff7a2e", "borderRadius": 11, "children": [
                     {"kind": "spacer", "width": "star"},
                     {"kind": "spacer", "width": 18, "height": 18, "background": "#ffffff", "borderRadius": 9}
                   ]},
@@ -80,113 +82,151 @@
                 ]},
                 {"kind": "spacer", "width": "star"}
               ]},
-              {"kind": "text", "text": "On, hover", "fontSize": 12, "color": "DimText", "align": "center", "width": "star"}
+              {"kind": "text", "text": "On, hover", "fontSize": 12, "color": "#8b939f", "align": "center", "width": "star"}
             ]},
-            {"kind": "vstack", "width": 120, "height": 80, "padding": 10, "gap": 10, "background": "PanelBg", "borderRadius": 8, "children": [
+            {"kind": "vstack", "width": 120, "height": 80, "padding": 10, "gap": 10, "background": "#171b22", "borderRadius": 8, "children": [
               {"kind": "hstack", "width": "star", "height": 30, "children": [
                 {"kind": "spacer", "width": "star"},
-                {"kind": "hstack", "width": 48, "height": 30, "padding": 4, "border": "Focus", "borderWidth": 2, "borderRadius": 15, "children": [
-                  {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "Accent", "borderRadius": 11, "children": [
+                {"kind": "hstack", "width": 48, "height": 30, "padding": 4, "border": "#ff5e00", "borderWidth": 2, "borderRadius": 15, "children": [
+                  {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "#ff5e00", "borderRadius": 11, "children": [
                     {"kind": "spacer", "width": "star"},
                     {"kind": "spacer", "width": 18, "height": 18, "background": "#ffffff", "borderRadius": 9}
                   ]}
                 ]},
                 {"kind": "spacer", "width": "star"}
               ]},
-              {"kind": "text", "text": "Keyboard focus", "fontSize": 12, "color": "DimText", "align": "center", "width": "star"}
+              {"kind": "text", "text": "Keyboard focus", "fontSize": 12, "color": "#8b939f", "align": "center", "width": "star"}
             ]},
-            {"kind": "vstack", "width": 120, "height": 80, "padding": 10, "gap": 10, "background": "PanelBg", "borderRadius": 8, "children": [
+            {"kind": "vstack", "width": 120, "height": 80, "padding": 10, "gap": 10, "background": "#171b22", "borderRadius": 8, "children": [
               {"kind": "hstack", "width": "star", "height": 30, "children": [
                 {"kind": "spacer", "width": "star"},
                 {"kind": "vstack", "width": 40, "height": "star", "children": [
                   {"kind": "spacer", "height": "star"},
-                  {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "PanelBg", "border": "Separator", "borderRadius": 11, "children": [
-                    {"kind": "spacer", "width": 18, "height": 18, "background": "Separator", "borderRadius": 9},
+                  {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "#171b22", "border": "#2a3039", "borderRadius": 11, "children": [
+                    {"kind": "spacer", "width": 18, "height": 18, "background": "#3c444f", "borderRadius": 9},
                     {"kind": "spacer", "width": "star"}
                   ]},
                   {"kind": "spacer", "height": "star"}
                 ]},
                 {"kind": "spacer", "width": "star"}
               ]},
-              {"kind": "text", "text": "Off, locked", "fontSize": 12, "color": "DimText", "align": "center", "width": "star"}
+              {"kind": "text", "text": "Off, locked", "fontSize": 12, "color": "#8b939f", "align": "center", "width": "star"}
             ]},
-            {"kind": "vstack", "width": 120, "height": 80, "padding": 10, "gap": 10, "background": "PanelBg", "borderRadius": 8, "children": [
+            {"kind": "vstack", "width": 120, "height": 80, "padding": 10, "gap": 10, "background": "#171b22", "borderRadius": 8, "children": [
               {"kind": "hstack", "width": "star", "height": 30, "children": [
                 {"kind": "spacer", "width": "star"},
                 {"kind": "vstack", "width": 40, "height": "star", "children": [
                   {"kind": "spacer", "height": "star"},
-                  {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "Selection", "borderRadius": 11, "children": [
+                  {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "#743614", "borderRadius": 11, "children": [
                     {"kind": "spacer", "width": "star"},
-                    {"kind": "spacer", "width": 18, "height": 18, "background": "DimText", "borderRadius": 9}
+                    {"kind": "spacer", "width": 18, "height": 18, "background": "#8b939f", "borderRadius": 9}
                   ]},
                   {"kind": "spacer", "height": "star"}
                 ]},
                 {"kind": "spacer", "width": "star"}
               ]},
-              {"kind": "text", "text": "On, locked", "fontSize": 12, "color": "DimText", "align": "center", "width": "star"}
+              {"kind": "text", "text": "On, locked", "fontSize": 12, "color": "#8b939f", "align": "center", "width": "star"}
             ]},
-            {"kind": "vstack", "width": 120, "height": 80, "padding": 10, "gap": 10, "background": "PanelBg", "borderRadius": 8, "children": [
+            {"kind": "vstack", "width": 120, "height": 80, "padding": 10, "gap": 10, "background": "#171b22", "borderRadius": 8, "children": [
               {"kind": "hstack", "width": "star", "height": 30, "children": [
                 {"kind": "spacer", "width": "star"},
                 {"kind": "vstack", "width": 40, "height": "star", "children": [
                   {"kind": "spacer", "height": "star"},
-                  {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "Separator", "border": "SeparatorStrong", "borderRadius": 11, "children": [
+                  {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "#2a3039", "border": "#3c444f", "borderRadius": 11, "children": [
                     {"kind": "spacer", "width": "star"},
-                    {"kind": "spacer", "width": 18, "height": 18, "background": "DimText", "borderRadius": 9},
+                    {"kind": "spacer", "width": 18, "height": 18, "background": "#8b939f", "borderRadius": 9},
                     {"kind": "spacer", "width": "star"}
                   ]},
                   {"kind": "spacer", "height": "star"}
                 ]},
                 {"kind": "spacer", "width": "star"}
               ]},
-              {"kind": "text", "text": "Changing…", "fontSize": 12, "color": "DimText", "align": "center", "width": "star"}
+              {"kind": "text", "text": "Changing…", "fontSize": 12, "color": "#8b939f", "align": "center", "width": "star"}
             ]}
           ]},
 
-          {"kind": "text", "text": "Sizes", "fontSize": 15, "color": "HeaderText"},
+          {"kind": "text", "text": "Sizes and themes", "fontSize": 15, "color": "#ff5e00"},
           {"kind": "wrap", "gap": 10, "children": [
-            {"kind": "hstack", "width": 380, "height": 52, "padding": 14, "gap": 14, "background": "PanelBg", "borderRadius": 8, "children": [
+            {"kind": "hstack", "width": 280, "height": 52, "padding": 14, "gap": 12, "background": "#171b22", "borderRadius": 8, "children": [
               {"kind": "vstack", "width": 40, "height": "star", "children": [
                 {"kind": "spacer", "height": "star"},
-                {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "Accent", "borderRadius": 11, "children": [
+                {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "#ff5e00", "borderRadius": 11, "children": [
                   {"kind": "spacer", "width": "star"},
                   {"kind": "spacer", "width": 18, "height": 18, "background": "#ffffff", "borderRadius": 9}
                 ]},
                 {"kind": "spacer", "height": "star"}
               ]},
-              {"kind": "text", "text": "Regular 40 × 22: settings and forms", "color": "BodyText", "width": "star", "height": "star"}
+              {"kind": "text", "text": "Regular 40 × 22: settings", "color": "#e2e6ec", "width": "star", "height": "star"}
             ]},
-            {"kind": "hstack", "width": 380, "height": 52, "padding": 14, "gap": 14, "background": "PanelBg", "borderRadius": 8, "children": [
+            {"kind": "hstack", "width": 280, "height": 52, "padding": 14, "gap": 12, "background": "#171b22", "borderRadius": 8, "children": [
               {"kind": "vstack", "width": 40, "height": "star", "children": [
                 {"kind": "spacer", "height": "star"},
-                {"kind": "hstack", "width": 30, "height": 16, "padding": 2, "background": "Accent", "borderRadius": 8, "children": [
+                {"kind": "hstack", "width": 30, "height": 16, "padding": 2, "background": "#ff5e00", "borderRadius": 8, "children": [
                   {"kind": "spacer", "width": "star"},
                   {"kind": "spacer", "width": 12, "height": 12, "background": "#ffffff", "borderRadius": 6}
                 ]},
                 {"kind": "spacer", "height": "star"}
               ]},
-              {"kind": "text", "text": "Small 30 × 16: dense rows and tables", "color": "BodyText", "width": "star", "height": "star"}
+              {"kind": "text", "text": "Small 30 × 16: dense rows", "color": "#e2e6ec", "width": "star", "height": "star"}
+            ]},
+            {"kind": "hstack", "width": 170, "height": 52, "padding": 14, "gap": 8, "background": "#ffffff", "border": "#d8dee5", "borderRadius": 8, "children": [
+              {"kind": "vstack", "width": 40, "height": "star", "children": [
+                {"kind": "spacer", "height": "star"},
+                {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "#b83c00", "borderRadius": 11, "children": [
+                  {"kind": "spacer", "width": "star"},
+                  {"kind": "spacer", "width": 18, "height": 18, "background": "#ffffff", "borderRadius": 9}
+                ]},
+                {"kind": "spacer", "height": "star"}
+              ]},
+              {"kind": "vstack", "width": 40, "height": "star", "children": [
+                {"kind": "spacer", "height": "star"},
+                {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "#e9edf1", "border": "#bcc5cf", "borderRadius": 11, "children": [
+                  {"kind": "spacer", "width": 18, "height": 18, "background": "#ffffff", "border": "#bcc5cf", "borderRadius": 9},
+                  {"kind": "spacer", "width": "star"}
+                ]},
+                {"kind": "spacer", "height": "star"}
+              ]},
+              {"kind": "text", "text": "Light", "color": "#5a626c", "width": "star", "height": "star", "align": "far"}
+            ]},
+            {"kind": "hstack", "width": 170, "height": 52, "padding": 14, "gap": 8, "background": "#0c0400", "border": "#2e1200", "borderRadius": 8, "children": [
+              {"kind": "vstack", "width": 40, "height": "star", "children": [
+                {"kind": "spacer", "height": "star"},
+                {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "#ff6a00", "borderRadius": 11, "children": [
+                  {"kind": "spacer", "width": "star"},
+                  {"kind": "spacer", "width": 18, "height": 18, "background": "#000000", "borderRadius": 9}
+                ]},
+                {"kind": "spacer", "height": "star"}
+              ]},
+              {"kind": "vstack", "width": 40, "height": "star", "children": [
+                {"kind": "spacer", "height": "star"},
+                {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "#180800", "border": "#4d1e00", "borderRadius": 11, "children": [
+                  {"kind": "spacer", "width": 18, "height": 18, "background": "#b83c00", "borderRadius": 9},
+                  {"kind": "spacer", "width": "star"}
+                ]},
+                {"kind": "spacer", "height": "star"}
+              ]},
+              {"kind": "text", "text": "Night", "color": "#b83c00", "width": "star", "height": "star", "align": "far"}
             ]}
           ]},
 
-          {"kind": "text", "text": "Before and after", "fontSize": 15, "color": "HeaderText"},
-          {"kind": "vstack", "width": 440, "padding": 14, "gap": 12, "background": "PanelBg", "borderRadius": 8, "children": [
+          {"kind": "text", "text": "Before and after", "fontSize": 15, "color": "#ff5e00"},
+          {"kind": "vstack", "width": 440, "padding": 14, "gap": 12, "background": "#171b22", "borderRadius": 8, "children": [
             {"kind": "hstack", "width": "star", "height": 26, "gap": 14, "children": [
-              {"kind": "text", "text": "Today", "width": 60, "height": "star", "color": "DimText"},
-              {"kind": "text", "text": "ON", "width": 56, "height": "star", "align": "center", "background": "Selection", "color": "SelectionText"},
-              {"kind": "text", "text": "OFF", "width": 56, "height": "star", "align": "center", "background": "HeaderBg", "color": "BodyText"},
+              {"kind": "text", "text": "Today", "width": 60, "height": "star", "color": "#8b939f"},
+              {"kind": "text", "text": "ON", "width": 56, "height": "star", "align": "center", "background": "#302820", "color": "#e2e6ec"},
+              {"kind": "text", "text": "OFF", "width": 56, "height": "star", "align": "center", "background": "#1e232c", "color": "#e2e6ec"},
               {"kind": "hstack", "width": 100, "height": "star", "gap": 1, "children": [
-                {"kind": "text", "text": "On", "width": "star", "height": "star", "align": "center", "background": "Selection", "color": "SelectionText"},
-                {"kind": "text", "text": "Off", "width": "star", "height": "star", "align": "center", "background": "HeaderBg", "color": "BodyText"}
+                {"kind": "text", "text": "On", "width": "star", "height": "star", "align": "center", "background": "#302820", "color": "#e2e6ec"},
+                {"kind": "text", "text": "Off", "width": "star", "height": "star", "align": "center", "background": "#1e232c", "color": "#e2e6ec"}
               ]}
             ]},
             {"kind": "hstack", "width": "star", "height": 26, "gap": 14, "children": [
-              {"kind": "text", "text": "New", "width": 60, "height": "star", "color": "DimText"},
+              {"kind": "text", "text": "New", "width": 60, "height": "star", "color": "#8b939f"},
               {"kind": "hstack", "width": 56, "height": "star", "children": [
                 {"kind": "spacer", "width": "star"},
                 {"kind": "vstack", "width": 40, "height": "star", "children": [
                   {"kind": "spacer", "height": "star"},
-                  {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "Accent", "borderRadius": 11, "children": [
+                  {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "#ff5e00", "borderRadius": 11, "children": [
                     {"kind": "spacer", "width": "star"},
                     {"kind": "spacer", "width": 18, "height": 18, "background": "#ffffff", "borderRadius": 9}
                   ]},
@@ -198,8 +238,8 @@
                 {"kind": "spacer", "width": "star"},
                 {"kind": "vstack", "width": 40, "height": "star", "children": [
                   {"kind": "spacer", "height": "star"},
-                  {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "HeaderBg", "border": "SeparatorStrong", "borderRadius": 11, "children": [
-                    {"kind": "spacer", "width": 18, "height": 18, "background": "DimText", "borderRadius": 9},
+                  {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "#1e232c", "border": "#3c444f", "borderRadius": 11, "children": [
+                    {"kind": "spacer", "width": 18, "height": 18, "background": "#8b939f", "borderRadius": 9},
                     {"kind": "spacer", "width": "star"}
                   ]},
                   {"kind": "spacer", "height": "star"}
@@ -210,7 +250,7 @@
                 {"kind": "spacer", "width": "star"},
                 {"kind": "vstack", "width": 30, "height": "star", "children": [
                   {"kind": "spacer", "height": "star"},
-                  {"kind": "hstack", "width": 30, "height": 16, "padding": 2, "background": "Accent", "borderRadius": 8, "children": [
+                  {"kind": "hstack", "width": 30, "height": 16, "padding": 2, "background": "#ff5e00", "borderRadius": 8, "children": [
                     {"kind": "spacer", "width": "star"},
                     {"kind": "spacer", "width": 12, "height": 12, "background": "#ffffff", "borderRadius": 6}
                   ]},
@@ -219,18 +259,18 @@
                 {"kind": "spacer", "width": "star"}
               ]}
             ]},
-            {"kind": "text", "text": "ON / OFF blocks become switches; the On | Off pair a small one.", "fontSize": 12, "color": "DimText"}
+            {"kind": "text", "text": "ON / OFF blocks become switches; the On | Off pair a small one.", "fontSize": 12, "color": "#8b939f"}
           ]},
 
-          {"kind": "text", "text": "Try it", "fontSize": 15, "color": "HeaderText"},
-          {"kind": "hstack", "width": 600, "height": 56, "padding": 12, "gap": 12, "background": "PanelBg", "borderRadius": 8, "action": "toggle:try_on", "tooltip": "The whole row is the hit, not just the switch", "children": [
+          {"kind": "text", "text": "Try it", "fontSize": 15, "color": "#ff5e00"},
+          {"kind": "hstack", "width": 600, "height": 56, "padding": 12, "gap": 12, "background": "#171b22", "borderRadius": 8, "children": [
             {"kind": "vstack", "width": "star", "height": "star", "gap": 2, "children": [
-              {"kind": "text", "text": "Unpark mount", "color": "BodyText"},
-              {"kind": "text", "text": "Unpark a parked mount once the wait for dark is over", "fontSize": 12, "color": "DimText"}
+              {"kind": "text", "text": "Unpark mount", "color": "#e2e6ec"},
+              {"kind": "text", "text": "Unpark a parked mount once the wait for dark is over", "fontSize": 12, "color": "#8b939f"}
             ]},
             {"kind": "vstack", "width": 40, "height": "star", "when": "try_on=true", "children": [
               {"kind": "spacer", "height": "star"},
-              {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "Accent", "borderRadius": 11, "children": [
+              {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "#ff5e00", "borderRadius": 11, "action": "toggle:try_on", "tooltip": "Turn off", "children": [
                 {"kind": "spacer", "width": "star"},
                 {"kind": "spacer", "width": 18, "height": 18, "background": "#ffffff", "borderRadius": 9}
               ]},
@@ -238,8 +278,8 @@
             ]},
             {"kind": "vstack", "width": 40, "height": "star", "when": "try_on=false", "children": [
               {"kind": "spacer", "height": "star"},
-              {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "HeaderBg", "border": "SeparatorStrong", "borderRadius": 11, "children": [
-                {"kind": "spacer", "width": 18, "height": 18, "background": "DimText", "borderRadius": 9},
+              {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "#1e232c", "border": "#3c444f", "borderRadius": 11, "action": "toggle:try_on", "tooltip": "Turn on", "children": [
+                {"kind": "spacer", "width": 18, "height": 18, "background": "#8b939f", "borderRadius": 9},
                 {"kind": "spacer", "width": "star"}
               ]},
               {"kind": "spacer", "height": "star"}

@@ -1,0 +1,167 @@
+{
+  "id": "segments",
+  "title": "Segmented choices",
+  "root": {
+    "kind": "dock",
+    "background": "#101318",
+    "children": [
+      {
+        "kind": "dock", "side": "top", "size": 48, "padding": 8, "background": "#1e232c",
+        "children": [
+          {"kind": "text", "side": "left", "size": 160, "text": "tianwen", "fontSize": 16, "color": "#ff5e00"},
+          {"kind": "hstack", "side": "right", "size": 560, "gap": 6, "children": [
+            {"kind": "text", "text": "Switch", "width": "star", "height": "star", "align": "center", "background": "#171b22", "color": "#e2e6ec", "borderRadius": 6, "action": "goto:home"},
+            {"kind": "text", "text": "Confirm", "width": "star", "height": "star", "align": "center", "background": "#171b22", "color": "#e2e6ec", "borderRadius": 6, "action": "goto:confirm"},
+            {"kind": "text", "text": "Segments", "width": "star", "height": "star", "align": "center", "background": "#302820", "color": "#e2e6ec", "borderRadius": 6},
+            {"kind": "text", "text": "Settings", "width": "star", "height": "star", "align": "center", "background": "#171b22", "color": "#e2e6ec", "borderRadius": 6, "action": "goto:settings"},
+            {"kind": "text", "text": "Equipment", "width": "star", "height": "star", "align": "center", "background": "#171b22", "color": "#e2e6ec", "borderRadius": 6, "action": "goto:equipment"}
+          ]},
+          {"kind": "spacer"}
+        ]
+      },
+      {
+        "kind": "vstack", "padding": 20, "gap": 10,
+        "children": [
+          {"kind": "text", "text": "Before and after", "fontSize": 15, "color": "#ff5e00"},
+          {"kind": "vstack", "width": 560, "padding": 14, "gap": 12, "background": "#171b22", "borderRadius": 8, "children": [
+            {"kind": "hstack", "width": "star", "height": 30, "gap": 14, "children": [
+              {"kind": "text", "text": "Today", "width": 60, "height": "star", "color": "#8b939f"},
+              {"kind": "hstack", "width": 300, "height": "star", "gap": 1, "children": [
+                {"kind": "text", "text": "Linear", "width": "star", "height": "star", "align": "center", "background": "#1e232c", "color": "#e2e6ec"},
+                {"kind": "text", "text": "Auto STF", "width": "star", "height": "star", "align": "center", "background": "#302820", "color": "#e2e6ec"},
+                {"kind": "text", "text": "Histogram", "width": "star", "height": "star", "align": "center", "background": "#1e232c", "color": "#e2e6ec"}
+              ]}
+            ]},
+            {"kind": "hstack", "width": "star", "height": 30, "gap": 14, "children": [
+              {"kind": "text", "text": "New", "width": 60, "height": "star", "color": "#8b939f"},
+              {"kind": "hstack", "width": 300, "height": "star", "padding": 2, "gap": 2, "background": "#1e232c", "borderRadius": 9, "children": [
+                {"kind": "text", "text": "Linear", "width": "star", "height": "star", "align": "center", "color": "#8b939f"},
+                {"kind": "text", "text": "Auto STF", "width": "star", "height": "star", "align": "center", "background": "#3c444f", "color": "#e2e6ec", "borderRadius": 7},
+                {"kind": "text", "text": "Histogram", "width": "star", "height": "star", "align": "center", "color": "#8b939f"}
+              ]}
+            ]},
+            {"kind": "text", "text": "One rounded track; the chosen segment is a raised neutral pill, never the accent.", "fontSize": 12, "color": "#8b939f"}
+          ]},
+
+          {"kind": "text", "text": "States", "fontSize": 15, "color": "#ff5e00"},
+          {"kind": "wrap", "gap": 10, "children": [
+            {"kind": "vstack", "width": 250, "height": 84, "padding": 12, "gap": 10, "background": "#171b22", "borderRadius": 8, "children": [
+              {"kind": "hstack", "width": "star", "height": 30, "padding": 2, "gap": 2, "background": "#1e232c", "borderRadius": 9, "children": [
+                {"kind": "text", "text": "Off", "width": "star", "height": "star", "align": "center", "color": "#8b939f"},
+                {"kind": "text", "text": "Auto", "width": "star", "height": "star", "align": "center", "background": "#2a3039", "color": "#e2e6ec", "borderRadius": 7},
+                {"kind": "text", "text": "Manual", "width": "star", "height": "star", "align": "center", "background": "#3c444f", "color": "#e2e6ec", "borderRadius": 7}
+              ]},
+              {"kind": "text", "text": "Hover on Auto", "fontSize": 12, "color": "#8b939f", "align": "center", "width": "star"}
+            ]},
+            {"kind": "vstack", "width": 250, "height": 84, "padding": 12, "gap": 10, "background": "#171b22", "borderRadius": 8, "children": [
+              {"kind": "hstack", "width": "star", "height": 30, "padding": 2, "gap": 2, "background": "#171b22", "border": "#2a3039", "borderRadius": 9, "children": [
+                {"kind": "text", "text": "Off", "width": "star", "height": "star", "align": "center", "color": "#3c444f"},
+                {"kind": "text", "text": "Auto", "width": "star", "height": "star", "align": "center", "background": "#2a3039", "color": "#8b939f", "borderRadius": 7},
+                {"kind": "text", "text": "Manual", "width": "star", "height": "star", "align": "center", "color": "#3c444f"}
+              ]},
+              {"kind": "text", "text": "Locked", "fontSize": 12, "color": "#8b939f", "align": "center", "width": "star"}
+            ]},
+            {"kind": "vstack", "width": 250, "height": 84, "padding": 12, "gap": 10, "background": "#171b22", "borderRadius": 8, "children": [
+              {"kind": "hstack", "width": "star", "height": 30, "padding": 2, "gap": 2, "background": "#1e232c", "border": "#ff5e00", "borderWidth": 2, "borderRadius": 9, "children": [
+                {"kind": "text", "text": "Off", "width": "star", "height": "star", "align": "center", "color": "#8b939f"},
+                {"kind": "text", "text": "Auto", "width": "star", "height": "star", "align": "center", "background": "#3c444f", "color": "#e2e6ec", "borderRadius": 7},
+                {"kind": "text", "text": "Manual", "width": "star", "height": "star", "align": "center", "color": "#8b939f"}
+              ]},
+              {"kind": "text", "text": "Keyboard focus (← → move)", "fontSize": 12, "color": "#8b939f", "align": "center", "width": "star"}
+            ]}
+          ]},
+
+          {"kind": "text", "text": "In tianwen (click them)", "fontSize": 15, "color": "#ff5e00"},
+          {"kind": "vstack", "width": 640, "background": "#171b22", "borderRadius": 8, "children": [
+            {"kind": "hstack", "width": "star", "height": 56, "padding": 12, "gap": 12, "children": [
+              {"kind": "vstack", "width": "star", "height": "star", "gap": 2, "children": [
+                {"kind": "text", "text": "Stretch", "color": "#e2e6ec"},
+                {"kind": "text", "text": "Frame preview", "fontSize": 12, "color": "#8b939f"}
+              ]},
+              {"kind": "vstack", "width": 300, "height": "star", "children": [
+                {"kind": "spacer", "height": "star"},
+                {"kind": "hstack", "when": "stretch=false", "width": "star", "height": 30, "padding": 2, "gap": 2, "background": "#1e232c", "borderRadius": 9, "children": [
+                  {"kind": "text", "text": "Linear", "width": "star", "height": "star", "align": "center", "background": "#3c444f", "color": "#e2e6ec", "borderRadius": 7},
+                  {"kind": "text", "text": "Auto STF", "width": "star", "height": "star", "align": "center", "color": "#8b939f", "action": "set:stretch=auto"},
+                  {"kind": "text", "text": "Histogram", "width": "star", "height": "star", "align": "center", "color": "#8b939f", "action": "set:stretch=hist"}
+                ]},
+                {"kind": "hstack", "when": "stretch=auto", "width": "star", "height": 30, "padding": 2, "gap": 2, "background": "#1e232c", "borderRadius": 9, "children": [
+                  {"kind": "text", "text": "Linear", "width": "star", "height": "star", "align": "center", "color": "#8b939f", "action": "set:stretch=false"},
+                  {"kind": "text", "text": "Auto STF", "width": "star", "height": "star", "align": "center", "background": "#3c444f", "color": "#e2e6ec", "borderRadius": 7},
+                  {"kind": "text", "text": "Histogram", "width": "star", "height": "star", "align": "center", "color": "#8b939f", "action": "set:stretch=hist"}
+                ]},
+                {"kind": "hstack", "when": "stretch=hist", "width": "star", "height": 30, "padding": 2, "gap": 2, "background": "#1e232c", "borderRadius": 9, "children": [
+                  {"kind": "text", "text": "Linear", "width": "star", "height": "star", "align": "center", "color": "#8b939f", "action": "set:stretch=false"},
+                  {"kind": "text", "text": "Auto STF", "width": "star", "height": "star", "align": "center", "color": "#8b939f", "action": "set:stretch=auto"},
+                  {"kind": "text", "text": "Histogram", "width": "star", "height": "star", "align": "center", "background": "#3c444f", "color": "#e2e6ec", "borderRadius": 7}
+                ]},
+                {"kind": "spacer", "height": "star"}
+              ]}
+            ]},
+            {"kind": "spacer", "width": "star", "height": 1, "background": "#2a3039"},
+            {"kind": "hstack", "width": "star", "height": 56, "padding": 12, "gap": 12, "children": [
+              {"kind": "vstack", "width": "star", "height": "star", "gap": 2, "children": [
+                {"kind": "text", "text": "Recenter", "color": "#e2e6ec"},
+                {"kind": "text", "text": "Planetary capture", "fontSize": 12, "color": "#8b939f"}
+              ]},
+              {"kind": "vstack", "width": 300, "height": "star", "children": [
+                {"kind": "spacer", "height": "star"},
+                {"kind": "hstack", "when": "recenter=false", "width": "star", "height": 30, "padding": 2, "gap": 2, "background": "#1e232c", "borderRadius": 9, "children": [
+                  {"kind": "text", "text": "Off", "width": "star", "height": "star", "align": "center", "background": "#3c444f", "color": "#e2e6ec", "borderRadius": 7},
+                  {"kind": "text", "text": "Auto", "width": "star", "height": "star", "align": "center", "color": "#8b939f", "action": "set:recenter=auto"},
+                  {"kind": "text", "text": "Manual", "width": "star", "height": "star", "align": "center", "color": "#8b939f", "action": "set:recenter=manual"}
+                ]},
+                {"kind": "hstack", "when": "recenter=auto", "width": "star", "height": 30, "padding": 2, "gap": 2, "background": "#1e232c", "borderRadius": 9, "children": [
+                  {"kind": "text", "text": "Off", "width": "star", "height": "star", "align": "center", "color": "#8b939f", "action": "set:recenter=false"},
+                  {"kind": "text", "text": "Auto", "width": "star", "height": "star", "align": "center", "background": "#3c444f", "color": "#e2e6ec", "borderRadius": 7},
+                  {"kind": "text", "text": "Manual", "width": "star", "height": "star", "align": "center", "color": "#8b939f", "action": "set:recenter=manual"}
+                ]},
+                {"kind": "hstack", "when": "recenter=manual", "width": "star", "height": 30, "padding": 2, "gap": 2, "background": "#1e232c", "borderRadius": 9, "children": [
+                  {"kind": "text", "text": "Off", "width": "star", "height": "star", "align": "center", "color": "#8b939f", "action": "set:recenter=false"},
+                  {"kind": "text", "text": "Auto", "width": "star", "height": "star", "align": "center", "color": "#8b939f", "action": "set:recenter=auto"},
+                  {"kind": "text", "text": "Manual", "width": "star", "height": "star", "align": "center", "background": "#3c444f", "color": "#e2e6ec", "borderRadius": 7}
+                ]},
+                {"kind": "spacer", "height": "star"}
+              ]}
+            ]},
+            {"kind": "spacer", "width": "star", "height": 1, "background": "#2a3039"},
+            {"kind": "hstack", "width": "star", "height": 56, "padding": 12, "gap": 12, "children": [
+              {"kind": "vstack", "width": "star", "height": "star", "gap": 2, "children": [
+                {"kind": "text", "text": "Theme", "color": "#e2e6ec"},
+                {"kind": "text", "text": "Home board header", "fontSize": 12, "color": "#8b939f"}
+              ]},
+              {"kind": "vstack", "width": 300, "height": "star", "children": [
+                {"kind": "spacer", "height": "star"},
+                {"kind": "hstack", "when": "theme=false", "width": "star", "height": 30, "padding": 2, "gap": 2, "background": "#1e232c", "borderRadius": 9, "children": [
+                  {"kind": "text", "text": "Light", "width": "star", "height": "star", "align": "center", "color": "#8b939f", "action": "set:theme=light"},
+                  {"kind": "text", "text": "Dark", "width": "star", "height": "star", "align": "center", "background": "#3c444f", "color": "#e2e6ec", "borderRadius": 7},
+                  {"kind": "text", "text": "Night", "width": "star", "height": "star", "align": "center", "color": "#8b939f", "action": "set:theme=night"},
+                  {"kind": "text", "text": "System", "width": "star", "height": "star", "align": "center", "color": "#8b939f", "action": "set:theme=system"}
+                ]},
+                {"kind": "hstack", "when": "theme=light", "width": "star", "height": 30, "padding": 2, "gap": 2, "background": "#1e232c", "borderRadius": 9, "children": [
+                  {"kind": "text", "text": "Light", "width": "star", "height": "star", "align": "center", "background": "#3c444f", "color": "#e2e6ec", "borderRadius": 7},
+                  {"kind": "text", "text": "Dark", "width": "star", "height": "star", "align": "center", "color": "#8b939f", "action": "set:theme=false"},
+                  {"kind": "text", "text": "Night", "width": "star", "height": "star", "align": "center", "color": "#8b939f", "action": "set:theme=night"},
+                  {"kind": "text", "text": "System", "width": "star", "height": "star", "align": "center", "color": "#8b939f", "action": "set:theme=system"}
+                ]},
+                {"kind": "hstack", "when": "theme=night", "width": "star", "height": 30, "padding": 2, "gap": 2, "background": "#1e232c", "borderRadius": 9, "children": [
+                  {"kind": "text", "text": "Light", "width": "star", "height": "star", "align": "center", "color": "#8b939f", "action": "set:theme=light"},
+                  {"kind": "text", "text": "Dark", "width": "star", "height": "star", "align": "center", "color": "#8b939f", "action": "set:theme=false"},
+                  {"kind": "text", "text": "Night", "width": "star", "height": "star", "align": "center", "background": "#3c444f", "color": "#e2e6ec", "borderRadius": 7},
+                  {"kind": "text", "text": "System", "width": "star", "height": "star", "align": "center", "color": "#8b939f", "action": "set:theme=system"}
+                ]},
+                {"kind": "hstack", "when": "theme=system", "width": "star", "height": 30, "padding": 2, "gap": 2, "background": "#1e232c", "borderRadius": 9, "children": [
+                  {"kind": "text", "text": "Light", "width": "star", "height": "star", "align": "center", "color": "#8b939f", "action": "set:theme=light"},
+                  {"kind": "text", "text": "Dark", "width": "star", "height": "star", "align": "center", "color": "#8b939f", "action": "set:theme=false"},
+                  {"kind": "text", "text": "Night", "width": "star", "height": "star", "align": "center", "color": "#8b939f", "action": "set:theme=night"},
+                  {"kind": "text", "text": "System", "width": "star", "height": "star", "align": "center", "background": "#3c444f", "color": "#e2e6ec", "borderRadius": 7}
+                ]},
+                {"kind": "spacer", "height": "star"}
+              ]}
+            ]}
+          ]}
+        ]
+      }
+    ]
+  }
+}
