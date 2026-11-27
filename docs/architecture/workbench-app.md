@@ -135,6 +135,32 @@ the run's progress and cancel, as for any step.
   dims it). No stack is run. `WorkbenchCaptureTests` renders the empty window, a new project, a long capture path and a
   refusal at 1280x800 and 2000x1100 in Dark and Night, and at DPI 1.5.
 
+## The stack's masters and "Process this master"
+
+A stack names its results by its run (`IRunNamedOperation`), so the stack step has no image of its own. Its panel therefore
+has a "Masters" section between the run controls and the views, fed from `StepReport.Results` (one master per target and
+filter group), by `WorkbenchStepPanel.Masters`.
+
+- **Before the stack has run** the section says "The masters come once the stack has run: one for each target and filter
+  group." and lists none. A stack that ran and gave none says "The stack gave no masters."
+- **After it** each master is one row: its group name (cut at its end, the whole name on hover) and a "Process this master"
+  button. All rows share one height and one middle, and the buttons share one width column, so a long group name gives way
+  and never pushes a button off the panel.
+- **A press is the Lib routine's work**, `WorkbenchProjects.AddMasterChainAsync`, the one the `workbench process` verb calls. It
+  adds the enhance's chain as single steps (starless, stars, result, with the result named for the group, made unique with a
+  `-2` suffix when the name is taken). `WorkbenchActions.ProcessMaster` runs it through the background tracker, never on the
+  render thread, then opens the project again with the chain's result image selected.
+- **A second press for the same group is not refused**: the routine names the new chain uniquely, so both are kept.
+- **A refusal is said in words** beside the list (`WorkbenchState.MasterRefusal`, "<group> was not processed: ..."), for
+  example a stack whose files the store has lost ("run it first"). The next open of a project clears it.
+- **The buttons are dimmed with their reason** while a run goes (`ChoiceWaitsForTheRun`), while a status is being read and
+  while an earlier press is still laying out its chain (`WorkbenchState.IsProcessingMaster`); `ProcessMaster` refuses in the
+  same cases.
+- Tests: `WorkbenchMastersE2ETests` at DPI 1 and 1.5 (no masters before the stack; one row per master after it; a press adds
+  the chain as the routine does and shows its result; a second press is named uniquely; a lost master is refused in words;
+  the dimmed buttons). `WorkbenchCaptureTests` renders one master and several long group names at 1280x800 and 2000x1100
+  in Dark and Night, and at DPI 1.5.
+
 ## What W2 leaves out
 
 - Editing a step's settings: the panel shows them (W6, W12).
