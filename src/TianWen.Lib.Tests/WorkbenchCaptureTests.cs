@@ -107,12 +107,11 @@ public sealed class WorkbenchCaptureTests : IDisposable
                 steps[8].State.ShouldBe(StepState.Refused);
                 steps[8].Message.ShouldNotBeNullOrWhiteSpace();
 
-                // The capture is of the settled screen: the plan read has landed, so the run button says it cannot run, and why.
-                // The reason is words in a flow (nothing to press), so it is read from the panel's text, not from one text.
+                // The capture is of the settled screen: the plan read has landed, so the offer says it cannot run (the toolbar's Run is
+                // dimmed with that reason on hover).
                 await e2e.PumpUntilAsync(
-                    () => string.Join(' ', e2e.PanelText().Split(' ', StringSplitOptions.RemoveEmptyEntries))
-                        .Contains("Cannot run to here", StringComparison.Ordinal),
-                    "the refused step's run line saying it cannot run", ct);
+                    () => e2e.Actions.RunToHereOffer().Label.StartsWith("Cannot run to here", StringComparison.Ordinal),
+                    "the refused step's run offer saying it cannot run", ct);
                 e2e.Actions.RunToHereOffer().CanRun.ShouldBeFalse("a refused step offers no run");
             }
             else if (scenario is "result" or "comparison")

@@ -312,6 +312,12 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
         // One accent per view: the run is the toolbar's Run to <step> and the row's ▶, so the panel has no run button of its own.
         AddJob(rows, actions);
         AddMasters(rows, state, actions, panel);
+        if (actions.ComparisonDeclined)
+        {
+            // What the canvas cannot say: the comparison was asked for and not kept.
+            rows.Add(Words("The comparison was not kept for want of memory: the result is shown alone. Close other programs, then choose Before and after again.",
+                palette.DimText));
+        }
 
         rows.Add(Heading("Settings"));
         if (panel.SettingsRefusal is { } settingsRefusal)
