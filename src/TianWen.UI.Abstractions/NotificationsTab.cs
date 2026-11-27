@@ -123,7 +123,7 @@ namespace TianWen.UI.Abstractions
         private static float HeaderRowHeight => GuiTheme.Metrics.HeaderHeight;
 
         // Room a segment of the alert choice keeps around its word, design units.
-        private const float AlertSegmentSlack = 16f;
+        private const float AlertSegmentSlack = 8f;
 
         // The alert choice's font, design units: smaller than the heading so it reads as a control.
         private const float AlertChoiceFontSize = BaseFontSize * 0.85f;

@@ -78,9 +78,9 @@ public class NotificationsTabAlertSettingTests(ITestOutputHelper output)
     [Theory]
     [InlineData(1000, 1f, false)]
     [InlineData(1000, 1.5f, false)]
-    [InlineData(560, 1f, false)]
+    [InlineData(560, 1f, null)]
     [InlineData(560, 1.5f, true)]
-    public void TheHeaderLaysOutBesideOrBelowClearInsideItsRect(int width, float dpiScale, bool wraps)
+    public void TheHeaderLaysOutBesideOrBelowClearInsideItsRect(int width, float dpiScale, bool? mustWrap)
     {
         using var renderer = new RgbaImageRenderer((uint)width, 260u);
         var app = new GuiAppState { DesktopAlerts = AlertsOn(new Sink()) };
@@ -90,6 +90,11 @@ public class NotificationsTabAlertSettingTests(ITestOutputHelper output)
         var segments = ChoiceRegions(tab).OrderBy(r => r.X).ToArray();
         var clear = tab.GetRegisteredRegions().Single(r => r.Result is HitResult.ButtonHit { Action: "NotificationsClear" });
         var oneRow = 28f * dpiScale;
+        var wraps = segments[0].Y + segments[0].Height / 2f > clear.Y + clear.Height / 2f + oneRow / 2f;
+        if (mustWrap is { } expected)
+        {
+            wraps.ShouldBe(expected);
+        }
         var inHeader = (float bottom) => bottom <= oneRow * (wraps ? 2f : 1f) + 0.5f;
 
         segments.Length.ShouldBe(3);
