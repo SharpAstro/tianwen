@@ -1,0 +1,226 @@
+{
+  "id": "busy",
+  "title": "Busy button",
+  "root": {
+    "kind": "dock",
+    "background": "#101318",
+    "children": [
+      {
+        "kind": "dock", "side": "top", "size": 48, "padding": 8, "background": "#1e232c",
+        "children": [
+          {"kind": "text", "side": "left", "size": 160, "text": "tianwen", "fontSize": 16, "color": "#ff5e00"},
+          {"kind": "hstack", "side": "right", "size": 640, "gap": 6, "children": [
+            {"kind": "text", "text": "Switch", "width": "star", "height": "star", "align": "center", "background": "#171b22", "color": "#e2e6ec", "borderRadius": 6, "action": "goto:home"},
+            {"kind": "text", "text": "Confirm", "width": "star", "height": "star", "align": "center", "background": "#171b22", "color": "#e2e6ec", "borderRadius": 6, "action": "goto:confirm"},
+            {"kind": "text", "text": "Busy", "width": "star", "height": "star", "align": "center", "background": "#302820", "color": "#e2e6ec", "borderRadius": 6},
+            {"kind": "text", "text": "Segments", "width": "star", "height": "star", "align": "center", "background": "#171b22", "color": "#e2e6ec", "borderRadius": 6, "action": "goto:segments"},
+            {"kind": "text", "text": "Settings", "width": "star", "height": "star", "align": "center", "background": "#171b22", "color": "#e2e6ec", "borderRadius": 6, "action": "goto:settings"},
+            {"kind": "text", "text": "Equipment", "width": "star", "height": "star", "align": "center", "background": "#171b22", "color": "#e2e6ec", "borderRadius": 6, "action": "goto:equipment"}
+          ]},
+          {"kind": "spacer"}
+        ]
+      },
+      {
+        "kind": "vstack", "padding": 20, "gap": 10,
+        "children": [
+          {"kind": "text", "text": "States", "fontSize": 15, "color": "#ff5e00"},
+          {"kind": "wrap", "gap": 10, "children": [
+            {"kind": "vstack", "width": 340, "height": 84, "padding": 12, "gap": 10, "background": "#171b22", "borderRadius": 8, "children": [
+              {"kind": "hstack", "width": "star", "height": 30, "gap": 10, "children": [
+                {"kind": "text", "text": "Plate solve", "width": 140, "height": "star", "align": "center", "background": "#1e232c", "border": "#3c444f", "color": "#e2e6ec", "borderRadius": 8}
+              ]},
+              {"kind": "text", "text": "Rest", "fontSize": 12, "color": "#8b939f", "align": "center", "width": "star"}
+            ]},
+            {"kind": "vstack", "width": 340, "height": 84, "padding": 12, "gap": 10, "background": "#171b22", "borderRadius": 8, "children": [
+              {"kind": "hstack", "width": "star", "height": 30, "gap": 10, "children": [
+                {"kind": "hstack", "width": 140, "height": "star", "padding": 6, "gap": 8, "background": "#1e232c", "border": "#3c444f", "borderRadius": 8, "children": [
+                  {"kind": "vstack", "width": 14, "height": "star", "children": [
+                    {"kind": "spacer", "height": "star"},
+                    {"kind": "overlay", "width": 14, "height": 14, "children": [
+                      {"kind": "spacer", "width": "star", "height": "star", "border": "#3c444f", "borderWidth": 2, "borderRadius": 7},
+                      {"kind": "vstack", "width": "star", "height": "star", "children": [
+                        {"kind": "hstack", "width": "star", "height": 6, "children": [
+                          {"kind": "spacer", "width": "star"},
+                          {"kind": "spacer", "width": 6, "height": 6, "background": "#ff5e00", "borderRadius": 3}
+                        ]},
+                        {"kind": "spacer", "height": "star"}
+                      ]}
+                    ]},
+                    {"kind": "spacer", "height": "star"}
+                  ]},
+                  {"kind": "text", "text": "Solving…", "width": "star", "height": "star", "fontSize": 13, "color": "#8b939f"}
+                ]},
+                {"kind": "text", "text": "about 15 seconds", "width": "star", "height": "star", "fontSize": 12, "color": "#8b939f"}
+              ]},
+              {"kind": "text", "text": "Busy, with an estimate", "fontSize": 12, "color": "#8b939f", "align": "center", "width": "star"}
+            ]},
+            {"kind": "vstack", "width": 340, "height": 84, "padding": 12, "gap": 10, "background": "#171b22", "borderRadius": 8, "children": [
+              {"kind": "hstack", "width": "star", "height": 30, "gap": 10, "children": [
+                {"kind": "hstack", "width": 140, "height": "star", "padding": 6, "gap": 8, "background": "#1e232c", "border": "#3c444f", "borderRadius": 8, "children": [
+                  {"kind": "vstack", "width": 14, "height": "star", "children": [
+                    {"kind": "spacer", "height": "star"},
+                    {"kind": "overlay", "width": 14, "height": 14, "children": [
+                      {"kind": "spacer", "width": "star", "height": "star", "border": "#3c444f", "borderWidth": 2, "borderRadius": 7},
+                      {"kind": "vstack", "width": "star", "height": "star", "children": [
+                        {"kind": "hstack", "width": "star", "height": 6, "children": [
+                          {"kind": "spacer", "width": "star"},
+                          {"kind": "spacer", "width": 6, "height": 6, "background": "#ff5e00", "borderRadius": 3}
+                        ]},
+                        {"kind": "spacer", "height": "star"}
+                      ]}
+                    ]},
+                    {"kind": "spacer", "height": "star"}
+                  ]},
+                  {"kind": "text", "text": "Focusing…", "width": "star", "height": "star", "fontSize": 13, "color": "#8b939f"}
+                ]},
+                {"kind": "text", "text": "step 4 of 9", "width": "star", "height": "star", "fontSize": 12, "color": "#8b939f"}
+              ]},
+              {"kind": "text", "text": "Busy, counted in steps", "fontSize": 12, "color": "#8b939f", "align": "center", "width": "star"}
+            ]},
+            {"kind": "vstack", "width": 340, "height": 84, "padding": 12, "gap": 10, "background": "#171b22", "borderRadius": 8, "children": [
+              {"kind": "hstack", "width": "star", "height": 30, "gap": 10, "children": [
+                {"kind": "hstack", "width": 140, "height": "star", "padding": 6, "gap": 8, "background": "#1e232c", "border": "#3c444f", "borderRadius": 8, "children": [
+                  {"kind": "vstack", "width": 14, "height": "star", "children": [
+                    {"kind": "spacer", "height": "star"},
+                    {"kind": "overlay", "width": 14, "height": 14, "children": [
+                      {"kind": "spacer", "width": "star", "height": "star", "border": "#3c444f", "borderWidth": 2, "borderRadius": 7},
+                      {"kind": "vstack", "width": "star", "height": "star", "children": [
+                        {"kind": "hstack", "width": "star", "height": 6, "children": [
+                          {"kind": "spacer", "width": "star"},
+                          {"kind": "spacer", "width": 6, "height": 6, "background": "#ff5e00", "borderRadius": 3}
+                        ]},
+                        {"kind": "spacer", "height": "star"}
+                      ]}
+                    ]},
+                    {"kind": "spacer", "height": "star"}
+                  ]},
+                  {"kind": "text", "text": "Solving…", "width": "star", "height": "star", "fontSize": 13, "color": "#8b939f"}
+                ]},
+                {"kind": "text", "text": "longer than usual (45 s)", "width": "star", "height": "star", "fontSize": 12, "color": "#ccac18"}
+              ]},
+              {"kind": "text", "text": "Past its estimate", "fontSize": 12, "color": "#8b939f", "align": "center", "width": "star"}
+            ]},
+            {"kind": "vstack", "width": 340, "height": 84, "padding": 12, "gap": 10, "background": "#171b22", "borderRadius": 8, "children": [
+              {"kind": "hstack", "width": "star", "height": 30, "gap": 10, "children": [
+                {"kind": "hstack", "width": 140, "height": "star", "padding": 6, "gap": 8, "background": "#1e232c", "border": "#4cc38a", "borderRadius": 8, "children": [
+                  {"kind": "vstack", "width": 14, "height": "star", "children": [
+                    {"kind": "spacer", "height": "star"},
+                    {"kind": "icon", "icon": "Check", "iconSize": 14, "color": "#4cc38a"},
+                    {"kind": "spacer", "height": "star"}
+                  ]},
+                  {"kind": "text", "text": "Solved", "width": "star", "height": "star", "fontSize": 13, "color": "#4cc38a"}
+                ]},
+                {"kind": "text", "text": "RA 5h 35m · Dec −5° 23′", "width": "star", "height": "star", "fontSize": 12, "color": "#e2e6ec"}
+              ]},
+              {"kind": "text", "text": "Done: holds 3 s, then rests", "fontSize": 12, "color": "#8b939f", "align": "center", "width": "star"}
+            ]},
+            {"kind": "vstack", "width": 340, "height": 84, "padding": 12, "gap": 10, "background": "#171b22", "borderRadius": 8, "children": [
+              {"kind": "hstack", "width": "star", "height": 30, "gap": 10, "children": [
+                {"kind": "text", "text": "Plate solve", "width": 140, "height": "star", "align": "center", "background": "#1e232c", "border": "#3c444f", "color": "#e2e6ec", "borderRadius": 8},
+                {"kind": "text", "text": "No stars found", "width": "star", "height": "star", "fontSize": 12, "color": "#ff7a70"}
+              ]},
+              {"kind": "text", "text": "Failed: rests, says why", "fontSize": 12, "color": "#8b939f", "align": "center", "width": "star"}
+            ]}
+          ]},
+
+          {"kind": "text", "text": "In tianwen (click them)", "fontSize": 15, "color": "#ff5e00"},
+          {"kind": "vstack", "width": 760, "background": "#171b22", "borderRadius": 8, "children": [
+
+            {"kind": "hstack", "width": "star", "height": 60, "padding": 14, "gap": 12, "children": [
+              {"kind": "vstack", "width": "star", "height": "star", "gap": 2, "children": [
+                {"kind": "text", "text": "Frame L_0047", "color": "#e2e6ec"},
+                {"kind": "text", "text": "120 s · gain 100 · −10 °C", "fontSize": 12, "color": "#8b939f"}
+              ]},
+              {"kind": "hstack", "width": 380, "height": "star", "gap": 8, "children": [
+                {"kind": "spacer", "width": "star"},
+                {"kind": "text", "when": "solve=busy", "text": "about 15 seconds", "width": 120, "height": "star", "align": "far", "fontSize": 12, "color": "#8b939f"},
+                {"kind": "text", "when": "solve=busy", "text": "Stop", "width": 56, "height": "star", "align": "center", "background": "#1e232c", "border": "#3c444f", "color": "#e2e6ec", "borderRadius": 8, "action": "set:solve=false"},
+                {"kind": "text", "when": "solve=false", "text": "Plate solve", "width": 140, "height": "star", "align": "center", "background": "#1e232c", "border": "#3c444f", "color": "#e2e6ec", "borderRadius": 8, "action": "set:solve=busy"},
+                {"kind": "hstack", "when": "solve=busy", "width": 140, "height": "star", "padding": 6, "gap": 8, "background": "#1e232c", "border": "#3c444f", "borderRadius": 8, "tooltip": "Solving: takes no press until it finishes", "children": [
+                  {"kind": "vstack", "width": 14, "height": "star", "children": [
+                    {"kind": "spacer", "height": "star"},
+                    {"kind": "overlay", "width": 14, "height": 14, "children": [
+                      {"kind": "spacer", "width": "star", "height": "star", "border": "#3c444f", "borderWidth": 2, "borderRadius": 7},
+                      {"kind": "vstack", "width": "star", "height": "star", "children": [
+                        {"kind": "hstack", "width": "star", "height": 6, "children": [
+                          {"kind": "spacer", "width": "star"},
+                          {"kind": "spacer", "width": 6, "height": 6, "background": "#ff5e00", "borderRadius": 3}
+                        ]},
+                        {"kind": "spacer", "height": "star"}
+                      ]}
+                    ]},
+                    {"kind": "spacer", "height": "star"}
+                  ]},
+                  {"kind": "text", "text": "Solving…", "width": "star", "height": "star", "fontSize": 13, "color": "#8b939f"}
+                ]}
+              ]}
+            ]},
+            {"kind": "spacer", "width": "star", "height": 1, "background": "#2a3039"},
+
+            {"kind": "hstack", "width": "star", "height": 60, "padding": 14, "gap": 12, "children": [
+              {"kind": "vstack", "width": "star", "height": "star", "gap": 2, "children": [
+                {"kind": "text", "text": "Autofocus · ZWO EAF", "color": "#e2e6ec"},
+                {"kind": "text", "text": "9 positions, 600 steps apart", "fontSize": 12, "color": "#8b939f"}
+              ]},
+              {"kind": "hstack", "width": 380, "height": "star", "gap": 8, "children": [
+                {"kind": "spacer", "width": "star"},
+                {"kind": "text", "when": "af=busy", "text": "step 4 of 9", "width": 120, "height": "star", "align": "far", "fontSize": 12, "color": "#8b939f"},
+                {"kind": "text", "when": "af=busy", "text": "Stop", "width": 56, "height": "star", "align": "center", "background": "#1e232c", "border": "#3c444f", "color": "#e2e6ec", "borderRadius": 8, "action": "set:af=false"},
+                {"kind": "text", "when": "af=false", "text": "Run autofocus", "width": 140, "height": "star", "align": "center", "background": "#1e232c", "border": "#3c444f", "color": "#e2e6ec", "borderRadius": 8, "action": "set:af=busy"},
+                {"kind": "hstack", "when": "af=busy", "width": 140, "height": "star", "padding": 6, "gap": 8, "background": "#1e232c", "border": "#3c444f", "borderRadius": 8, "tooltip": "Focusing: takes no press until it finishes", "children": [
+                  {"kind": "vstack", "width": 14, "height": "star", "children": [
+                    {"kind": "spacer", "height": "star"},
+                    {"kind": "overlay", "width": 14, "height": 14, "children": [
+                      {"kind": "spacer", "width": "star", "height": "star", "border": "#3c444f", "borderWidth": 2, "borderRadius": 7},
+                      {"kind": "vstack", "width": "star", "height": "star", "children": [
+                        {"kind": "hstack", "width": "star", "height": 6, "children": [
+                          {"kind": "spacer", "width": "star"},
+                          {"kind": "spacer", "width": 6, "height": 6, "background": "#ff5e00", "borderRadius": 3}
+                        ]},
+                        {"kind": "spacer", "height": "star"}
+                      ]}
+                    ]},
+                    {"kind": "spacer", "height": "star"}
+                  ]},
+                  {"kind": "text", "text": "Focusing…", "width": "star", "height": "star", "fontSize": 13, "color": "#8b939f"}
+                ]}
+              ]}
+            ]},
+            {"kind": "spacer", "width": "star", "height": 1, "background": "#2a3039"},
+
+            {"kind": "hstack", "width": "star", "height": 60, "padding": 14, "gap": 12, "children": [
+              {"kind": "vstack", "width": "star", "height": "star", "gap": 2, "children": [
+                {"kind": "text", "text": "Star catalogue", "color": "#e2e6ec"},
+                {"kind": "text", "text": "Tycho-2, last fetched 12 days ago", "fontSize": 12, "color": "#8b939f"}
+              ]},
+              {"kind": "hstack", "width": 380, "height": "star", "gap": 8, "children": [
+                {"kind": "spacer", "width": "star"},
+                {"kind": "text", "when": "cat=busy", "text": "about 2 minutes", "width": 120, "height": "star", "align": "far", "fontSize": 12, "color": "#8b939f"},
+                {"kind": "text", "when": "cat=busy", "text": "Stop", "width": 56, "height": "star", "align": "center", "background": "#1e232c", "border": "#3c444f", "color": "#e2e6ec", "borderRadius": 8, "action": "set:cat=false"},
+                {"kind": "text", "when": "cat=false", "text": "Update", "width": 140, "height": "star", "align": "center", "background": "#1e232c", "border": "#3c444f", "color": "#e2e6ec", "borderRadius": 8, "action": "set:cat=busy"},
+                {"kind": "hstack", "when": "cat=busy", "width": 140, "height": "star", "padding": 6, "gap": 8, "background": "#1e232c", "border": "#3c444f", "borderRadius": 8, "tooltip": "Updating: takes no press until it finishes", "children": [
+                  {"kind": "vstack", "width": 14, "height": "star", "children": [
+                    {"kind": "spacer", "height": "star"},
+                    {"kind": "overlay", "width": 14, "height": 14, "children": [
+                      {"kind": "spacer", "width": "star", "height": "star", "border": "#3c444f", "borderWidth": 2, "borderRadius": 7},
+                      {"kind": "vstack", "width": "star", "height": "star", "children": [
+                        {"kind": "hstack", "width": "star", "height": 6, "children": [
+                          {"kind": "spacer", "width": "star"},
+                          {"kind": "spacer", "width": 6, "height": 6, "background": "#ff5e00", "borderRadius": 3}
+                        ]},
+                        {"kind": "spacer", "height": "star"}
+                      ]}
+                    ]},
+                    {"kind": "spacer", "height": "star"}
+                  ]},
+                  {"kind": "text", "text": "Updating…", "width": "star", "height": "star", "fontSize": 13, "color": "#8b939f"}
+                ]}
+              ]}
+            ]}
+          ]},
+          {"kind": "text", "text": "The busy button stays where it was pressed and takes no press; Stop and the estimate sit to its left, never under the pointer.", "fontSize": 12, "color": "#8b939f"}
+        ]
+      }
+    ]
+  }
+}

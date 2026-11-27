@@ -9,9 +9,10 @@
         "kind": "dock", "side": "top", "size": 48, "padding": 8, "background": "#1e232c",
         "children": [
           {"kind": "text", "side": "left", "size": 160, "text": "tianwen", "fontSize": 16, "color": "#ff5e00"},
-          {"kind": "hstack", "side": "right", "size": 560, "gap": 6, "children": [
+          {"kind": "hstack", "side": "right", "size": 640, "gap": 6, "children": [
             {"kind": "text", "text": "Switch", "width": "star", "height": "star", "align": "center", "background": "#302820", "color": "#e2e6ec", "borderRadius": 6},
             {"kind": "text", "text": "Confirm", "width": "star", "height": "star", "align": "center", "background": "#171b22", "color": "#e2e6ec", "borderRadius": 6, "action": "goto:confirm"},
+            {"kind": "text", "text": "Busy", "width": "star", "height": "star", "align": "center", "background": "#171b22", "color": "#e2e6ec", "borderRadius": 6, "action": "goto:busy"},
             {"kind": "text", "text": "Segments", "width": "star", "height": "star", "align": "center", "background": "#171b22", "color": "#e2e6ec", "borderRadius": 6, "action": "goto:segments"},
             {"kind": "text", "text": "Settings", "width": "star", "height": "star", "align": "center", "background": "#171b22", "color": "#e2e6ec", "borderRadius": 6, "action": "goto:settings"},
             {"kind": "text", "text": "Equipment", "width": "star", "height": "star", "align": "center", "background": "#171b22", "color": "#e2e6ec", "borderRadius": 6, "action": "goto:equipment"}
@@ -142,6 +143,42 @@
                 {"kind": "spacer", "width": "star"}
               ]},
               {"kind": "text", "text": "Changing…", "fontSize": 12, "color": "#8b939f", "align": "center", "width": "star"}
+            ]},
+            {"kind": "vstack", "width": 120, "height": 80, "padding": 10, "gap": 10, "background": "#171b22", "borderRadius": 8, "children": [
+              {"kind": "hstack", "width": "star", "height": 30, "gap": 6, "children": [
+                {"kind": "spacer", "width": "star"},
+                {"kind": "vstack", "width": 40, "height": "star", "children": [
+                  {"kind": "spacer", "height": "star"},
+                  {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "#1e232c", "border": "#ff7a70", "borderRadius": 11, "children": [
+                    {"kind": "spacer", "width": 18, "height": 18, "background": "#8b939f", "borderRadius": 9},
+                    {"kind": "spacer", "width": "star"}
+                  ]},
+                  {"kind": "spacer", "height": "star"}
+                ]},
+                {"kind": "vstack", "width": 14, "height": "star", "children": [
+                  {"kind": "spacer", "height": "star"},
+                  {"kind": "icon", "icon": "Error", "iconSize": 14, "color": "#ff7a70"},
+                  {"kind": "spacer", "height": "star"}
+                ]},
+                {"kind": "spacer", "width": "star"}
+              ]},
+              {"kind": "text", "text": "Refused", "fontSize": 12, "color": "#8b939f", "align": "center", "width": "star"}
+            ]},
+            {"kind": "vstack", "width": 250, "height": 80, "padding": 10, "gap": 10, "background": "#171b22", "borderRadius": 8, "children": [
+              {"kind": "hstack", "width": "star", "height": 30, "gap": 10, "children": [
+                {"kind": "spacer", "width": "star"},
+                {"kind": "vstack", "width": 40, "height": "star", "children": [
+                  {"kind": "spacer", "height": "star"},
+                  {"kind": "hstack", "width": 40, "height": 22, "padding": 2, "background": "#ff5e00", "borderRadius": 11, "children": [
+                    {"kind": "spacer", "width": "star"},
+                    {"kind": "spacer", "width": 18, "height": 18, "background": "#ffffff", "borderRadius": 9}
+                  ]},
+                  {"kind": "spacer", "height": "star"}
+                ]},
+                {"kind": "text", "text": "One per pool", "width": 110, "height": "star", "color": "#e2e6ec"},
+                {"kind": "spacer", "width": "star"}
+              ]},
+              {"kind": "text", "text": "With a state label (warboard)", "fontSize": 12, "color": "#8b939f", "align": "center", "width": "star"}
             ]}
           ]},
 

@@ -1,6 +1,6 @@
 {
   "id": "confirm",
-  "title": "Confirm buttons",
+  "title": "Confirm in place",
   "root": {
     "kind": "dock",
     "background": "#101318",
@@ -9,9 +9,10 @@
         "kind": "dock", "side": "top", "size": 48, "padding": 8, "background": "#1e232c",
         "children": [
           {"kind": "text", "side": "left", "size": 160, "text": "tianwen", "fontSize": 16, "color": "#ff5e00"},
-          {"kind": "hstack", "side": "right", "size": 560, "gap": 6, "children": [
+          {"kind": "hstack", "side": "right", "size": 640, "gap": 6, "children": [
             {"kind": "text", "text": "Switch", "width": "star", "height": "star", "align": "center", "background": "#171b22", "color": "#e2e6ec", "borderRadius": 6, "action": "goto:home"},
             {"kind": "text", "text": "Confirm", "width": "star", "height": "star", "align": "center", "background": "#302820", "color": "#e2e6ec", "borderRadius": 6},
+            {"kind": "text", "text": "Busy", "width": "star", "height": "star", "align": "center", "background": "#171b22", "color": "#e2e6ec", "borderRadius": 6, "action": "goto:busy"},
             {"kind": "text", "text": "Segments", "width": "star", "height": "star", "align": "center", "background": "#171b22", "color": "#e2e6ec", "borderRadius": 6, "action": "goto:segments"},
             {"kind": "text", "text": "Settings", "width": "star", "height": "star", "align": "center", "background": "#171b22", "color": "#e2e6ec", "borderRadius": 6, "action": "goto:settings"},
             {"kind": "text", "text": "Equipment", "width": "star", "height": "star", "align": "center", "background": "#171b22", "color": "#e2e6ec", "borderRadius": 6, "action": "goto:equipment"}
@@ -25,110 +26,130 @@
           {"kind": "text", "text": "States", "fontSize": 15, "color": "#ff5e00"},
           {"kind": "wrap", "gap": 10, "children": [
             {"kind": "vstack", "width": 150, "height": 84, "padding": 12, "gap": 10, "background": "#171b22", "borderRadius": 8, "children": [
-              {"kind": "vstack", "width": "star", "height": 33, "gap": 3, "children": [
-                {"kind": "text", "text": "Remove", "width": "star", "height": 30, "align": "center", "background": "#1e232c", "border": "#3c444f", "color": "#ff7a70", "borderRadius": 8}
-              ]},
+              {"kind": "text", "text": "Remove", "width": "star", "height": 30, "align": "center", "background": "#1e232c", "border": "#3c444f", "color": "#ff7a70", "borderRadius": 8},
               {"kind": "text", "text": "Rest", "fontSize": 12, "color": "#8b939f", "align": "center", "width": "star"}
             ]},
             {"kind": "vstack", "width": 150, "height": 84, "padding": 12, "gap": 10, "background": "#171b22", "borderRadius": 8, "children": [
-              {"kind": "vstack", "width": "star", "height": 33, "gap": 3, "children": [
-                {"kind": "text", "text": "Remove", "width": "star", "height": 30, "align": "center", "background": "#2a3039", "border": "#3c444f", "color": "#ff7a70", "borderRadius": 8}
-              ]},
+              {"kind": "text", "text": "Remove", "width": "star", "height": 30, "align": "center", "background": "#2a3039", "border": "#3c444f", "color": "#ff7a70", "borderRadius": 8},
               {"kind": "text", "text": "Hover", "fontSize": 12, "color": "#8b939f", "align": "center", "width": "star"}
             ]},
-            {"kind": "vstack", "width": 150, "height": 84, "padding": 12, "gap": 10, "background": "#171b22", "borderRadius": 8, "children": [
-              {"kind": "vstack", "width": "star", "height": 33, "gap": 0, "children": [
-                {"kind": "text", "text": "Remove?", "width": "star", "height": 30, "align": "center", "background": "#ff7a70", "color": "#101318", "borderRadius": 8},
-                {"kind": "hstack", "width": "star", "height": 3, "children": [
-                  {"kind": "spacer", "width": "star:2", "height": 3, "background": "#ff7a70", "borderRadius": 1},
-                  {"kind": "spacer", "width": "star:3", "height": 3}
-                ]}
+            {"kind": "vstack", "width": 380, "height": 84, "padding": 12, "gap": 10, "background": "#171b22", "borderRadius": 8, "children": [
+              {"kind": "hstack", "width": "star", "height": 30, "padding": 3, "gap": 6, "background": "#38282d", "border": "#ff7a70", "borderRadius": 8, "children": [
+                {"kind": "vstack", "width": 16, "height": "star", "children": [
+                  {"kind": "spacer", "height": "star"},
+                  {"kind": "icon", "icon": "Error", "iconSize": 14, "color": "#ff7a70"},
+                  {"kind": "spacer", "height": "star"}
+                ]},
+                {"kind": "text", "text": "Remove ZWO EAF?", "width": "star", "height": "star", "fontSize": 13, "color": "#e2e6ec"},
+                {"kind": "text", "text": "Remove", "width": 74, "height": "star", "align": "center", "fontSize": 13, "background": "#ff7a70", "color": "#101318", "borderRadius": 6},
+                {"kind": "text", "text": "Cancel", "width": 72, "height": "star", "align": "center", "fontSize": 13, "color": "#8b939f", "borderRadius": 6}
               ]},
-              {"kind": "text", "text": "Armed (5 s)", "fontSize": 12, "color": "#8b939f", "align": "center", "width": "star"}
+              {"kind": "text", "text": "Asking: destroys something", "fontSize": 12, "color": "#8b939f", "align": "center", "width": "star"}
             ]},
-            {"kind": "vstack", "width": 150, "height": 84, "padding": 12, "gap": 10, "background": "#171b22", "borderRadius": 8, "children": [
-              {"kind": "vstack", "width": "star", "height": 33, "gap": 3, "children": [
-                {"kind": "text", "text": "Goto anyway", "width": "star", "height": 30, "align": "center", "background": "#ccac18", "color": "#101318", "borderRadius": 8}
+            {"kind": "vstack", "width": 380, "height": 84, "padding": 12, "gap": 10, "background": "#171b22", "borderRadius": 8, "children": [
+              {"kind": "hstack", "width": "star", "height": 30, "padding": 3, "gap": 6, "background": "#302f21", "border": "#ccac18", "borderRadius": 8, "children": [
+                {"kind": "vstack", "width": 16, "height": "star", "children": [
+                  {"kind": "spacer", "height": "star"},
+                  {"kind": "icon", "icon": "Warning", "iconSize": 14, "color": "#ccac18"},
+                  {"kind": "spacer", "height": "star"}
+                ]},
+                {"kind": "text", "text": "Goto the unfiltered Sun?", "width": "star", "height": "star", "fontSize": 13, "color": "#e2e6ec"},
+                {"kind": "text", "text": "Goto", "width": 58, "height": "star", "align": "center", "fontSize": 13, "background": "#ccac18", "color": "#101318", "borderRadius": 6},
+                {"kind": "text", "text": "Cancel", "width": 72, "height": "star", "align": "center", "fontSize": 13, "color": "#8b939f", "borderRadius": 6}
               ]},
-              {"kind": "text", "text": "Armed, hazard", "fontSize": 12, "color": "#8b939f", "align": "center", "width": "star"}
-            ]},
-            {"kind": "vstack", "width": 150, "height": 84, "padding": 12, "gap": 10, "background": "#171b22", "borderRadius": 8, "children": [
-              {"kind": "vstack", "width": "star", "height": 33, "gap": 3, "children": [
-                {"kind": "text", "text": "Removing…", "width": "star", "height": 30, "align": "center", "background": "#171b22", "border": "#2a3039", "color": "#8b939f", "borderRadius": 8}
-              ]},
-              {"kind": "text", "text": "Working", "fontSize": 12, "color": "#8b939f", "align": "center", "width": "star"}
+              {"kind": "text", "text": "Asking: a hazard", "fontSize": 12, "color": "#8b939f", "align": "center", "width": "star"}
             ]}
           ]},
 
           {"kind": "text", "text": "In tianwen (click them)", "fontSize": 15, "color": "#ff5e00"},
-          {"kind": "vstack", "width": 720, "background": "#171b22", "borderRadius": 8, "children": [
+          {"kind": "vstack", "width": 760, "background": "#171b22", "borderRadius": 8, "children": [
 
-            {"kind": "hstack", "width": "star", "height": 64, "padding": 14, "gap": 12, "children": [
+            {"kind": "hstack", "width": "star", "height": 60, "padding": 14, "gap": 12, "children": [
               {"kind": "vstack", "width": "star", "height": "star", "gap": 2, "children": [
                 {"kind": "text", "text": "Focuser · ZWO EAF", "color": "#e2e6ec"},
                 {"kind": "text", "text": "Equipment profile: Backyard rig", "fontSize": 12, "color": "#8b939f"}
               ]},
-              {"kind": "hstack", "width": 250, "height": "star", "children": [
-                {"kind": "text", "when": "rm=armed", "text": "Click again to remove · Cancel", "width": "star", "height": "star", "align": "far", "fontSize": 12, "color": "#8b939f", "action": "set:rm=false", "tooltip": "Cancel"},
-                {"kind": "text", "when": "rm=done", "text": "Removed from the profile", "width": "star", "height": "star", "align": "far", "fontSize": 12, "color": "#8b939f"},
-                {"kind": "spacer", "when": "rm=false", "width": "star"}
-              ]},
-              {"kind": "vstack", "width": 130, "height": 33, "children": [
-                {"kind": "text", "when": "rm=false", "text": "Remove", "width": "star", "height": 30, "align": "center", "background": "#1e232c", "border": "#3c444f", "color": "#ff7a70", "borderRadius": 8, "action": "set:rm=armed"},
-                {"kind": "text", "when": "rm=armed", "text": "Remove?", "width": "star", "height": 30, "align": "center", "background": "#ff7a70", "color": "#101318", "borderRadius": 8, "action": "set:rm=done"},
-                {"kind": "hstack", "when": "rm=armed", "width": "star", "height": 3, "children": [
-                  {"kind": "spacer", "width": "star:2", "height": 3, "background": "#ff7a70", "borderRadius": 1},
-                  {"kind": "spacer", "width": "star:3", "height": 3}
+              {"kind": "hstack", "width": 360, "height": "star", "gap": 8, "children": [
+                {"kind": "spacer", "when": "rm=false", "width": "star"},
+                {"kind": "text", "when": "rm=false", "text": "Remove", "width": 84, "height": "star", "align": "center", "background": "#1e232c", "border": "#3c444f", "color": "#ff7a70", "borderRadius": 8, "action": "set:rm=ask"},
+                {"kind": "hstack", "when": "rm=ask", "width": "star", "height": "star", "padding": 3, "gap": 6, "background": "#38282d", "border": "#ff7a70", "borderRadius": 8, "children": [
+                  {"kind": "vstack", "width": 16, "height": "star", "children": [
+                    {"kind": "spacer", "height": "star"},
+                    {"kind": "icon", "icon": "Error", "iconSize": 14, "color": "#ff7a70"},
+                    {"kind": "spacer", "height": "star"}
+                  ]},
+                  {"kind": "text", "text": "Remove ZWO EAF?", "width": "star", "height": "star", "fontSize": 13, "color": "#e2e6ec"},
+                  {"kind": "text", "text": "Remove", "width": 74, "height": "star", "align": "center", "fontSize": 13, "background": "#ff7a70", "color": "#101318", "borderRadius": 6, "action": "set:rm=done"},
+                  {"kind": "text", "text": "Cancel", "width": 72, "height": "star", "align": "center", "fontSize": 13, "color": "#8b939f", "borderRadius": 6, "action": "set:rm=false"}
                 ]},
-                {"kind": "text", "when": "rm=done", "text": "Undo", "width": "star", "height": 30, "align": "center", "background": "#1e232c", "border": "#3c444f", "color": "#e2e6ec", "borderRadius": 8, "action": "set:rm=false"}
+                {"kind": "text", "when": "rm=done", "text": "Removed from the profile", "width": "star", "height": "star", "align": "far", "fontSize": 12, "color": "#8b939f"},
+                {"kind": "text", "when": "rm=done", "text": "Undo", "width": 80, "height": "star", "align": "center", "background": "#1e232c", "border": "#3c444f", "color": "#e2e6ec", "borderRadius": 8, "action": "set:rm=false"}
               ]}
             ]},
             {"kind": "spacer", "width": "star", "height": 1, "background": "#2a3039"},
 
-            {"kind": "hstack", "width": "star", "height": 64, "padding": 14, "gap": 12, "children": [
+            {"kind": "hstack", "width": "star", "height": 60, "padding": 14, "gap": 12, "children": [
               {"kind": "vstack", "width": "star", "height": "star", "gap": 2, "children": [
                 {"kind": "text", "text": "Sun · altitude 34°", "color": "#e2e6ec"},
                 {"kind": "text", "text": "Sky map target", "fontSize": 12, "color": "#8b939f"}
               ]},
-              {"kind": "hstack", "width": 250, "height": "star", "children": [
-                {"kind": "text", "when": "sun=armed", "text": "Fit a solar filter first. Click again.", "width": "star", "height": "star", "align": "far", "fontSize": 12, "color": "#ccac18"},
-                {"kind": "text", "when": "sun=done", "text": "Slewing to the Sun…", "width": "star", "height": "star", "align": "far", "fontSize": 12, "color": "#8b939f"},
-                {"kind": "spacer", "when": "sun=false", "width": "star"}
-              ]},
-              {"kind": "vstack", "width": 130, "height": 33, "children": [
-                {"kind": "text", "when": "sun=false", "text": "Goto", "width": "star", "height": 30, "align": "center", "background": "#1e232c", "border": "#3c444f", "color": "#e2e6ec", "borderRadius": 8, "action": "set:sun=armed"},
-                {"kind": "text", "when": "sun=armed", "text": "Goto anyway", "width": "star", "height": 30, "align": "center", "background": "#ccac18", "color": "#101318", "borderRadius": 8, "action": "set:sun=done"},
-                {"kind": "hstack", "when": "sun=armed", "width": "star", "height": 3, "children": [
-                  {"kind": "spacer", "width": "star:2", "height": 3, "background": "#ccac18", "borderRadius": 1},
-                  {"kind": "spacer", "width": "star:3", "height": 3}
+              {"kind": "hstack", "width": 360, "height": "star", "gap": 8, "children": [
+                {"kind": "spacer", "when": "sun=false", "width": "star"},
+                {"kind": "text", "when": "sun=false", "text": "Goto", "width": 84, "height": "star", "align": "center", "background": "#1e232c", "border": "#3c444f", "color": "#e2e6ec", "borderRadius": 8, "action": "set:sun=ask"},
+                {"kind": "hstack", "when": "sun=ask", "width": "star", "height": "star", "padding": 3, "gap": 6, "background": "#302f21", "border": "#ccac18", "borderRadius": 8, "children": [
+                  {"kind": "vstack", "width": 16, "height": "star", "children": [
+                    {"kind": "spacer", "height": "star"},
+                    {"kind": "icon", "icon": "Warning", "iconSize": 14, "color": "#ccac18"},
+                    {"kind": "spacer", "height": "star"}
+                  ]},
+                  {"kind": "text", "text": "Goto the unfiltered Sun?", "width": "star", "height": "star", "fontSize": 13, "color": "#e2e6ec"},
+                  {"kind": "text", "text": "Goto", "width": 58, "height": "star", "align": "center", "fontSize": 13, "background": "#ccac18", "color": "#101318", "borderRadius": 6, "action": "set:sun=busy"},
+                  {"kind": "text", "text": "Cancel", "width": 72, "height": "star", "align": "center", "fontSize": 13, "color": "#8b939f", "borderRadius": 6, "action": "set:sun=false"}
                 ]},
-                {"kind": "text", "when": "sun=done", "text": "Stop", "width": "star", "height": 30, "align": "center", "background": "#1e232c", "border": "#3c444f", "color": "#e2e6ec", "borderRadius": 8, "action": "set:sun=false"}
+                {"kind": "spacer", "when": "sun=busy", "width": "star"},
+                {"kind": "text", "when": "sun=busy", "text": "about 40 seconds", "width": 110, "height": "star", "align": "far", "fontSize": 12, "color": "#8b939f"},
+                {"kind": "text", "when": "sun=busy", "text": "Stop", "width": 56, "height": "star", "align": "center", "background": "#1e232c", "border": "#3c444f", "color": "#e2e6ec", "borderRadius": 8, "action": "set:sun=false"},
+                {"kind": "hstack", "when": "sun=busy", "width": 120, "height": "star", "padding": 8, "gap": 8, "background": "#1e232c", "border": "#3c444f", "borderRadius": 8, "children": [
+                  {"kind": "overlay", "width": 14, "height": 14, "children": [
+                    {"kind": "spacer", "width": "star", "height": "star", "border": "#3c444f", "borderWidth": 2, "borderRadius": 7},
+                    {"kind": "vstack", "width": "star", "height": "star", "children": [
+                      {"kind": "hstack", "width": "star", "height": 6, "children": [
+                        {"kind": "spacer", "width": "star"},
+                        {"kind": "spacer", "width": 6, "height": 6, "background": "#ff5e00", "borderRadius": 3}
+                      ]},
+                      {"kind": "spacer", "height": "star"}
+                    ]}
+                  ]},
+                  {"kind": "text", "text": "Slewing…", "width": "star", "height": "star", "fontSize": 13, "color": "#8b939f"}
+                ]}
               ]}
             ]},
             {"kind": "spacer", "width": "star", "height": 1, "background": "#2a3039"},
 
-            {"kind": "hstack", "width": "star", "height": 64, "padding": 14, "gap": 12, "children": [
+            {"kind": "hstack", "width": "star", "height": 60, "padding": 14, "gap": 12, "children": [
               {"kind": "vstack", "width": "star", "height": "star", "gap": 2, "children": [
                 {"kind": "text", "text": "Session · M42", "color": "#e2e6ec"},
                 {"kind": "text", "text": "Imaging, frame 47 of 60", "fontSize": 12, "color": "#8b939f"}
               ]},
-              {"kind": "hstack", "width": 250, "height": "star", "children": [
-                {"kind": "text", "when": "abort=armed", "text": "Click or Enter aborts · Esc cancels", "width": "star", "height": "star", "align": "far", "fontSize": 12, "color": "#8b939f", "action": "set:abort=false", "tooltip": "Cancel"},
-                {"kind": "text", "when": "abort=done", "text": "Session aborted; the mount parks", "width": "star", "height": "star", "align": "far", "fontSize": 12, "color": "#8b939f"},
-                {"kind": "spacer", "when": "abort=false", "width": "star"}
-              ]},
-              {"kind": "vstack", "width": 130, "height": 33, "children": [
-                {"kind": "text", "when": "abort=false", "text": "Abort", "width": "star", "height": 30, "align": "center", "background": "#1e232c", "border": "#3c444f", "color": "#ff7a70", "borderRadius": 8, "action": "set:abort=armed"},
-                {"kind": "text", "when": "abort=armed", "text": "Abort session?", "width": "star", "height": 30, "align": "center", "background": "#ff7a70", "color": "#101318", "borderRadius": 8, "action": "set:abort=done"},
-                {"kind": "hstack", "when": "abort=armed", "width": "star", "height": 3, "children": [
-                  {"kind": "spacer", "width": "star:2", "height": 3, "background": "#ff7a70", "borderRadius": 1},
-                  {"kind": "spacer", "width": "star:3", "height": 3}
+              {"kind": "hstack", "width": 360, "height": "star", "gap": 8, "children": [
+                {"kind": "spacer", "when": "abort=false", "width": "star"},
+                {"kind": "text", "when": "abort=false", "text": "Abort", "width": 84, "height": "star", "align": "center", "background": "#1e232c", "border": "#3c444f", "color": "#ff7a70", "borderRadius": 8, "action": "set:abort=ask"},
+                {"kind": "hstack", "when": "abort=ask", "width": "star", "height": "star", "padding": 3, "gap": 6, "background": "#38282d", "border": "#ff7a70", "borderRadius": 8, "children": [
+                  {"kind": "vstack", "width": 16, "height": "star", "children": [
+                    {"kind": "spacer", "height": "star"},
+                    {"kind": "icon", "icon": "Error", "iconSize": 14, "color": "#ff7a70"},
+                    {"kind": "spacer", "height": "star"}
+                  ]},
+                  {"kind": "text", "text": "Abort the session?", "width": "star", "height": "star", "fontSize": 13, "color": "#e2e6ec"},
+                  {"kind": "text", "text": "Abort", "width": 64, "height": "star", "align": "center", "fontSize": 13, "background": "#ff7a70", "color": "#101318", "borderRadius": 6, "action": "set:abort=done"},
+                  {"kind": "text", "text": "Cancel", "width": 72, "height": "star", "align": "center", "fontSize": 13, "color": "#8b939f", "borderRadius": 6, "action": "set:abort=false"}
                 ]},
-                {"kind": "text", "when": "abort=done", "text": "Reset", "width": "star", "height": 30, "align": "center", "background": "#1e232c", "border": "#3c444f", "color": "#e2e6ec", "borderRadius": 8, "action": "set:abort=false"}
+                {"kind": "text", "when": "abort=done", "text": "Aborted; the mount parks", "width": "star", "height": "star", "align": "far", "fontSize": 12, "color": "#8b939f"},
+                {"kind": "text", "when": "abort=done", "text": "Reset", "width": 80, "height": "star", "align": "center", "background": "#1e232c", "border": "#3c444f", "color": "#e2e6ec", "borderRadius": 8, "action": "set:abort=false"}
               ]}
             ]}
           ]},
-          {"kind": "text", "text": "A switch whose change has a cost asks the same way: see the cooled camera on Equipment.", "fontSize": 12, "color": "#8b939f"}
+          {"kind": "text", "text": "The question opens where the button was; the confirming press comes after it, never under the first one, so a double-click cannot confirm.", "fontSize": 12, "color": "#8b939f"}
         ]
       }
     ]

@@ -9,9 +9,10 @@
         "kind": "dock", "side": "top", "size": 48, "padding": 8, "background": "#1e232c",
         "children": [
           {"kind": "text", "side": "left", "size": 160, "text": "tianwen", "fontSize": 16, "color": "#ff5e00"},
-          {"kind": "hstack", "side": "right", "size": 560, "gap": 6, "children": [
+          {"kind": "hstack", "side": "right", "size": 640, "gap": 6, "children": [
             {"kind": "text", "text": "Switch", "width": "star", "height": "star", "align": "center", "background": "#171b22", "color": "#e2e6ec", "borderRadius": 6, "action": "goto:home"},
             {"kind": "text", "text": "Confirm", "width": "star", "height": "star", "align": "center", "background": "#171b22", "color": "#e2e6ec", "borderRadius": 6, "action": "goto:confirm"},
+            {"kind": "text", "text": "Busy", "width": "star", "height": "star", "align": "center", "background": "#171b22", "color": "#e2e6ec", "borderRadius": 6, "action": "goto:busy"},
             {"kind": "text", "text": "Segments", "width": "star", "height": "star", "align": "center", "background": "#171b22", "color": "#e2e6ec", "borderRadius": 6, "action": "goto:segments"},
             {"kind": "text", "text": "Settings", "width": "star", "height": "star", "align": "center", "background": "#171b22", "color": "#e2e6ec", "borderRadius": 6, "action": "goto:settings"},
             {"kind": "text", "text": "Equipment", "width": "star", "height": "star", "align": "center", "background": "#302820", "color": "#e2e6ec", "borderRadius": 6}
