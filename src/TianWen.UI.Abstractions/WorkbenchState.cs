@@ -66,6 +66,25 @@ public sealed class WorkbenchState
         set => Volatile.Write(ref _newProjectRefusal, value);
     }
 
+    private string? _masterRefusal;
+
+    /// <summary>Why "Process this master" added nothing, in words (the routine's refusal); null when the last press worked or none
+    /// was made. The next open of a project clears it.</summary>
+    public string? MasterRefusal
+    {
+        get => Volatile.Read(ref _masterRefusal);
+        set => Volatile.Write(ref _masterRefusal, value);
+    }
+
+    private int _isProcessingMaster;
+
+    /// <summary>True from a press of "Process this master" until its images are in the project: no second press is taken meanwhile.</summary>
+    public bool IsProcessingMaster
+    {
+        get => Volatile.Read(ref _isProcessingMaster) != 0;
+        set => Volatile.Write(ref _isProcessingMaster, value ? 1 : 0);
+    }
+
     /// <summary>The selected step's place in the edit list, from 0; -1 for none.</summary>
     public int SelectedStep { get; set; } = -1;
 

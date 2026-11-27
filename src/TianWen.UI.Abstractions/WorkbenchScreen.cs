@@ -364,6 +364,7 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
 
         AddRun(rows, state, actions);
         AddJob(rows, actions);
+        AddMasters(rows, state, actions, panel);
         AddViews(rows, actions);
 
         rows.Add(Heading("Settings"));
@@ -496,6 +497,43 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
 
         rows.Add(Layout.Builder.VStack(lines).WithGap(Gap / 2).Pad(Gap / 2).Bg(palette.ContentBg).WithScroll(_jobScroll)
             .WStar().HFixed(JobLinesHeight));
+    }
+
+    // The stack step's masters, one row each as the runner answered them: the group's name (ellipsised inside its share of the row with
+    // the whole name on hover) and Process this master, on one height and one middle. While a run goes, a read is in flight or a
+    // press is still laying out its chain, every button is dimmed and says why on hover. A refusal of the last press is said beside.
+    private void AddMasters(List<Layout.Node> rows, WorkbenchState state, WorkbenchActions actions, WorkbenchStepPanel panel)
+    {
+        if (!panel.ShowsMasters)
+        {
+            return;
+        }
+
+        var palette = GuiTheme.Palette;
+        rows.Add(Heading("Masters"));
+        if (panel.Masters.IsEmpty)
+        {
+            rows.Add(Words(panel.Step.State is StepState.Kept or StepState.Ran
+                ? "The stack gave no masters."
+                : "The masters come once the stack has run: one for each target and filter group.", palette.DimText));
+        }
+
+        var waits = actions.ProcessMasterWaits;
+        foreach (var group in panel.Masters)
+        {
+            var name = group;
+            var process = Layout.Builder.Button("Process this master", Layout.ButtonKind.Standard, () => actions.ProcessMaster(name), GuiTheme.Theme,
+                tooltip: waits ?? $"Add {name}'s enhance as its chain of single steps, then open the result");
+            rows.Add(Layout.Builder.HStack(
+                    Layout.Builder.Text(name, BaseFontSize, palette.BodyText, trim: TextTrim.End).WStar().WithTooltip(name),
+                    (waits is null ? process : process.Disabled(waits)).WAuto())
+                .WithGap(Gap).CrossCenter().WStar());
+        }
+
+        if (state.MasterRefusal is { } refusal)
+        {
+            rows.Add(Words(refusal, palette.Error));
+        }
     }
 
     // Which pictures the step has, and for one it has not, why, in words.

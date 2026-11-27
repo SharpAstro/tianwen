@@ -45,6 +45,15 @@ public sealed record WorkbenchStepPanel(
     string ServedBy,
     ImmutableArray<string> CommandLine)
 {
+    /// <summary>
+    /// For the stack step, the name of each master it gave (one per target and filter group), as the runner answered; empty
+    /// before it ran. Always empty for any other step. <see cref="ShowsMasters"/> says whether the panel has a list at all.
+    /// </summary>
+    public ImmutableArray<string> Masters { get; init; } = [];
+
+    /// <summary>True for the stack step: its panel lists its masters, or says they come once it has run.</summary>
+    public bool ShowsMasters { get; init; }
+
     /// <summary>The command as a person reads and pastes it.</summary>
     public string CommandText => StepCommandLine.Display(CommandLine);
 }
@@ -70,6 +79,12 @@ public sealed class WorkbenchActions(
 {
     private const string StatusSlot = "workbench.status";
     private const string PlanSlot = "workbench.plan";
+
+    /// <summary>Why "Process this master" is not offered while the project is being read.</summary>
+    public const string MasterWaitsForTheRead = "The project is being read: a master can be processed when the answer is in";
+
+    /// <summary>Why "Process this master" is not offered while an earlier press is still laying out its chain.</summary>
+    public const string MasterWaitsForTheChain = "A master is being processed: another can be when its images are in the project";
 
     private readonly WorkbenchJobs _jobs = new(runner, catalog, tracker, logger, appToken,
         () => state.NeedsRedraw = true, settled => Settled(settled, state, runner, tracker, logger, appToken));
@@ -128,7 +143,69 @@ public sealed class WorkbenchActions(
         }
 
         state.NewProjectRefusal = null;
+        state.MasterRefusal = null;
         StartRead(state, runner, tracker, logger, appToken, folder, image, "Read the workbench project");
+        return true;
+    }
+
+    /// <summary>
+    /// Why "Process this master" cannot be pressed now, in words for the dimmed button's hover; null when it can. The stack step's
+    /// masters are the runner's answer, so nothing is offered while a run writes the store or another answer is on its way.
+    /// </summary>
+    public string? ProcessMasterWaits
+        => _jobs.IsRunning ? ChoiceWaitsForTheRun
+            : state.IsReading ? MasterWaitsForTheRead
+            : state.IsProcessingMaster ? MasterWaitsForTheChain
+            : null;
+
+    /// <summary>
+    /// "Process this master": adds the image that starts from the master of <paramref name="group"/> that the image on show
+    /// made, its edits the enhance laid out as its chain of single steps (<see cref="WorkbenchProjects.AddMasterChainAsync"/>), then
+    /// opens the project on the chain's result. The routine runs off the render thread. False, and nothing asked, while
+    /// <see cref="ProcessMasterWaits"/> says to wait; a refusal of the routine is kept in <see cref="WorkbenchState.MasterRefusal"/>
+    /// and shown in words beside the list. A second press for a group the project already processed is named uniquely by the routine.
+    /// </summary>
+    public bool ProcessMaster(string group)
+    {
+        if (ProcessMasterWaits is not null || state.View is not { ImageName: { } stackImage } view)
+        {
+            state.NeedsRedraw = true;
+            return false;
+        }
+
+        if (!catalog.TryGet(EnhanceOperation.Id, out var operation) || operation is not EnhanceOperation enhance)
+        {
+            state.MasterRefusal = $"{group} was not processed: this computer has no enhance operation to lay out";
+            state.NeedsRedraw = true;
+            return false;
+        }
+
+        var folder = view.Folder;
+        state.MasterRefusal = null;
+        state.IsProcessingMaster = true;
+        state.NeedsRedraw = true;
+        tracker.RunGuarded(async ct =>
+        {
+            var added = await WorkbenchProjects.AddMasterChainAsync(folder, runner, enhance, stackImage, group, name: null, say: null, ct);
+            if (added.Refusal is { } refusal || added.Added.IsDefaultOrEmpty)
+            {
+                state.MasterRefusal = $"{group} was not processed: {added.Refusal ?? "the chain has no image"}";
+                return;
+            }
+
+            // The chain's last image is its result (the starless and stars halves come before it); it is the one shown.
+            state.SelectedStep = -1;
+            if (!OpenProject(folder, added.Added[^1].Name))
+            {
+                logger.LogInformation("{Group} was processed but the new image was not opened: {Why}", group, ChoiceWaitsForTheRun);
+            }
+        }, appToken, logger, "Process a master of the workbench project",
+            onError: ex => state.MasterRefusal = $"{group} was not processed: {ex.Message}",
+            onFinally: () =>
+            {
+                state.IsProcessingMaster = false;
+                state.NeedsRedraw = true;
+            });
         return true;
     }
 
@@ -473,7 +550,13 @@ public sealed class WorkbenchActions(
             }
         }
 
-        return new WorkbenchStepPanel(item, description?.Summary ?? string.Empty, settings, settingsRefusal, step.ServedBy, step.CommandLine);
+        var isStack = string.Equals(step.Operation, StackOperation.Id, StringComparison.Ordinal);
+        return new WorkbenchStepPanel(item, description?.Summary ?? string.Empty, settings, settingsRefusal, step.ServedBy, step.CommandLine)
+        {
+            // The names the runner answered with the step (StepReport.Results): never the store, never the disk on a frame.
+            Masters = isStack ? step.Results : [],
+            ShowsMasters = isStack,
+        };
     }
 
     /// <summary>
