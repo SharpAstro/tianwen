@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using DIR.Lib;
+using SharpAstro.Png;
 using Shouldly;
 using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
@@ -91,6 +92,34 @@ public class NotificationsTabAlertSettingTests(ITestOutputHelper output)
         ChoiceRegions(Paint(renderer, new GuiAppState { DesktopAlerts = AlertsOn(new Sink { IsAvailable = false }) },
             new ViewContexts().Local).Tab).ShouldBeEmpty();
         ChoiceRegions(Paint(renderer, new GuiAppState(), new ViewContexts().Local).Tab).ShouldBeEmpty();
+    }
+
+    // Kept output only (TIANWEN_KEEP_TEST_OUTPUT=1): the tab beside the test binary, narrow and wide, at both scales, to be looked at.
+    [Theory]
+    [InlineData(560, 1f)]
+    [InlineData(560, 1.5f)]
+    [InlineData(1000, 1f)]
+    [InlineData(1000, 1.5f)]
+    public void TheHeaderRendersWithTheChoiceAtBothScales(int width, float dpiScale)
+    {
+        using var renderer = new RgbaImageRenderer(width, 260);
+        var app = new GuiAppState { DesktopAlerts = AlertsOn(new Sink { Refusal = "Disabled: toasts are off for this app" }) };
+        var now = new DateTimeOffset(2026, 11, 27, 22, 0, 0, TimeSpan.Zero);
+        app.RecordNotification(now, NotificationSeverity.Error, "Mount://ASCOMDevice/ASCOM.OnStep.Telescope refused the slew to Sharpless 2-132");
+        app.RecordNotification(now, NotificationSeverity.Warning, "Guiding RMS 0.9 arcsec");
+        app.RecordNotification(now, NotificationSeverity.Info, "Session started");
+        var bus = new SignalBus();
+        var tab = new NotificationsTab<RgbaImage>(renderer) { DpiScale = dpiScale, FontPath = FontResolver.ResolveSystemFont(), Bus = bus };
+
+        tab.Render(app, new ViewContexts().Local, new RectF32(0, 0, renderer.Width, renderer.Height));
+
+        ChoiceRegions(tab).Length.ShouldBe(3);
+        if (Environment.GetEnvironmentVariable("TIANWEN_KEEP_TEST_OUTPUT") == "1")
+        {
+            System.IO.File.WriteAllBytes(
+                System.IO.Path.Combine(AppContext.BaseDirectory, $"notifications-alerts-{width}-{dpiScale:0.0}.png"),
+                PngWriter.Encode(renderer.Surface.Pixels, renderer.Surface.Width, renderer.Surface.Height));
+        }
     }
 
     [Fact]
