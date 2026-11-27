@@ -310,7 +310,7 @@ public sealed partial class WorkbenchScreen<TSurface>
         return new Dictionary<string, Layout.Node>
         {
             ["file"] = Layout.Builder.Text(file.Place, BaseFontSize, palette.BodyText, trim: TextTrim.Start).WithTooltip(file.FullPath),
-            ["kind"] = KindCell(file, actions),
+            ["kind"] = KindCell(file, actions.Reassign),
             ["why"] = Cell(why, palette.DimText),
             ["exposure"] = Cell(Seconds(file.ExposureSeconds), palette.BodyText, TextAlign.Far),
             ["filter"] = Cell(file.Filter.Length > 0 ? file.Filter : "—", palette.BodyText),
@@ -321,7 +321,7 @@ public sealed partial class WorkbenchScreen<TSurface>
 
     // What the file is taken for, as a dropdown of the kinds a stack takes. The label is the Lib's answer (the kind the detection
     // now gives it, after any reassignment), and a guess carries a question mark, so colour is not the only mark of an unsure kind.
-    private Layout.Node KindCell(DetectedFile file, WorkbenchActions actions)
+    private Layout.Node KindCell(DetectedFile file, Action<string, TianWen.Lib.Imaging.Stacking.FrameType?> reassign)
     {
         var palette = GuiTheme.Palette;
         if (file.IsCometTrack)
@@ -340,7 +340,7 @@ public sealed partial class WorkbenchScreen<TSurface>
         menu.OnSelect = item =>
         {
             var chosen = WorkbenchActions.KindChoices.FirstOrDefault(choice => choice.Label == item.Value);
-            actions.Reassign(place, chosen.Kind);
+            reassign(place, chosen.Kind);
         };
         var label = WorkbenchActions.KindLabel(file.Kind) + (file.Unsure ? "?" : string.Empty) + (file.Reassigned ? " ✎" : string.Empty);
         var tooltip = file.Reassigned ? $"{file.Why}. Press to change it, or to take your answer back." : $"{file.Why}. Press to change it.";

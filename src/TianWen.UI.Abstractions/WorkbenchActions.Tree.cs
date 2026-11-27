@@ -104,6 +104,7 @@ public sealed partial class WorkbenchActions
     public void SelectTreeRow(string image, int editIndex)
     {
         state.SelectedFrames = null;
+        state.PreviewFrame = null;
         if (state.View is not { } view)
         {
             return;
@@ -162,7 +163,14 @@ public sealed partial class WorkbenchActions
     public void SelectFrames(string name)
     {
         state.SelectedFrames = name;
+        state.PreviewFrame = null;
         state.NeedsRedraw = true;
+        // Grading reads the pixels of the lights, so it is asked once, at the first look at them, off the render thread.
+        if (name == "Lights" && !state.LightsGraded && state.View is { } view)
+        {
+            state.LightsGraded = true;
+            RequestFrames(view, force: true);
+        }
     }
 
     /// <summary>The selected frame group; null while a step is selected.</summary>
@@ -177,28 +185,36 @@ public sealed partial class WorkbenchActions
     }
 
     // Reads what the capture folder holds once for each project shown, off the render thread, for the tree's Frames section.
-    private void RequestFrames(WorkbenchView view)
+    private void RequestFrames(WorkbenchView view, bool force = false)
     {
-        if (CaptureFolderOf(view) is not { } capture || string.Equals(state.Frames?.Folder, capture, StringComparison.Ordinal))
+        if (CaptureFolderOf(view) is not { } capture || (!force && string.Equals(state.Frames?.Folder, capture, StringComparison.Ordinal)))
         {
             return;
         }
+
+        var grade = state.LightsGraded;
 
         tracker.RunExclusive<WorkbenchFrames>(FramesSlot, async ct =>
             {
                 var detected = await CaptureDetection.DetectAsync(capture, new CaptureDetectionOptions
                 {
                     Reassigned = await WorkbenchProjects.ReassignmentsAsync(capture, ct),
-                    GradeLights = false,
+                    GradeLights = grade,
                 }, ct);
-                ImmutableArray<string> Of(params DetectedGroupKind[] kinds)
-                    => [.. detected.Groups.Where(g => kinds.Contains(g.Kind)).SelectMany(static g => g.Files).Select(static f => f.Place)];
+                ImmutableArray<DetectedFile> Of(params DetectedGroupKind[] kinds)
+                    => [.. detected.Groups.Where(g => kinds.Contains(g.Kind)).SelectMany(static g => g.Files)];
+                WorkbenchFrameGroup Group(string name, params DetectedGroupKind[] kinds)
+                {
+                    var files = Of(kinds);
+                    return new WorkbenchFrameGroup(name, [.. files.Select(static f => f.Place)]) { Details = files };
+                }
+
                 return new WorkbenchFrames(capture,
                 [
-                    new("Lights", Of(DetectedGroupKind.Lights)),
-                    new("Darks", Of(DetectedGroupKind.Darks)),
-                    new("Flats", Of(DetectedGroupKind.Flats)),
-                    new("Bias", Of(DetectedGroupKind.Bias)),
+                    Group("Lights", DetectedGroupKind.Lights),
+                    Group("Darks", DetectedGroupKind.Darks),
+                    Group("Flats", DetectedGroupKind.Flats),
+                    Group("Bias", DetectedGroupKind.Bias),
                 ]);
             }, appToken, logger, "Read what the capture folder holds",
             onError: _ => state.Frames = new WorkbenchFrames(capture, []),

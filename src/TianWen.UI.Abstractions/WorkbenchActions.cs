@@ -330,6 +330,8 @@ public sealed partial class WorkbenchActions(
         if (state.SelectedStep != index || state.SelectedFrames is not null)
         {
             state.SelectedFrames = null;
+            state.PreviewFrame = null;
+            state.SettingRefusal = null;
             state.SelectedStep = index;
             state.CommandCopied = false;
             state.NeedsRedraw = true;
@@ -709,6 +711,12 @@ public sealed partial class WorkbenchActions(
         if (state.View is null)
         {
             return null;
+        }
+
+        // A file of a frame group the person clicked: the viewer is given it as it is given any file, and nothing else is on show.
+        if (state.SelectedFrames is not null)
+        {
+            return state.PreviewFrame is { } frame ? new WorkbenchShown(WorkbenchViewKind.Result, null, frame) : null;
         }
 
         var offer = ViewOffer();

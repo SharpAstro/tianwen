@@ -531,6 +531,61 @@ public static class WorkbenchWorkflows
         }, cancellationToken);
     }
 
+    /// <summary>
+    /// Writes one setting of the edit at <paramref name="editIndex"/> of the image <paramref name="imageName"/> into the project in
+    /// <paramref name="projectFolder"/>: the value joins the settings already there, and the result must read as the operation's settings
+    /// (<see cref="IOperation.TryReadSettings"/>), or nothing is written and the refusal is said in words. A null <paramref name="value"/> leaves
+    /// the setting out (its own value). The step's key changes with the settings, so the runner then answers it as not made.
+    /// </summary>
+    public static Task<StepChangeResult> SetStepSettingAsync(string projectFolder, OperationCatalog catalog, string imageName, int editIndex, string setting,
+        JsonNode? value, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(catalog);
+        return ChangeAsync(projectFolder, imageName, (image, _) =>
+        {
+            if (editIndex < 0 || editIndex >= image.Edits.Length)
+            {
+                return ($"{imageName} has {image.Edits.Length} step(s): there is no step {editIndex}", null);
+            }
+
+            var edit = image.Edits[editIndex];
+            if (!catalog.TryGet(edit.Operation, out var operation))
+            {
+                return ($"there is no operation '{edit.Operation}'", null);
+            }
+
+            if (!OperationSettingsForm.Describe(operation).Any(field => string.Equals(field.Name, setting, StringComparison.Ordinal)))
+            {
+                return ($"'{edit.Operation}' has no setting '{setting}'", null);
+            }
+
+            var settings = edit.Settings?.DeepClone() as JsonObject ?? [];
+            settings[setting] = value?.DeepClone();
+            if (!operation.TryReadSettings(settings.ToJsonString(), out _, out var refusal))
+            {
+                return (refusal, null);
+            }
+
+            return (null, image with { Edits = [.. image.Edits.Select((each, index) => index == editIndex ? each with { Settings = settings } : each)] });
+        }, cancellationToken);
+    }
+
+    /// <summary>
+    /// Switches the edit at <paramref name="editIndex"/> on or off. An edit that is off is passed over: the edit after it takes what the edit
+    /// before it made, and switching it on again finds its earlier result in the store.
+    /// </summary>
+    public static Task<StepChangeResult> SetStepEnabledAsync(string projectFolder, string imageName, int editIndex, bool enabled,
+        CancellationToken cancellationToken = default)
+        => ChangeAsync(projectFolder, imageName, (image, _) =>
+        {
+            if (editIndex < 0 || editIndex >= image.Edits.Length)
+            {
+                return ($"{imageName} has {image.Edits.Length} step(s): there is no step {editIndex}", null);
+            }
+
+            return (null, image with { Edits = [.. image.Edits.Select((each, index) => index == editIndex ? each with { Enabled = enabled } : each)] });
+        }, cancellationToken);
+
     private static async Task<StepChangeResult> ChangeAsync(string projectFolder, string imageName,
         Func<ProjectImage, WorkbenchProject, (string? Refusal, ProjectImage? Image)> change, CancellationToken cancellationToken)
     {

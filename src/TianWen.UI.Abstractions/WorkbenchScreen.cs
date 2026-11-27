@@ -132,11 +132,18 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
                             palette.DimText, TextAlign.Center, TextAlign.Center, trim: TextTrim.End).WStar().HStar())
                     .Pad(Gap * 2).Bg(palette.ContentBg), CanvasRect);
             }
+            else if (state.SelectedFrames is not null && state.PreviewFrame is null)
+            {
+                RenderLayout(Layout.Builder.VStack(
+                        Layout.Builder.Text("Click a file in the list to see it here.", BaseFontSize, palette.DimText, TextAlign.Center, TextAlign.Center, trim: TextTrim.End)
+                            .WStar().HStar())
+                    .Pad(Gap * 2).Bg(palette.ContentBg), CanvasRect);
+            }
             else if (actions.ShowsEmptyState)
             {
                 RenderLayout(EmptyState(actions), CanvasRect);
             }
-            else if (state.OriginalNote is { } note && actions.EffectiveView() is WorkbenchViewKind.Original)
+            else if (state.SelectedFrames is null && state.OriginalNote is { } note && actions.EffectiveView() is WorkbenchViewKind.Original)
             {
                 RenderLayout(Layout.Builder.VStack(
                         Layout.Builder.Text(note, BaseFontSize, palette.DimText, TextAlign.Center, TextAlign.Center).WStar().HStar())
@@ -156,6 +163,12 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
         RenderMenu(_stretchMenu, StretchChoiceHit, arranged, width, height);
         RenderMenu(_workflowMenu, WorkflowChoiceHit, arranged, width, height);
         RenderMenu(_addMenu, AddStepHit, arranged, width, height);
+        foreach (var (key, menu) in _settingMenus.ToList())
+        {
+            RenderMenu(menu, SettingHitPrefix + key, arranged, width, height);
+        }
+
+        RenderKindMenu(arranged, width, height);
     }
 
     private Layout.Node Build(WorkbenchState state, WorkbenchActions actions)
@@ -242,14 +255,15 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
         return waits is not null ? box.Disabled(waits) : box;
     }
 
-    // The selected step: what the operation does, its settings (shown, not edited), what serves it, its command line.
+    // The selected step (#2553 section 3): its name with an on/off, what it does, its state in words with what fixes it, its settings as
+    // controls, what it gives, what serves it, and the command line folded away.
     private Layout.Node Panel(WorkbenchState state, WorkbenchActions actions)
     {
         var palette = GuiTheme.Palette;
         var rows = new List<Layout.Node>();
         if (actions.SelectedFrameGroup is { } frameGroup)
         {
-            return FramesPanel(frameGroup, state);
+            return FramesPanel(frameGroup, state, actions);
         }
 
         if (actions.Panel() is not { } panel)
@@ -259,21 +273,30 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
         }
 
         var step = panel.Step;
-        var heading = step.Label;
-        rows.Add(Layout.Builder.Text(heading, BaseFontSize * 1.15f, palette.BodyText).WStar().WithTooltip(heading));
+        // The title wraps in the room it has: a sentence is never cut mid-word. Beside it the step's switch.
+        // A checkbox stands in for the mockup's switch until DIR.Lib#156 (switch control) and DIR.Lib#330 (slider with a numeric field) land.
+        var onStyle = CheckboxStyleOf(palette);
+        var waits = actions.Jobs.IsRunning ? "A run is going: the step can be switched when it ends" : null;
+        var on = Layout.Builder.Checkbox("On", step.State is not StepState.Off, actions.SetStepEnabled, onStyle, BaseFontSize,
+                new HitResult.ButtonHit("Step:On"))
+            .WithTooltip(waits ?? "Switch this step off; the steps after it take its input").WAuto();
+        rows.Add(Layout.Builder.HStack(
+                Words(step.Label, palette.BodyText, FlowRoom.Panel, BaseFontSize * 1.15f).WStar(),
+                waits is null ? on : on.Disabled(waits))
+            .WithGap(Gap).CrossStart().WStar());
         if (panel.Summary.Length > 0)
         {
-            rows.Add(Words(panel.Summary, palette.BodyText));
+            rows.Add(Words(panel.Summary, palette.DimText));
         }
 
-        var stateInk = step.State is StepState.Refused or StepState.Blocked ? palette.Error : palette.BodyText;
+        var stateInk = step.State is StepState.Refused or StepState.Blocked ? palette.Error : step.Changed ? palette.Warn : palette.BodyText;
         rows.Add(Layout.Builder.HStack(
                 Layout.Builder.Text(step.Mark, BaseFontSize, stateInk).WAuto(),
-                Layout.Builder.Text(step.Words, BaseFontSize, stateInk).WStar())
-            .WithGap(4f).CrossCenter().WStar());
-        if (step.Changed)
+                Words(step.Words, stateInk).WStar())
+            .WithGap(4f).CrossStart().WStar());
+        if (actions.FixWords(step) is { Length: > 0 } fix)
         {
-            rows.Add(Words("Changed since the last run: its settings, or a step before it, are not what a run last made it from.", palette.Warn));
+            rows.Add(Words(fix, palette.DimText));
         }
 
         if (step.Message is { Length: > 0 } message)
@@ -291,22 +314,36 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
         {
             rows.Add(Words(settingsRefusal, palette.Error));
         }
-        else if (panel.Settings.IsEmpty)
+
+        var controls = actions.SettingControls();
+        if (controls.IsEmpty && panel.SettingsRefusal is null)
         {
-            rows.Add(Words("This step has no settings.", palette.DimText));
+            rows.Add(Words("This step has no settings to change.", palette.DimText));
         }
 
-        foreach (var setting in panel.Settings)
+        var live = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var control in controls)
         {
-            // Shown, never edited: a name and its value on one line, and what it does under them.
+            rows.Add(SettingControl(control, state, actions, waits, live));
+        }
+
+        foreach (var stale in _settingMenus.Keys.Where(key => !live.Contains(key)).ToList())
+        {
+            _settingMenus.Remove(stale);
+        }
+
+        if (state.SettingRefusal is { } settingRefusal)
+        {
+            rows.Add(Words(settingRefusal, palette.Error));
+        }
+
+        rows.Add(Heading("Gives"));
+        foreach (var (name, result) in actions.Gives())
+        {
             rows.Add(Layout.Builder.HStack(
-                    Layout.Builder.Text(setting.Name, BaseFontSize, palette.DimText).WAuto(),
-                    Layout.Builder.Text(setting.Value, BaseFontSize, palette.BodyText, TextAlign.Far).WStar().WithTooltip(setting.Value))
+                    Layout.Builder.Text(name, BaseFontSize, palette.BodyText, trim: TextTrim.End).WStar().WithTooltip(name),
+                    Layout.Builder.Text(result, BaseFontSize, palette.DimText, TextAlign.Far, trim: TextTrim.End).WAuto())
                 .WithGap(Gap).CrossCenter().WStar());
-            if (setting.Summary.Length > 0)
-            {
-                rows.Add(Words(setting.Summary, palette.DimText));
-            }
         }
 
         if (panel.ServedBy.Length > 0)
@@ -315,23 +352,125 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
             rows.Add(Words(panel.ServedBy, palette.BodyText));
         }
 
-        rows.Add(Heading("Command line"));
-        if (panel.CommandLine.IsEmpty)
+        // The command line is folded away: the line can be a path wide, and what a person came to do is in the settings.
+        var open = state.CommandLineOpen;
+        rows.Add(Layout.Builder.Button(open ? "Command line ⌃" : "Command line ⌄", Layout.ButtonKind.Standard, actions.ToggleCommandLine, GuiTheme.Theme,
+            tooltip: "The command that does this step from a terminal").WAuto());
+        if (open)
         {
-            rows.Add(Words("There is no command line until the step can be planned.", palette.DimText));
-        }
-        else
-        {
-            rows.Add(CommandLineText(panel, palette.BodyText));
-            rows.Add(Layout.Builder.HStack(
-                    Layout.Builder.Button("Copy", Layout.ButtonKind.Standard, actions.CopyCommandLine, GuiTheme.Theme,
-                        tooltip: "Put the command line on the clipboard").WAuto(),
-                    Layout.Builder.Text(state.CommandCopied ? "Copied to the clipboard" : string.Empty, BaseFontSize * 0.85f, palette.DimText)
-                        .WStar())
-                .WithGap(Gap).CrossCenter().WStar());
+            if (panel.CommandLine.IsEmpty)
+            {
+                rows.Add(Words("There is no command line until the step can be planned.", palette.DimText));
+            }
+            else
+            {
+                rows.Add(CommandLineText(panel, palette.BodyText));
+                rows.Add(Layout.Builder.HStack(
+                        Layout.Builder.Button("Copy", Layout.ButtonKind.Standard, actions.CopyCommandLine, GuiTheme.Theme,
+                            tooltip: "Put the command line on the clipboard").WAuto(),
+                        Layout.Builder.Text(state.CommandCopied ? "Copied to the clipboard" : string.Empty, BaseFontSize * 0.85f, palette.DimText)
+                            .WStar())
+                    .WithGap(Gap).CrossCenter().WStar());
+            }
         }
 
         return Column(rows);
+    }
+
+    private static Layout.CheckboxStyle CheckboxStyleNow()
+    {
+        var palette = GuiTheme.Palette;
+        return new Layout.CheckboxStyle(palette.ContentBg, palette.Accent, palette.DimText, GuiTheme.Hover(palette.PanelBg))
+        {
+            CheckedLabelColor = palette.BodyText,
+            RowFill = palette.PanelBg,
+            CheckedRowFill = palette.PanelBg,
+            BoxSize = BaseFontSize * 0.9f,
+        };
+    }
+
+    /// <summary>The hit of a setting's control is this followed by the setting's name (a dropdown's, by its key).</summary>
+    internal const string SettingHitPrefix = "Setting:";
+
+    private readonly Dictionary<string, DropdownMenuState<string>> _settingMenus = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, TextInputState> _settingInputs = new(StringComparer.Ordinal);
+
+    // One setting as the control its kind asks for (OperationSettingsForm): a checkbox for on/off, a dropdown for one of a few, a field for a
+    // number or text, and the value in words for a list or a record, which is edited in the project file. What it does stands under it.
+    private Layout.Node SettingControl(WorkbenchSettingControl control, WorkbenchState state, WorkbenchActions actions, string? waits, HashSet<string> live)
+    {
+        var palette = GuiTheme.Palette;
+        var field = control.Field;
+        var name = field.Name;
+        var key = $"{state.View?.ImageName}:{state.SelectedStep}:{name}";
+        live.Add(key);
+        Layout.Node Held(Layout.Node node) => waits is null ? node : node.Disabled(waits);
+        Layout.Node Said(Layout.Node edit)
+            => control.Summary.Length == 0
+                ? edit
+                : Layout.Builder.VStack(edit, Words(control.Summary, palette.DimText)).WithGap(2f).WStar();
+        Layout.Node Labelled(Layout.Node edit)
+            => Said(Layout.Builder.VStack(Layout.Builder.Text(control.Label, BaseFontSize * 0.9f, palette.DimText, trim: TextTrim.End).WStar().WithTooltip(name), edit)
+                .WithGap(4f).WStar());
+
+        switch (field.Kind)
+        {
+            case OperationSettingKind.Bool:
+            {
+                // A checkbox stands in for the mockup's switch until DIR.Lib#156 (a switch control) lands.
+                var isOn = string.Equals(control.Value, "true", StringComparison.OrdinalIgnoreCase);
+                return Said(Held(Layout.Builder.Checkbox(control.Label, isOn, flag => actions.SetSetting(name, flag ? "true" : "false"), CheckboxStyleNow(),
+                    BaseFontSize, new HitResult.ButtonHit(SettingHitPrefix + name)).WStar()));
+            }
+
+            case OperationSettingKind.Choice:
+            {
+                if (!_settingMenus.TryGetValue(key, out var menu))
+                {
+                    menu = new DropdownMenuState<string>();
+                    _settingMenus[key] = menu;
+                }
+
+                menu.Items = [.. field.Choices.Select(static choice => DropdownItem.Text(choice))];
+                menu.OnSelect = item => actions.SetSetting(name, item.Value);
+                if (waits is not null)
+                {
+                    menu.Close();
+                }
+
+                return Labelled(Held(MenuBox(control.Value, palette.BodyText, menu, SettingHitPrefix + key, $"{control.Label}: {control.Value}. Press to choose another")));
+            }
+
+            case OperationSettingKind.Integer or OperationSettingKind.Number or OperationSettingKind.Text:
+            {
+                // A number is a field, saved with Enter, until DIR.Lib#330 (a slider with a numeric field) lands. A field that is not being
+                // typed in follows the runner's answer, never what was typed and not saved.
+                if (!_settingInputs.TryGetValue(key, out var input))
+                {
+                    input = new TextInputState { Placeholder = field.Default ?? "none" };
+                    input.OnCommit = text =>
+                    {
+                        actions.SetSetting(name, text);
+                        return System.Threading.Tasks.Task.CompletedTask;
+                    };
+                    _settingInputs[key] = input;
+                }
+
+                if (!input.IsActive && input.Text != control.Value)
+                {
+                    input.Text = control.Value;
+                }
+
+                return Labelled(Held(Layout.Builder.TextInput(input, BaseFontSize).WStar().HFixed(GuiTheme.Metrics.ButtonHeight)
+                    .WithTooltip($"{control.Label}: press Enter to save. Empty is {(field.Nullable ? "left out" : "not allowed")}")));
+            }
+
+            default:
+                return Said(Layout.Builder.HStack(
+                        Layout.Builder.Text(control.Label, BaseFontSize, palette.DimText).WAuto(),
+                        Layout.Builder.Text(control.Value, BaseFontSize, palette.BodyText, TextAlign.Far, trim: TextTrim.End).WStar().WithTooltip(control.Value))
+                    .WithGap(Gap).CrossCenter().WStar());
+        }
     }
 
     // What a run does, said by the buttons themselves: where it starts, what it runs first, or that nothing needs to run. One run at
@@ -354,13 +493,7 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
         rows.Add(RunButton(next, actions.RunOn, state.RunOn
             ? "Make every step from the first that is not kept to the end of the list; a refused or blocked step stops the run"
             : "Make only the next step that is not kept, then stop with it selected", Layout.ButtonKind.Standard));
-        var style = new Layout.CheckboxStyle(palette.ContentBg, palette.Accent, palette.DimText, GuiTheme.Hover(palette.PanelBg))
-        {
-            CheckedLabelColor = palette.BodyText,
-            RowFill = palette.PanelBg,
-            CheckedRowFill = palette.PanelBg,
-            BoxSize = BaseFontSize * 0.9f,
-        };
+        var style = CheckboxStyleNow();
         rows.Add(Layout.Builder.Checkbox("Run on until a step needs me", state.RunOn, actions.SetRunOn, style, BaseFontSize,
                 new HitResult.ButtonHit("RunOn"))
             .WithTooltip("On, a run goes to the end of the list and stops at a refused or blocked step. Off, it makes one step and stops.")
@@ -467,11 +600,11 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
         => Layout.Builder.VStack([.. rows]).Pad(Gap).WithGap(Gap).Bg(GuiTheme.Palette.PanelBg).WithScroll(_panelScroll);
 
     private static Layout.Node Heading(string text)
-        => Layout.Builder.Text(text, BaseFontSize * 0.9f, GuiTheme.Palette.Accent).WStar();
+        => Layout.Builder.Text(text.ToUpperInvariant(), BaseFontSize * 0.8f, GuiTheme.Palette.DimText).WStar();
 
     // A sentence that wraps rather than clips (the engine's flow of words, as the viewer's panels do).
-    private Layout.Node Words(string text, RGBAColor32 color, FlowRoom where = FlowRoom.Panel)
-        => Flow(text.Split(' ', StringSplitOptions.RemoveEmptyEntries), color, tooltip: null, where);
+    private Layout.Node Words(string text, RGBAColor32 color, FlowRoom where = FlowRoom.Panel, float size = 0f)
+        => Flow(text.Split(' ', StringSplitOptions.RemoveEmptyEntries), color, tooltip: null, where, size);
 
     // The command as one flow of arguments, wrapped, never cut. An argument too long for the panel (a path) is broken into pieces
     // that each fit, so every character is on screen; Copy puts the unbroken line on the clipboard, and each piece's hover text
@@ -518,8 +651,9 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
 
     // Words in one wrapping flow with no gap of the engine's own between leaves: the space between two words is the trailing
     // space of the first, so the pieces of one broken word sit edge to edge and read as the word, never as a space inside a path.
-    private Layout.Node Flow(IReadOnlyList<string> words, RGBAColor32 color, Func<string, string>? tooltip, FlowRoom where)
+    private Layout.Node Flow(IReadOnlyList<string> words, RGBAColor32 color, Func<string, string>? tooltip, FlowRoom where, float size = 0f)
     {
+        var fontSize = size > 0f ? size : BaseFontSize;
         var ctx = MeasureContext();
         var room = _rooms[(int)where];
         var nodes = new List<Layout.Node>();
@@ -527,9 +661,9 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
         {
             var word = words[w];
             var text = w < words.Count - 1 ? word + " " : word;
-            foreach (var piece in Pieces(text, room, ctx))
+            foreach (var piece in Pieces(text, room, ctx, fontSize))
             {
-                var leaf = Layout.Builder.Text(piece, BaseFontSize, color);
+                var leaf = Layout.Builder.Text(piece, fontSize, color);
                 nodes.Add(tooltip is null ? leaf : leaf.WithTooltip(tooltip(word)));
             }
         }
@@ -541,13 +675,13 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
 
     // The text in the longest runs the engine measures as fitting the room, each ending after a path separator where one lies in
     // its second half, so a path breaks at a folder where it can. A text that fits is one run.
-    private static List<string> Pieces(string text, float room, Layout.IMeasureContext<float> ctx)
+    private static List<string> Pieces(string text, float room, Layout.IMeasureContext<float> ctx, float fontSize)
     {
         var pieces = new List<string>();
         var start = 0;
         while (start < text.Length)
         {
-            if (Width(text[start..], ctx) <= room)
+            if (Width(text[start..], ctx, fontSize) <= room)
             {
                 pieces.Add(text[start..]);
                 break;
@@ -558,7 +692,7 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
             while (over - fits > 1)
             {
                 var mid = (fits + over) / 2;
-                if (Width(text[start..mid], ctx) <= room)
+                if (Width(text[start..mid], ctx, fontSize) <= room)
                 {
                     fits = mid;
                 }
@@ -578,6 +712,6 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
         return pieces;
     }
 
-    private static float Width(string text, Layout.IMeasureContext<float> ctx)
-        => Layout.Engine.Measure(Layout.Builder.Text(text, BaseFontSize), new Layout.Size<float>(float.PositiveInfinity, float.PositiveInfinity), ctx).Width;
+    private static float Width(string text, Layout.IMeasureContext<float> ctx, float fontSize)
+        => Layout.Engine.Measure(Layout.Builder.Text(text, fontSize), new Layout.Size<float>(float.PositiveInfinity, float.PositiveInfinity), ctx).Width;
 }

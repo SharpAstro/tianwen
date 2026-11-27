@@ -337,17 +337,45 @@ public sealed partial class WorkbenchScreen<TSurface>
 
     // ---- Panel slot: a frame group's files (the selected step's panel is Panel) ----
 
-    private Layout.Node FramesPanel(WorkbenchFrameGroup group, WorkbenchState state)
+    // The group's files, one row each: its name (a click shows it on the canvas), what it is taken for (the dropdown of the Import page, saved
+    // through the same Lib routine) and its grade where the lights were graded. The selected file's row is marked.
+    private Layout.Node FramesPanel(WorkbenchFrameGroup group, WorkbenchState state, WorkbenchActions actions)
     {
         var palette = GuiTheme.Palette;
         var rows = new List<Layout.Node>
         {
-            Layout.Builder.Text(group.Name, BaseFontSize * 1.15f, palette.BodyText).WStar(),
-            Words($"{group.Count} {(group.Count == 1 ? "file" : "files")} in {state.Frames?.Folder}", palette.DimText),
+            Words(group.Name, palette.BodyText, FlowRoom.Panel, BaseFontSize * 1.15f),
+            Words($"{group.Count} {(group.Count == 1 ? "file" : "files")} in {state.Frames?.Folder}. Press a file to see it; change what a file is taken for in its box.", palette.DimText),
         };
-        foreach (var file in group.Files)
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var file in group.Details)
         {
-            rows.Add(Layout.Builder.Text(file, BaseFontSize, palette.BodyText, trim: TextTrim.Start).WStar().WithTooltip(file));
+            seen.Add(file.Place);
+            var picked = string.Equals(state.PreviewFrame, file.FullPath, StringComparison.OrdinalIgnoreCase);
+            var fill = picked ? palette.Selection : palette.PanelBg;
+            var ink = picked ? palette.SelectionText : palette.BodyText;
+            var full = file.FullPath;
+            var grade = file.Grade is { } g ? GradeWords(g) : null;
+            var name = Layout.Builder.Text(file.Place, BaseFontSize, ink, trim: TextTrim.Start).WStar().HStar()
+                .WithTooltip(file.FullPath)
+                .Clickable(new HitResult.ButtonHit("Frame:" + file.Place), _ => actions.ShowFrameFile(full), CursorKind.Pointer);
+            var line = Layout.Builder.HStack(name, KindCell(file, actions.ReassignFrame).WFixed(124f).HStar())
+                .WithGap(Gap).CrossCenter().Pad(Gap / 2, 0f).Bg(fill).BgHover(GuiTheme.Hover(fill)).Radius(4f).WStar().HFixed(TreeRowHeight + 6f);
+            rows.Add(line);
+            if (grade is not null)
+            {
+                rows.Add(Layout.Builder.Text($"Grade: {grade}", BaseFontSize * 0.85f, palette.DimText, trim: TextTrim.End).WStar().WithTooltip(grade).Pad(Gap / 2, 0f));
+            }
+        }
+
+        foreach (var stale in _kindMenus.Keys.Where(key => !seen.Contains(key)).ToList())
+        {
+            _kindMenus.Remove(stale);
+        }
+
+        if (group.Count == 0)
+        {
+            rows.Add(Words("The capture folder holds no file of this kind.", palette.DimText));
         }
 
         return Column(rows);

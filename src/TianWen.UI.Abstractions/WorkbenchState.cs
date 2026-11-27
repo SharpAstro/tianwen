@@ -71,6 +71,18 @@ public sealed class WorkbenchState
     /// <summary>The frame group selected in the tree (Lights, Darks, Flats, Bias); null while a step is the selection.</summary>
     public string? SelectedFrames { get; set; }
 
+    /// <summary>Why the last change of a setting or an on/off was refused, in words; null otherwise.</summary>
+    public string? SettingRefusal { get; set; }
+
+    /// <summary>True while the command line is unfolded under the selected step's panel (it is folded away otherwise).</summary>
+    public bool CommandLineOpen { get; set; }
+
+    /// <summary>The file of a frame group shown on the canvas (a click on a file of the panel's list); null for none.</summary>
+    public string? PreviewFrame { get; set; }
+
+    /// <summary>True once the lights of the capture were graded for the frames panel (grading reads their pixels, so it waits for the first look at the Lights).</summary>
+    public bool LightsGraded { get; set; }
+
     /// <summary>True while the log is open under the status strip.</summary>
     public bool LogOpen { get; set; }
 
@@ -185,6 +197,9 @@ public sealed class WorkbenchState
 /// <param name="Files">The files, as their places in the capture folder.</param>
 public sealed record WorkbenchFrameGroup(string Name, ImmutableArray<string> Files)
 {
+    /// <summary>The files as the detection described them (kind, why, grade), in the order of <c>Files</c>; what the panel's file list shows.</summary>
+    public ImmutableArray<TianWen.Lib.Imaging.Workbench.DetectedFile> Details { get; init; } = [];
+
     /// <summary>How many files the group holds.</summary>
     public int Count => Files.Length;
 }
