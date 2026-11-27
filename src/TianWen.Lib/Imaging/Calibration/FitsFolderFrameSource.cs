@@ -43,6 +43,7 @@ public sealed class FitsFolderFrameSource : IFrameSource
     private int _filterAlreadyPresent;
     private int _rejectedAtCapture;
     private int _suspectedCloudSkipped;
+    private int _excludedSkipped;
 
     /// <param name="folder">Folder to scan. Must exist.</param>
     /// <param name="recursive">If true, descend into subdirectories. Default false.</param>
@@ -83,6 +84,13 @@ public sealed class FitsFolderFrameSource : IFrameSource
     /// <summary>Keep frames named <c>MAYBE_CLOUD_</c> instead of skipping them before the header read. Off by default.</summary>
     public bool IncludeSuspectedCloud { get; init; }
 
+    /// <summary>A folder under the scanned one whose files are never frames of the scan, skipped before the header read: a
+    /// project's own folder (<c>workdir</c>) holds masters and results, which a scan of the capture must not take as lights.</summary>
+    public string? ExcludedFolder { get; init; }
+
+    /// <summary>FITS files the most recent enumeration left out because they are under <see cref="ExcludedFolder"/>.</summary>
+    public int ExcludedSkipped => _excludedSkipped;
+
     /// <summary>
     /// Headers remembered from earlier scans (<see cref="FitsHeaderIndex"/>): an unchanged file is
     /// parsed from its stored header instead of being read. The caller loads and saves it.
@@ -95,12 +103,19 @@ public sealed class FitsFolderFrameSource : IFrameSource
         // FileEnumeration is lazy, so the directory scan streams. It also refuses to enter reparse
         // points (the organized archive's junction farm used to be scanned once per link) and skips
         // a folder it cannot read instead of aborting a multi-hour walk; see its remarks.
+        var excludedFolder = ExcludedFolder is null ? null : Path.GetFullPath(ExcludedFolder).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var excludedWithSeparator = excludedFolder is null ? null : excludedFolder + Path.DirectorySeparatorChar;
         var stamps = FileEnumeration.EnumerateFileStamps(_folder, FitsExtensions, _recursive)
             .OrderBy(p => p.Path, StringComparer.OrdinalIgnoreCase);
 
         foreach (var stamp in stamps)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (excludedWithSeparator is not null && Path.GetFullPath(stamp.Path).StartsWith(excludedWithSeparator, PathComparison))
+            {
+                _excludedSkipped++;
+                continue;
+            }
             // Before the header read, because the answer is in the name and the read is the cost.
             // A frame graded out at the telescope stays out of every consumer of this source: the
             // stacker, the calibration resolver and the dataset bake all enumerate through here.
@@ -149,6 +164,10 @@ public sealed class FitsFolderFrameSource : IFrameSource
         var filter = Filter.FromName(declared) with { RawName = declared };
         return frame with { Meta = frame.Meta with { Filter = filter } };
     }
+
+    private static StringComparison PathComparison => OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+        ? StringComparison.OrdinalIgnoreCase
+        : StringComparison.Ordinal;
 
     private FrameInfo? TryReadFrameInfo(FileStamp stamp)
     {

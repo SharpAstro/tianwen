@@ -67,7 +67,7 @@ public sealed record WorkbenchStepPanel(
 /// A step's state is only ever what the runner answered: a press selects a step and starts no run, and the answer replaces
 /// <see cref="WorkbenchState.View"/> whole on the render thread, on a frame of its choosing.
 /// </remarks>
-public sealed class WorkbenchActions(
+public sealed partial class WorkbenchActions(
     WorkbenchState state,
     WorkbenchRunner runner,
     OperationCatalog catalog,
@@ -276,9 +276,10 @@ public sealed class WorkbenchActions(
     }
 
     /// <summary>
-    /// The New project button: a folder dialog for the project's folder, one for the capture's folder, then the Lib routine
-    /// (<see cref="WorkbenchProjects.NewAsync"/>) off the render thread and <see cref="OpenProject"/> on the folder it made. A
-    /// cancelled dialog changes nothing; a refusal is kept in <see cref="WorkbenchState.NewProjectRefusal"/> and shown in words.
+    /// The New project button: a folder dialog for the capture's folder (the project is made in its workdir), then the Lib routines
+    /// off the render thread: the project (<see cref="WorkbenchProjects.NewAsync"/>), the detection of the folder, and the Import page. The
+    /// Workflow page and <see cref="UseWorkflow"/> open the workbench on it. A cancelled dialog changes nothing; a refusal is kept in
+    /// <see cref="WorkbenchState.NewProjectRefusal"/> and shown in words.
     /// Not offered while <see cref="ChoiceWaits"/> says why not.
     /// </summary>
     public void NewProject()
@@ -290,45 +291,19 @@ public sealed class WorkbenchActions(
 
         tracker.RunGuarded(async ct =>
         {
-            var project = await dialogs.OpenFolderAsync(new FileDialogRequest
-            {
-                Title = "New project: choose the folder for the project",
-                InitialDirectory = state.View?.Folder,
-            }, ct);
-            if (project.Path is not { } projectFolder)
-            {
-                return;
-            }
-
+            // One folder: the capture. The project and every result are kept in its workdir (#2553).
             var capture = await dialogs.OpenFolderAsync(new FileDialogRequest
             {
                 Title = "New project: choose the folder of the capture to stack",
-                InitialDirectory = projectFolder,
+                InitialDirectory = state.View?.Folder,
             }, ct);
             if (capture.Path is not { } captureFolder)
             {
                 return;
             }
 
-            var made = await WorkbenchProjects.NewAsync(projectFolder, captureFolder, ct);
-            if (made.Refusal is { } refusal)
-            {
-                state.NewProjectRefusal = $"No project was made: {refusal}";
-                state.NeedsRedraw = true;
-                return;
-            }
-
-            state.NewProjectRefusal = null;
-            if (!OpenProject(projectFolder))
-            {
-                // Read once: the log and the words say the same reason; with none left (the run ended meanwhile) no cause is named.
-                var why = ChoiceWaits;
-                logger.LogInformation("{Folder} was made but not opened: {Why}", projectFolder, why);
-                state.NewProjectRefusal = why is null
-                    ? $"The project was made in {projectFolder}. Use Open project to show it."
-                    : $"The project was made in {projectFolder} but not opened: {why}. Use Open project to show it.";
-                state.NeedsRedraw = true;
-            }
+            // The project is made in the capture's workdir and the folder detected; the Import page then the Workflow page follow (#2553).
+            await StartImportAsync(captureFolder, ct);
         }, appToken, logger, "Make a workbench project from a capture folder",
             onError: ex =>
             {
@@ -352,8 +327,11 @@ public sealed class WorkbenchActions(
     /// <summary>Selects a step: its panel is drawn. Nothing runs and nothing about any step's state changes.</summary>
     public void SelectStep(int index)
     {
-        if (state.SelectedStep != index)
+        if (state.SelectedStep != index || state.SelectedFrames is not null)
         {
+            state.SelectedFrames = null;
+            state.PreviewFrame = null;
+            state.SettingRefusal = null;
             state.SelectedStep = index;
             state.CommandCopied = false;
             state.NeedsRedraw = true;
@@ -524,6 +502,7 @@ public sealed class WorkbenchActions(
     /// </summary>
     public void TryAdoptStatus()
     {
+        TryAdoptFrames();
         if (tracker.TryCollect<WorkbenchPlan>(PlanSlot, out var plan) && plan is not null && state.View is { } current
             && string.Equals(plan.Folder, current.Folder, StringComparison.Ordinal)
             && string.Equals(plan.Image, current.ImageName, StringComparison.Ordinal)
@@ -559,6 +538,18 @@ public sealed class WorkbenchActions(
         state.SelectAfterStatus = -1;
         ShowOriginal(view);
         RequestPlan();
+        RequestFrames(view);
+
+        // A ▶ on a row of an image that was not on show asked for a run: the image is on show and its step selected, so it starts now.
+        if (state.RunAfterStatus)
+        {
+            state.RunAfterStatus = false;
+            if (view is { ImageName: { } name, Image: { } shown } && state.SelectedStep >= 0 && state.SelectedStep < shown.Steps.Length
+                && shown.Steps[state.SelectedStep].State is not (StepState.Refused or StepState.Blocked or StepState.Off))
+            {
+                _jobs.TryStart(view.Folder, name, state.SelectedStep);
+            }
+        }
     }
 
     /// <summary>The step bar: each edit of the image, named by its operation's title, in the runner's state.</summary>
@@ -722,12 +713,19 @@ public sealed class WorkbenchActions(
             return null;
         }
 
+        // A file of a frame group the person clicked: the viewer is given it as it is given any file, and nothing else is on show.
+        if (state.SelectedFrames is not null)
+        {
+            return state.PreviewFrame is { } frame ? new WorkbenchShown(WorkbenchViewKind.Result, null, frame) : null;
+        }
+
         var offer = ViewOffer();
         return EffectiveView() switch
         {
             WorkbenchViewKind.Result => new WorkbenchShown(WorkbenchViewKind.Result, null, offer.ResultFile),
             WorkbenchViewKind.Comparison => new WorkbenchShown(WorkbenchViewKind.Comparison, offer.InputFile, offer.ResultFile),
-            _ => new WorkbenchShown(WorkbenchViewKind.Original, null, state.OriginalFile),
+            // Input: the step's own input where it has a picture, else the image's original.
+            _ => new WorkbenchShown(WorkbenchViewKind.Original, null, offer.InputFile ?? state.OriginalFile),
         };
     }
 
@@ -795,11 +793,13 @@ public sealed class WorkbenchActions(
             return new WorkbenchView(folder, project, names, null, null, "The project has no images.");
         }
 
-        var report = await runner.StatusAsync(folder, name, ct);
+        // Every image is asked at once (the runner plans them all anyway), so the tree marks the steps of the images not on show too.
+        var report = await runner.StatusAsync(folder, (string?)null, ct);
         var imageReport = report.Images.FirstOrDefault(i => string.Equals(i.Name, name, StringComparison.Ordinal));
         return new WorkbenchView(folder, project, names, name, imageReport, report.Refusal ?? imageReport?.Refusal)
         {
             Existing = imageReport is null ? [] : WorkbenchOriginal.ExistingOutputs(imageReport.Steps),
+            Reports = report.Images,
             Original = WorkbenchOriginal.Of(imageReport?.Path),
         };
     }

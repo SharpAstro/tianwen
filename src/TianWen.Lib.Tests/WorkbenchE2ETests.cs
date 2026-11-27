@@ -66,20 +66,23 @@ public sealed class WorkbenchE2ETests : IDisposable
         await e2e.OpenProjectAsync(folder, ct);
 
         var cells = e2e.StepCells();
-        cells.Length.ShouldBe(5, "one cell for each edit of the image");
+        cells.Length.ShouldBe(5, "one row for each edit of the image");
         for (var i = 1; i < cells.Length; i++)
         {
-            cells[i].X.ShouldBeGreaterThan(cells[i - 1].X, "the steps run left to right");
-            cells[i].Y.ShouldBe(cells[0].Y, 0.5f, "on one row");
+            cells[i].Y.ShouldBeGreaterThan(cells[i - 1].Y, "the steps run top to bottom");
+            cells[i].X.ShouldBe(cells[0].X, 0.5f, "in one column");
             cells[i].Height.ShouldBe(cells[0].Height, 0.5f, "of one height");
         }
 
-        // Named by the operation's title, numbered from one; an operation this computer does not know is named by its id.
-        e2e.TextsIn(cells[0]).ShouldContain("1  Add");
-        e2e.TextsIn(cells[1]).ShouldContain("2  Add");
-        e2e.TextsIn(cells[2]).ShouldContain("3  Served");
-        e2e.TextsIn(cells[3]).ShouldContain("4  ghost");
-        e2e.TextsIn(cells[4]).ShouldContain("5  Add");
+        // Numbered from one and named by the operation's title; an operation this computer does not know is named by its id.
+        e2e.TextsIn(cells[0]).ShouldContain("1");
+        e2e.TextsIn(cells[0]).ShouldContain("Add");
+        e2e.TextsIn(cells[1]).ShouldContain("2");
+        e2e.TextsIn(cells[1]).ShouldContain("Add");
+        e2e.TextsIn(cells[2]).ShouldContain("Served");
+        e2e.TextsIn(cells[3]).ShouldContain("ghost");
+        e2e.TextsIn(cells[4]).ShouldContain("Add");
+        e2e.TextsIn(cells[4]).ShouldContain("5");
     }
 
     [Theory(Timeout = 120_000)]
@@ -104,8 +107,8 @@ public sealed class WorkbenchE2ETests : IDisposable
         for (var i = 0; i < expected.Length; i++)
         {
             var texts = e2e.TextsIn(cells[i]).ToArray();
-            texts.ShouldContain(expected[i].Words, $"step {i + 1} says its state in the runner's words");
-            texts.ShouldContain(WorkbenchActions.MarkFor(expected[i].State), $"step {i + 1} wears the mark of its state");
+            e2e.StepWords(i).ShouldBe(expected[i].Words, $"step {i + 1} says its state in the runner's words");
+            texts.ShouldContain(WorkbenchActions.TreeMarkFor(expected[i].State, expected[i].ChangedSinceLastRun), $"step {i + 1} wears the mark of its state");
         }
 
         e2e.TextsIn(cells[0]).ShouldContain("✓", "a kept step has a tick");
@@ -156,23 +159,25 @@ public sealed class WorkbenchE2ETests : IDisposable
         var panel = Normalise(e2e.PanelText());
         panel.ShouldContain("2 Add", Case.Insensitive);
         panel.ShouldContain(Normalise(_add.Description.Summary), Case.Insensitive, "what the operation does");
-        panel.ShouldContain("Settings");
+        panel.ShouldContain("Settings", Case.Insensitive);
         panel.ShouldContain("amount", Case.Insensitive, "a setting by its name");
         panel.ShouldContain(Normalise(_add.Description.Settings[0].Summary), Case.Insensitive, "and what it does");
-        e2e.TextsIn(PanelRect(e2e)).ShouldContain("2", "its value as the operation reads it");
+        e2e.Actions.SettingControls().Single().Value.ShouldBe("2", "its value as the operation reads it, in its field");
         panel.ShouldContain("Command line");
+        e2e.ClickText("Command line \u2304");
         // A long argument is broken into pieces that each fit, so every character is painted: without the spaces between
         // pieces the panel holds the whole line, and no word lies outside the panel.
         Compact(e2e.PanelText()).ShouldContain(Compact(StepCommandLine.Display(report.Steps[1].CommandLine)), Case.Insensitive,
             "the command line, wrapped into the panel and not cut");
         var panelRect = PanelRect(e2e);
-        e2e.Texts().Where(t => t.Bounds.Y >= panelRect.Y && t.Bounds.X < panelRect.Width)
-            .ShouldAllBe(t => t.Bounds.X + t.Bounds.Width <= panelRect.Width + 0.5f, "no word of the panel runs past its edge");
+        e2e.Texts().Where(t => t.Bounds.Y >= panelRect.Y && t.Bounds.Y < panelRect.Y + panelRect.Height && t.Bounds.X >= panelRect.X)
+            .Where(t => t.Bounds.X < panelRect.X + panelRect.Width)
+            .ShouldAllBe(t => t.Bounds.X + t.Bounds.Width <= panelRect.X + panelRect.Width + 0.5f, "no word of the panel runs past its edge");
 
-        // Shown, not edited: no field and nothing to press beside the settings but the Copy button.
+        // A number is a field of its own now (the panel edits settings).
         var inputs = new System.Collections.Generic.List<TextInputState>();
         e2e.Host.Screen.CollectRegisteredTextInputs(inputs);
-        inputs.ShouldBeEmpty("a setting is shown and not edited in W2");
+        inputs.Count.ShouldBe(1, "the one number setting is a field");
 
         // The third step is served: the panel says by what.
         e2e.Click(e2e.StepCells()[2]);
@@ -193,6 +198,7 @@ public sealed class WorkbenchE2ETests : IDisposable
         var report = Image(await Runner().StatusAsync(folder, "m", ct));
         e2e.Click(e2e.StepCells()[1]);
 
+        e2e.ClickText("Command line \u2304");
         e2e.Click(e2e.Region("Copy"));
 
         e2e.Clipboard.ShouldBe([StepCommandLine.Display(report.Steps[1].CommandLine)], "the whole line, not what the panel could show");
@@ -208,8 +214,11 @@ public sealed class WorkbenchE2ETests : IDisposable
         await using var e2e = WorkbenchE2E.Start(dpi, Runner(), Catalog());
 
         await e2e.OpenProjectAsync(folder, ct);
+        // The canvas shows the step's output, which the first step has not made: Input is the original, drawn through the viewer.
+        e2e.Click(e2e.Region("View:Original"));
         await e2e.PumpUntilAsync(() => e2e.Controller.Document is { } document
             && string.Equals(document.FilePath, master, StringComparison.OrdinalIgnoreCase), "the original to open", ct);
+        e2e.Frame();
 
         string.Equals(e2e.Controller.Document!.FilePath, master, StringComparison.OrdinalIgnoreCase).ShouldBeTrue("the viewer holds the image's original");
         var canvas = e2e.Host.Screen.CanvasRect;
@@ -234,6 +243,7 @@ public sealed class WorkbenchE2ETests : IDisposable
         await e2e.OpenProjectAsync(folder, ct);
 
         e2e.State.OriginalNote.ShouldNotBeNull();
+        e2e.Click(e2e.Region("View:Original"));
         Normalise(string.Join(' ', e2e.Texts().Select(static t => t.Text))).ShouldContain("folder of frames", Case.Insensitive);
         e2e.Controller.Document.ShouldBeNull("nothing was given to the viewer");
     }
@@ -248,8 +258,7 @@ public sealed class WorkbenchE2ETests : IDisposable
         await using var e2e = WorkbenchE2E.Start(dpi, Runner(), Catalog());
         await e2e.OpenProjectAsync(folder, ct);
 
-        var cells = e2e.StepCells();
-        var topBar = new RectF32(0, 0, e2e.Renderer.Width, cells[0].Y);
+        var topBar = new RectF32(0, 0, e2e.Renderer.Width, e2e.Region("View:Result").Y);
         var words = string.Join(' ', e2e.TextsIn(topBar));
         words.ShouldContain(Path.GetFileName(folder), Case.Sensitive, "the project folder");
         words.ShouldContain("Open project");
@@ -290,18 +299,17 @@ public sealed class WorkbenchE2ETests : IDisposable
         await SelectAsync(e2e, 2, ct);
 
         var cells = e2e.StepCells();
-        e2e.TextsIn(cells[0]).ShouldContain("kept", "step 1 is in the store");
-        e2e.TextsIn(cells[1]).ShouldContain("will run", "step 2 is not, and step 3 needs it");
-        e2e.TextsIn(cells[2]).ShouldContain("will run");
-        Normalise(e2e.PanelText()).ShouldContain("Run to here (runs 2 first)", Case.Sensitive, "the button says what runs before");
+        e2e.StepWords(0).ShouldBe("kept", "step 1 is in the store");
+        e2e.StepWords(1).ShouldBe("will run", "step 2 is not, and step 3 needs it");
+        e2e.StepWords(2).ShouldBe("will run");
+        e2e.Actions.RunToHereOffer().Label.ShouldBe("Run to here (runs 2 first)", "the offer says what runs before");
         _add.Runs.ShouldBe(runs, "selecting ran nothing");
 
         await SelectAsync(e2e, 0, ct);
-        Normalise(e2e.PanelText()).ShouldContain("Nothing to run: this step is kept", Case.Sensitive);
-        e2e.Texts().ShouldNotContain(t => t.Text == "Run to here", "no button to press where nothing needs to run");
+        e2e.Actions.RunToHereOffer().CanRun.ShouldBeFalse("nothing to run where the step is kept");
 
         await SelectAsync(e2e, 1, ct);
-        e2e.Texts().ShouldContain(t => t.Text == "Run to here", "a step that will run, with nothing before it to run first, says so plainly");
+        e2e.Actions.RunToHereOffer().Label.ShouldBe("Run to here", "a step that will run, with nothing before it to run first, says so plainly");
     }
 
     [Theory(Timeout = 120_000)]
@@ -315,7 +323,7 @@ public sealed class WorkbenchE2ETests : IDisposable
         await e2e.OpenProjectAsync(folder, ct);
         await SelectAsync(e2e, 1, ct);
 
-        e2e.ClickText("Run to here (runs 1 first)");
+        e2e.ClickRun();
         await SettleAsync(e2e, ct);
 
         _add.Runs.ShouldBe(2, "steps 1 and 2 ran, and nothing after");
@@ -323,7 +331,7 @@ public sealed class WorkbenchE2ETests : IDisposable
         var answer = Image(await Runner().StatusAsync(folder, "m", ct)).Steps;
         for (var i = 0; i < cells.Length; i++)
         {
-            e2e.TextsIn(cells[i]).ShouldContain(answer[i].Words, $"step {i + 1} shows the runner's state after the run");
+            e2e.StepWords(i).ShouldBe(answer[i].Words, $"step {i + 1} shows the runner's state after the run");
         }
 
         answer[0].State.ShouldBe(StepState.Kept);
@@ -344,7 +352,7 @@ public sealed class WorkbenchE2ETests : IDisposable
         e2e.State.RunOn.ShouldBeTrue("on by default");
         await e2e.PumpUntilAsync(() => e2e.State.Plan is not null, "the first plan", ct);
 
-        e2e.ClickText("Run on from step 1");
+        e2e.Actions.RunOn();
         await SettleAsync(e2e, ct);
 
         _add.Runs.ShouldBe(2, "the adds before the refused step ran, and the one behind it did not");
@@ -366,16 +374,16 @@ public sealed class WorkbenchE2ETests : IDisposable
         await e2e.OpenProjectAsync(folder, ct);
         await e2e.PumpUntilAsync(() => e2e.State.Plan is not null, "the first plan", ct);
 
-        e2e.Click(e2e.Region("RunOn"));
+        e2e.Actions.SetRunOn(false);
         e2e.State.RunOn.ShouldBeFalse();
-        e2e.ClickText("Run step 1");
+        e2e.Actions.RunOn();
         await SettleAsync(e2e, ct);
 
         _add.Runs.ShouldBe(1, "one step");
         e2e.State.SelectedStep.ShouldBe(0, "stopped with that step selected");
-        e2e.Texts().ShouldContain(t => t.Text == "Run step 2", "the next step is the one the button now offers");
+        e2e.Actions.RunOnOffer().Label.ShouldBe("Run step 2", "the next step is the one the offer now names");
 
-        e2e.ClickText("Run step 2");
+        e2e.Actions.RunOn();
         await SettleAsync(e2e, ct);
         _add.Runs.ShouldBe(2);
         e2e.State.SelectedStep.ShouldBe(1);
@@ -395,18 +403,18 @@ public sealed class WorkbenchE2ETests : IDisposable
         await e2e.OpenProjectAsync(folder, ct);
         await SelectAsync(e2e, 1, ct);
 
-        e2e.ClickText("Run to here (runs 1 first)");
+        e2e.ClickRun();
         await e2e.PumpFramesUntilAsync(() => _gate.Started.Task.IsCompleted && e2e.Actions.Jobs.State.Fraction is not null, "the step at its gate", ct);
 
         var panel = Normalise(e2e.PanelText());
         panel.ShouldContain("Step 2, Gate: 50 percent", Case.Sensitive, "the running step, and its fraction in words");
-        panel.ShouldContain("at the gate", Case.Sensitive, "the run's line");
-        e2e.Texts().ShouldContain(t => t.Text == "Cancel");
-        e2e.Texts().ShouldNotContain(t => t.Text.StartsWith("Run to here", StringComparison.Ordinal) || t.Text.StartsWith("Run on", StringComparison.Ordinal),
-            "no second start is offered while one runs");
+        e2e.ClickText("Log ⌄");
+        Normalise(string.Join(' ', e2e.Texts().Select(static t => t.Text))).ShouldContain("at the gate", Case.Sensitive, "the run's line, in the log behind the disclosure");
+        e2e.Texts().ShouldContain(t => t.Text == "■ Stop");
+        e2e.Actions.RunToHereOffer().CanRun.ShouldBeFalse("no start is offered while one runs (the toolbar dims its Run)");
         e2e.Actions.Jobs.TryStart(folder, "m", through: null).ShouldBeFalse();
 
-        e2e.ClickText("Cancel");
+        e2e.ClickText("■ Stop");
         await SettleAsync(e2e, ct);
 
         e2e.Actions.Jobs.State.Outcome.ShouldBe(WorkbenchJobOutcome.Cancelled);
@@ -414,7 +422,7 @@ public sealed class WorkbenchE2ETests : IDisposable
         var answer = Image(await Runner().StatusAsync(folder, "m", ct)).Steps;
         answer[0].State.ShouldBe(StepState.Kept, "step 1 finished before the gate");
         var cells = e2e.StepCells();
-        e2e.TextsIn(cells[1]).ShouldContain(answer[1].Words, "the bar shows what the runner says after the cancel");
+        e2e.StepWords(1).ShouldBe(answer[1].Words, "the tree shows what the runner says after the cancel");
     }
 
     [Theory(Timeout = 120_000)]
@@ -443,9 +451,9 @@ public sealed class WorkbenchE2ETests : IDisposable
         e2e.Viewer.HasBeforeImageTextures.ShouldBeTrue();
         e2e.Viewer.Split.PixelsGeneration.ShouldBe(e2e.ViewerState.SourceGeneration, "the before pixels belong to what is on show");
 
-        // Step 1's input is the original file; step 2's is step 1's stored result.
+        // Step 1's input is the original file; step 2's is step 1's stored result, which is what Input shows for step 2.
         e2e.Click(e2e.Region("View:Original"));
-        await e2e.PumpUntilAsync(() => SameFile(e2e.Controller.Document?.FilePath, master) && !e2e.Viewer.Split.IsOn, "the original again", ct);
+        await e2e.PumpUntilAsync(() => SameFile(e2e.Controller.Document?.FilePath, steps[0].Output) && !e2e.Viewer.Split.IsOn, "step 2's input", ct);
         e2e.Viewer.HasBeforeImageTextures.ShouldBeFalse("leaving the comparison frees the retained pixels");
     }
 
@@ -485,19 +493,18 @@ public sealed class WorkbenchE2ETests : IDisposable
         await e2e.OpenProjectAsync(folder, ct);
         await SelectAsync(e2e, 1, ct);
 
-        e2e.Texts().ShouldContain(t => t.Text == "Original");
-        e2e.Texts().ShouldNotContain(t => t.Text == "Result", "step 2 is not made yet");
-        e2e.Texts().ShouldNotContain(t => t.Text == "Comparison");
-        var panel = Normalise(e2e.PanelText());
-        panel.ShouldContain("Step 2 has not been made yet.", Case.Sensitive, "said in words");
-        panel.ShouldContain("Step 2 has no result to compare", Case.Sensitive);
+        e2e.Texts().ShouldContain(t => t.Text == "Input");
+        e2e.Texts().ShouldContain(t => t.Text == "Output", "the output is always chosen, and says so on the canvas when there is none");
+        e2e.Texts().ShouldNotContain(t => t.Text == "Before and after", "step 2 is not made yet");
+        e2e.Texts().ShouldContain(t => t.Text == "Add has no output yet", "the canvas says so");
+        Normalise(e2e.PanelText()).ShouldNotContain("has not been made yet", Case.Sensitive, "said once, on the canvas");
 
         // The unknown operation is refused: nothing was made, and the words say so.
         var (refusedFolder, _) = await ProjectAsync("nofile2");
         await e2e.OpenProjectAsync(refusedFolder, ct);
         await SelectAsync(e2e, 3, ct);
-        Normalise(e2e.PanelText()).ShouldContain("Step 4 made nothing: it is refused.", Case.Sensitive);
-        e2e.Texts().ShouldNotContain(t => t.Text == "Result");
+        e2e.Texts().ShouldContain(t => t.Text == "ghost has no output yet", "the canvas says so for the refused step");
+        e2e.Texts().ShouldNotContain(t => t.Text == "Before and after");
     }
 
     [Theory(Timeout = 120_000)]
@@ -541,7 +548,7 @@ public sealed class WorkbenchE2ETests : IDisposable
         await e2e.OpenProjectAsync(folder, ct, "m");
         await SelectAsync(e2e, 1, ct);
 
-        e2e.ClickText("Run to here (runs 1 first)");
+        e2e.ClickRun();
         await e2e.PumpFramesUntilAsync(() => _gate.Started.Task.IsCompleted, "the step at its gate", ct);
 
         // The run writes the store, so no status is asked of it: the box does not open, and the actions refuse.
@@ -560,7 +567,7 @@ public sealed class WorkbenchE2ETests : IDisposable
 
         e2e.State.View.ShouldNotBeNull().ImageName.ShouldBe("m", "the run's own image stays on show");
         var answer = (await Runner().StatusAsync(folder, "m", ct)).Images.Single(static i => i.Name == "m").Steps;
-        e2e.TextsIn(e2e.StepCells()[1]).ShouldContain(answer[1].Words, "and is read afresh after the run");
+        e2e.StepWords(1).ShouldBe(answer[1].Words, "and is read afresh after the run");
         e2e.Click(e2e.Region(WorkbenchScreen<RgbaImage>.ImageChoiceHit));
         e2e.MenuRows().Length.ShouldBe(2, "once the run ended the choice is open again");
     }
@@ -621,12 +628,7 @@ public sealed class WorkbenchE2ETests : IDisposable
     private static bool SameFile(string? a, string? b)
         => a is not null && b is not null && string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
 
-    private static RectF32 PanelRect(WorkbenchE2E e2e)
-    {
-        var cells = e2e.StepCells();
-        var top = cells.Max(static c => c.Y + c.Height);
-        return new RectF32(0, top, e2e.Host.Screen.CanvasRect.X, e2e.Renderer.Height - top);
-    }
+    private static RectF32 PanelRect(WorkbenchE2E e2e) => e2e.Host.Screen.PanelRect;
 
     private static string Compact(string text) => string.Concat(text.Where(static c => !char.IsWhiteSpace(c)));
 
@@ -662,32 +664,23 @@ public sealed class WorkbenchE2ETests : IDisposable
     [Theory(Timeout = 120_000)]
     [InlineData(1f)]
     [InlineData(1.5f)]
-    public async Task PressingNewProjectWithTwoFolderPicksWritesTheLibRoutinesProjectAndShowsTheStackStepSelected(float dpi)
+    public async Task PressingNewProjectWithOneFolderPickWritesTheLibRoutinesProjectInItsWorkdirAndShowsTheImportPage(float dpi)
     {
         var ct = TestContext.Current.CancellationToken;
         var capture = CaptureFolder();
-        var made = Path.Combine(_folders.Create("made-").FullName, "project");
+        var made = WorkbenchProjects.WorkdirOf(capture);
         var reference = Path.Combine(_folders.Create("reference-").FullName, "project");
         (await WorkbenchProjects.NewAsync(reference, capture, ct)).Refusal.ShouldBeNull();
         await using var e2e = WorkbenchE2E.Start(dpi, new WorkbenchRunner(StackCatalog()), StackCatalog());
-        e2e.FakeFolderPicks(made, capture);
+        e2e.FakeFolderPicks(capture);
 
         e2e.Click(e2e.RegionOfLabel("New project"));
-        await e2e.PumpUntilAsync(() => e2e.State.View is { Image: not null } && !e2e.State.IsReading, "the new project's status", ct);
+        await e2e.PumpUntilAsync(() => e2e.State.Stage == WorkbenchStage.Import && e2e.State.Import is { Detecting: false }, "the Import page", ct);
 
         File.ReadAllText(WorkbenchProjectFile.PathIn(made)).ShouldBe(File.ReadAllText(WorkbenchProjectFile.PathIn(reference)),
             "the window writes what the Lib routine writes");
-        e2e.State.View!.Folder.ShouldBe(Path.GetFullPath(made));
-        var cells = e2e.StepCells();
-        cells.Length.ShouldBe(1, "the capture's one step");
-        e2e.TextsIn(cells[0]).ShouldContain("1  Stack");
-        e2e.State.SelectedStep.ShouldBe(0, "selected");
-        var answer = e2e.State.View.Image!.Steps[0];
-        e2e.TextsIn(cells[0]).ShouldContain(answer.Words, "its state is the runner's answer");
+        e2e.State.View.ShouldBeNull("the workbench opens after the workflow is chosen (WorkbenchImportScreenTests)");
         e2e.State.NewProjectRefusal.ShouldBeNull();
-
-        // Run to here is W2's: here only that the offer for the stack step is to run it.
-        await e2e.PumpUntilAsync(() => e2e.Actions.RunToHereOffer().CanRun, "the offer to run the stack step", ct);
         e2e.Actions.Jobs.IsRunning.ShouldBeFalse("a press of New project starts no run");
     }
 
@@ -698,10 +691,9 @@ public sealed class WorkbenchE2ETests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
         var capture = CaptureFolder();
-        var taken = _folders.Create("taken-").FullName;
-        (await WorkbenchProjects.NewAsync(taken, capture, ct)).Refusal.ShouldBeNull();
+        (await WorkbenchProjects.NewAsync(capture, ct)).Refusal.ShouldBeNull();
         await using var e2e = WorkbenchE2E.Start(dpi, new WorkbenchRunner(StackCatalog()), StackCatalog());
-        e2e.FakeFolderPicks(taken, capture);
+        e2e.FakeFolderPicks(capture);
 
         e2e.Click(e2e.RegionOfLabel("New project"));
         await e2e.PumpUntilAsync(() => e2e.State.NewProjectRefusal is not null, "the refusal", ct);
@@ -728,15 +720,14 @@ public sealed class WorkbenchE2ETests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
         var capture = CaptureFolder();
-        var taken = _folders.Create("taken-").FullName;
-        (await WorkbenchProjects.NewAsync(taken, capture, ct)).Refusal.ShouldBeNull();
+        (await WorkbenchProjects.NewAsync(capture, ct)).Refusal.ShouldBeNull();
         await using var e2e = WorkbenchE2E.Start(dpi, new WorkbenchRunner(StackCatalog()), StackCatalog());
         e2e.Frame();
         var before = e2e.RegionOfLabel("New project");
         var hintTop = e2e.Texts().First(static t => t.Text.Contains("make a new one from a capture folder", StringComparison.Ordinal)).Bounds.Y;
         // The empty row carries no hover text: an empty one would still be drawn, as an empty bubble over the whole strip.
         e2e.Regions().ShouldNotContain(static r => r.Tooltip == string.Empty, "no painted region has an empty tooltip");
-        e2e.FakeFolderPicks(taken, capture);
+        e2e.FakeFolderPicks(capture);
 
         e2e.Click(before);
         await e2e.PumpUntilAsync(() => e2e.State.NewProjectRefusal is not null, "the refusal", ct);
@@ -757,11 +748,10 @@ public sealed class WorkbenchE2ETests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
         var capture = CaptureFolder();
-        // A project folder that is an existing file: the routine throws when it makes the folder.
-        var aFile = Path.Combine(_folders.Create("file-").FullName, "not-a-folder");
-        File.WriteAllText(aFile, "x");
+        // A workdir that is an existing file: the routine throws when it makes the folder.
+        File.WriteAllText(Path.Combine(capture, "workdir"), "x");
         await using var e2e = WorkbenchE2E.Start(dpi, new WorkbenchRunner(StackCatalog()), StackCatalog());
-        e2e.FakeFolderPicks(aFile, capture);
+        e2e.FakeFolderPicks(capture);
 
         e2e.Click(e2e.RegionOfLabel("New project"));
         await e2e.PumpUntilAsync(() => e2e.State.NewProjectRefusal is not null, "the refusal", ct);
@@ -771,24 +761,19 @@ public sealed class WorkbenchE2ETests : IDisposable
     }
 
     [Theory(Timeout = 120_000)]
-    [InlineData(1f, 0)]
-    [InlineData(1.5f, 0)]
-    [InlineData(1f, 1)]
-    [InlineData(1.5f, 1)]
-    public async Task CancellingEitherFolderDialogChangesNothing(float dpi, int cancelAt)
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task CancellingTheFolderDialogChangesNothing(float dpi)
     {
         var ct = TestContext.Current.CancellationToken;
-        var made = Path.Combine(_folders.Create("cancelled-").FullName, "project");
         await using var e2e = WorkbenchE2E.Start(dpi, new WorkbenchRunner(StackCatalog()), StackCatalog());
-        e2e.FakeFolderPicks(cancelAt == 0 ? null : made, null);
+        e2e.FakeFolderPicks((string?)null);
 
         e2e.Click(e2e.RegionOfLabel("New project"));
-        await e2e.PumpUntilAsync(() => true, "the dialogs to end", ct);
+        await e2e.PumpUntilAsync(() => true, "the dialog to end", ct);
 
         e2e.State.View.ShouldBeNull();
         e2e.State.NewProjectRefusal.ShouldBeNull();
-        File.Exists(WorkbenchProjectFile.PathIn(made)).ShouldBeFalse("no project was written");
-        Directory.Exists(made).ShouldBeFalse("no folder was made");
     }
 
     [Theory(Timeout = 120_000)]
@@ -804,7 +789,7 @@ public sealed class WorkbenchE2ETests : IDisposable
         await using var e2e = WorkbenchE2E.Start(dpi, Runner(), Catalog());
         await e2e.OpenProjectAsync(folder, ct);
         await SelectAsync(e2e, 1, ct);
-        e2e.ClickText("Run to here (runs 1 first)");
+        e2e.ClickRun();
         await e2e.PumpFramesUntilAsync(() => _gate.Started.Task.IsCompleted, "the step at its gate", ct);
 
         e2e.RegionOfLabel("New project").Tooltip.ShouldNotBeNull().ShouldContain(WorkbenchActions.ChoiceWaitsForTheRun, Case.Sensitive,
@@ -834,22 +819,19 @@ public sealed class WorkbenchE2ETests : IDisposable
         await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(
             WorkbenchFixtures.Picture("m", master, WorkbenchFixtures.Edit("add", Amount(1)), WorkbenchFixtures.Edit("gate"))), ct);
         var capture = CaptureFolder();
-        var made = Path.Combine(_folders.Create("made-").FullName, "project");
+        var made = WorkbenchProjects.WorkdirOf(capture);
         await using var e2e = WorkbenchE2E.Start(dpi, Runner(), Catalog());
         await e2e.OpenProjectAsync(folder, ct);
         await SelectAsync(e2e, 1, ct);
 
-        // The press passes the guard (no run yet) and waits in its first dialog; a run starts meanwhile and holds at its gate.
+        // The press passes the guard (no run yet) and waits in its dialog; a run starts meanwhile and holds at its gate.
         var picked = new TaskCompletionSource<FileDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var asked = 0;
-        e2e.FileDialog.OpenFolderAsync(default!, default).ReturnsForAnyArgs(_ => ++asked == 1
-            ? picked.Task
-            : Task.FromResult(new FileDialogResult { Paths = [capture] }));
+        e2e.FileDialog.OpenFolderAsync(default!, default).ReturnsForAnyArgs(_ => picked.Task);
         e2e.Actions.NewProject();
-        e2e.ClickText("Run to here (runs 1 first)");
+        e2e.ClickRun();
         await e2e.PumpFramesUntilAsync(() => _gate.Started.Task.IsCompleted, "the step at its gate", ct);
 
-        picked.SetResult(new FileDialogResult { Paths = [made] });
+        picked.SetResult(new FileDialogResult { Paths = [capture] });
         await e2e.PumpFramesUntilAsync(() => e2e.State.NewProjectRefusal is not null, "the refusal", ct);
 
         File.Exists(WorkbenchProjectFile.PathIn(made)).ShouldBeTrue("the project was made on disk");

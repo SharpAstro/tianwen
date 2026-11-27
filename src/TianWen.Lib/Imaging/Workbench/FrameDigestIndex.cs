@@ -1,4 +1,5 @@
 using System;
+using TianWen.Lib.Imaging.Stacking;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
@@ -138,9 +139,16 @@ public sealed class FrameDigestIndex
         var seen = new HashSet<string>(PathComparer);
         var frames = new List<(string Place, string Digest)>();
         var images = 0;
+        var workdir = Path.Combine(root, StackingPipeline.WorkdirName);
         foreach (var stamp in FileEnumeration.EnumerateFileStamps(root, FrameFileEndings, recursive: true))
         {
             cancellationToken.ThrowIfCancellationRequested();
+            // The capture's project folder holds results, never frames (#2553): the stack's scan leaves it out too.
+            if (IsUnder(stamp.Path, workdir))
+            {
+                continue;
+            }
+
             seen.Add(stamp.Path);
             var ticks = stamp.LastWriteTimeUtc.Ticks;
             string digest;

@@ -27,6 +27,9 @@ public interface IOperation
     /// <summary>Its settings at their defaults, in canonical form.</summary>
     string DefaultSettings { get; }
 
+    /// <summary>The settings type's source-generated JSON contract (<see cref="OperationSettingsJsonContext"/>), which a panel derives its controls from (<see cref="OperationSettingsForm"/>); null for an operation that offers none.</summary>
+    JsonTypeInfo? SettingsContract => null;
+
     /// <summary>
     /// Reads an edit's settings (null or empty for the defaults) into canonical form; false with the reason in words for
     /// JSON that is not this operation's settings, a setting it does not have, or values it refuses.
@@ -227,6 +230,9 @@ public abstract class Operation<TSettings> : IOperation
 
     /// <summary>The settings type's source-generated JSON contract (<see cref="OperationSettingsJsonContext"/>).</summary>
     protected abstract JsonTypeInfo<TSettings> SettingsInfo { get; }
+
+    /// <inheritdoc/>
+    public JsonTypeInfo? SettingsContract => SettingsInfo;
 
     /// <inheritdoc/>
     public string DefaultSettings => JsonSerializer.Serialize(new TSettings(), SettingsInfo);

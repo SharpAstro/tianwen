@@ -4,8 +4,10 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Imaging.Stacking;
 using TianWen.Lib.IO;
 
 namespace TianWen.Lib.Imaging.Workbench;
@@ -14,6 +16,11 @@ namespace TianWen.Lib.Imaging.Workbench;
 /// <param name="Project">The project written, null when it was refused.</param>
 /// <param name="Refusal">Why not, in words; null when the project was written.</param>
 public readonly record struct NewProjectResult(WorkbenchProject? Project, string? Refusal);
+
+/// <summary>The reassignments a capture's project holds, or why a change to them was refused.</summary>
+/// <param name="Reassigned">The files the person set the kind of, by place, in the order the step's key has them.</param>
+/// <param name="Refusal">Why not, in words; null when it was done.</param>
+public readonly record struct ReassignResult(ImmutableArray<FrameReassignment> Reassigned, string? Refusal);
 
 /// <summary>Images added to a project, or why none were.</summary>
 /// <param name="Added">The images written into the project, in the order of the project; empty when refused.</param>
@@ -27,6 +34,20 @@ public readonly record struct ChainAddedResult(ImmutableArray<ProjectImage> Adde
 /// </summary>
 public static class WorkbenchProjects
 {
+    /// <summary>The folder inside a capture folder that holds its project and every result (#2553).</summary>
+    public const string WorkdirName = StackingPipeline.WorkdirName;
+
+    /// <summary>The project folder of the capture in <paramref name="framesFolder"/>: its <see cref="WorkdirName"/>.</summary>
+    public static string WorkdirOf(string framesFolder) => Path.Combine(Path.GetFullPath(framesFolder), WorkdirName);
+
+    /// <summary>
+    /// Makes the project of the capture in <paramref name="framesFolder"/>, in its <see cref="WorkdirName"/> (project.json
+    /// and the step store inside it). The frames are read and never written, and the stack never reads anything under
+    /// <c>workdir</c>. Refused in words as <see cref="NewAsync(string, string, CancellationToken)"/> refuses.
+    /// </summary>
+    public static Task<NewProjectResult> NewAsync(string framesFolder, CancellationToken cancellationToken = default)
+        => NewAsync(WorkdirOf(framesFolder), framesFolder, cancellationToken);
+
     /// <summary>
     /// Makes the project in <paramref name="projectFolder"/> (created when it is not there) for the capture in
     /// <paramref name="framesFolder"/>: one image, named after the capture's folder, whose original is that folder and
@@ -56,10 +77,12 @@ public static class WorkbenchProjects
 
         // The reverse: a project folder inside the capture folder would put project.json and the store among the frames
         // the stack reads next.
-        if (projectTrimmed.StartsWith(frames + Path.DirectorySeparatorChar, PathComparison)
-            || projectTrimmed.StartsWith(frames + Path.AltDirectorySeparatorChar, PathComparison))
+        // The capture's own workdir is the one place inside it a project may be: the stack leaves it out of its scan.
+        var isWorkdir = string.Equals(projectTrimmed, WorkdirOf(frames).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), PathComparison);
+        if (!isWorkdir && (projectTrimmed.StartsWith(frames + Path.DirectorySeparatorChar, PathComparison)
+            || projectTrimmed.StartsWith(frames + Path.AltDirectorySeparatorChar, PathComparison)))
         {
-            return Refused($"the project's folder {projectTrimmed} is inside the capture folder {frames}, where the stack would read its files as frames: choose a folder outside the capture");
+            return Refused($"the project's folder {projectTrimmed} is inside the capture folder {frames}, where the stack would read its files as frames: choose a folder outside the capture, or the capture's own workdir");
         }
 
         var store = Path.Combine(projectTrimmed, StepStore.FolderName);
@@ -85,6 +108,132 @@ public static class WorkbenchProjects
         Directory.CreateDirectory(project);
         await WorkbenchProjectFile.WriteAsync(project, made, cancellationToken);
         return new NewProjectResult(made, null);
+    }
+
+    // The stack edits of the images that stack this capture: where its reassignments are kept.
+    private static bool IsStackEditOf(ProjectImage image, ProjectEdit edit, string frames)
+        => edit.Operation is StackOperation.Id or CometStackOperation.Id
+            && image.From is null
+            && image.Path.Length > 0
+            && string.Equals(
+                Path.GetFullPath(image.Path, WorkdirOf(frames)).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                frames.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), PathComparison);
+
+    /// <summary>
+    /// The kinds the person set for files of the capture in <paramref name="framesFolder"/>, as its project (in the capture's
+    /// <see cref="WorkdirName"/>) records them in the stack step's settings; none where there is no project.
+    /// </summary>
+    public static async Task<ImmutableArray<FrameReassignment>> ReassignmentsAsync(string framesFolder, CancellationToken cancellationToken = default)
+    {
+        var frames = Path.GetFullPath(framesFolder);
+        var (project, _) = await WorkbenchProjectFile.ReadAsync(WorkdirOf(frames), cancellationToken);
+        if (project is null)
+        {
+            return [];
+        }
+
+        foreach (var image in project.Images)
+        {
+            foreach (var edit in image.Edits.Where(edit => IsStackEditOf(image, edit, frames)))
+            {
+                if (edit.Settings?["reassign"] is { } node
+                    && node.Deserialize(OperationSettingsJsonContext.Default.ImmutableArrayFrameReassignment) is { IsDefault: false } read)
+                {
+                    return FrameReassignment.Sorted(read);
+                }
+            }
+        }
+
+        return [];
+    }
+
+    /// <summary>
+    /// Records that <paramref name="file"/> (its place inside the capture, or its path) is a <paramref name="kind"/>
+    /// (<see cref="FrameType.None"/> leaves it out of the stack; null takes the reassignment back, so the detection stands again),
+    /// in the stack step of every image of the project that stacks the capture. The step's key changes with it, so the stack
+    /// runs again. Refused in words: no project (make one with <c>workbench new</c>), a file that is not in the capture, a kind
+    /// no stack takes.
+    /// </summary>
+    public static async Task<ReassignResult> ReassignAsync(string framesFolder, string file, FrameType? kind, CancellationToken cancellationToken = default)
+    {
+        var frames = Path.GetFullPath(framesFolder);
+        var project = WorkdirOf(frames);
+        if (!File.Exists(WorkbenchProjectFile.PathIn(project)))
+        {
+            return new([], $"{frames} has no project in its own {StackingPipeline.WorkdirName} folder: make one first (workbench new {framesFolder}). " +
+                "A project kept elsewhere with workbench new --project holds no reassignments; make one without --project to reassign files.");
+        }
+
+        if (kind is { } named && !FrameReassignment.Kinds.Contains(named))
+        {
+            return new([], $"{named} is no kind of frame a stack takes: say one of {FrameReassignment.KindWords}");
+        }
+
+        var place = Path.IsPathRooted(file) ? FrameReassignment.PlaceOf(frames, file) : FrameReassignment.Normalise(file);
+        if (place is null || place.Length == 0 || !File.Exists(Path.Combine(frames, place.Replace('/', Path.DirectorySeparatorChar))))
+        {
+            return new([], $"{file} is not a file of the capture {frames}");
+        }
+
+        if (place.StartsWith(StackingPipeline.WorkdirName + "/", StringComparison.OrdinalIgnoreCase))
+        {
+            return new([], $"{file} is in {StackingPipeline.WorkdirName}, which the stack never reads");
+        }
+
+        string? refusal = null;
+        ImmutableArray<FrameReassignment> now = [];
+        var written = await SharedFile.UpdateJsonIfAsync(
+            WorkbenchProjectFile.PathIn(project),
+            WorkbenchJsonContext.Default.WorkbenchProject,
+            current =>
+            {
+                if (current is null)
+                {
+                    refusal = $"{WorkbenchProjectFile.PathIn(project)} cannot be read";
+                    return null;
+                }
+
+                var touched = false;
+                var images = current.Images.Select(image =>
+                {
+                    var edits = image.Edits.Select(edit =>
+                    {
+                        if (!IsStackEditOf(image, edit, frames))
+                        {
+                            return edit;
+                        }
+
+                        touched = true;
+                        var existing = edit.Settings?["reassign"]?.Deserialize(OperationSettingsJsonContext.Default.ImmutableArrayFrameReassignment) ?? [];
+                        var next = FrameReassignment.Sorted(
+                            existing.Where(each => !string.Equals(FrameReassignment.Normalise(each.Path), place, StringComparison.OrdinalIgnoreCase))
+                                .Concat(kind is { } set ? [new FrameReassignment { Path = place, Kind = set }] : []));
+                        now = next;
+                        var settings = edit.Settings is null ? new System.Text.Json.Nodes.JsonObject() : (System.Text.Json.Nodes.JsonObject)edit.Settings.DeepClone();
+                        if (next.IsEmpty)
+                        {
+                            settings.Remove("reassign");
+                        }
+                        else
+                        {
+                            settings["reassign"] = JsonSerializer.SerializeToNode(next, OperationSettingsJsonContext.Default.ImmutableArrayFrameReassignment);
+                        }
+
+                        return edit with { Settings = settings.Count == 0 ? null : settings };
+                    });
+                    return image with { Edits = [.. edits] };
+                });
+                var updated = current with { Images = [.. images] };
+                if (!touched)
+                {
+                    refusal = $"no image of the project at {project} stacks {frames}";
+                    return null;
+                }
+
+                return updated;
+            },
+            cancellationToken: cancellationToken);
+        return written ? new ReassignResult(now, null) : new ReassignResult([], refusal ?? "the project was not written");
     }
 
     /// <summary>

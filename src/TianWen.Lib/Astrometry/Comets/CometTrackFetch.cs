@@ -50,7 +50,7 @@ public static class CometTrackFetch
         // (--include-maybe-cloud), so the window covers it; an integration a stack would only keep when asked
         // (--include-integrations) is no exposure of this night's and is left out.
         var scan = await StackingPipeline.ScanFramesAsync(framesFolder, outputDir: null, includeIntegrations: false,
-            includeSuspectedCloud: true, cancellationToken);
+            includeSuspectedCloud: true, reassigned: default, cancellationToken);
         return RequestFor(framesFolder, designation, scan.Frames.Where(static frame => frame.FrameType is FrameType.Light));
     }
 

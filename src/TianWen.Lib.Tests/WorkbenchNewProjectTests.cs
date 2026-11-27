@@ -179,21 +179,24 @@ public sealed class WorkbenchNewProjectTests : IDisposable
     public async Task TheNewVerbWritesWhatTheRoutineWrites()
     {
         var ct = TestContext.Current.CancellationToken;
-        var frames = Capture("a");
+        var byVerbFrames = Capture("a");
+        var byRoutineFrames = Capture("a");
         var (catalog, runner, _) = Registered();
         var (command, said) = WorkbenchVerb(catalog, runner);
-        var byVerb = Path.Combine(_folders.Create("verb-").FullName, "p");
-        var byRoutine = Path.Combine(_folders.Create("routine-").FullName, "p");
 
-        (await command.Parse(["new", byVerb, frames]).InvokeAsync(cancellationToken: ct)).ShouldBe(0, string.Join("\n", said));
-        await WorkbenchProjects.NewAsync(byRoutine, frames, ct);
+        (await command.Parse(["new", byVerbFrames]).InvokeAsync(cancellationToken: ct)).ShouldBe(0, string.Join(Environment.NewLine, said));
+        (await WorkbenchProjects.NewAsync(byRoutineFrames, ct)).Refusal.ShouldBeNull();
 
-        File.ReadAllText(WorkbenchProjectFile.PathIn(byVerb)).ShouldBe(File.ReadAllText(WorkbenchProjectFile.PathIn(byRoutine)));
+        var byVerb = WorkbenchProjectFile.PathIn(WorkbenchProjects.WorkdirOf(byVerbFrames));
+        File.Exists(byVerb).ShouldBeTrue("the project is made in the capture's workdir");
+        // The two captures are different folders, so the image's path differs; what else is written is the same.
+        File.ReadAllText(byVerb).Replace(Path.GetFullPath(byVerbFrames).Replace("\\", "\\\\"), "FRAMES")
+            .ShouldBe(File.ReadAllText(WorkbenchProjectFile.PathIn(WorkbenchProjects.WorkdirOf(byRoutineFrames))).Replace(Path.GetFullPath(byRoutineFrames).Replace("\\", "\\\\"), "FRAMES"));
         said.Clear();
-        (await command.Parse(["new", byVerb, frames]).InvokeAsync(cancellationToken: ct)).ShouldBe(1);
+        (await command.Parse(["new", byVerbFrames]).InvokeAsync(cancellationToken: ct)).ShouldBe(1);
         said.ShouldContain(line => line.Contains("already holds a project.json"));
         said.Clear();
-        (await command.Parse(["new", _folders.Create("other-").FullName, Path.Combine(frames, "nothing")]).InvokeAsync(cancellationToken: ct)).ShouldBe(1);
+        (await command.Parse(["new", Path.Combine(byVerbFrames, "nothing")]).InvokeAsync(cancellationToken: ct)).ShouldBe(1);
         said.ShouldContain(line => line.Contains("does not exist"));
     }
 

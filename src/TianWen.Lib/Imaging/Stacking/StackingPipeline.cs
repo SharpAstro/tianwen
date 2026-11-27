@@ -332,7 +332,7 @@ public sealed class StackingPipeline(
         // -----------------------------------------------------------------
         progress?.Report(new StackingProgress(StackingPhase.Scanning, "", 0, 0));
         var sw = Stopwatch.StartNew();
-        var scan = await ScanFramesAsync(options.DataRoot, outputDir, options.IncludeIntegrations, options.IncludeSuspectedCloud, ct);
+        var scan = await ScanFramesAsync(options.DataRoot, outputDir, options.IncludeIntegrations, options.IncludeSuspectedCloud, options.Reassigned, ct);
         var allFrames = scan.Frames;
         var (integrationSkipped, rejectionMapSkipped, integrationKept, masterSkipped) =
             (scan.IntegrationsSkipped, scan.RejectionMapsSkipped, scan.IntegrationsKept, scan.MastersSkipped);
@@ -358,6 +358,10 @@ public sealed class StackingPipeline(
         {
             logger.LogInformation("[scan] left out {Count} frame(s) named {Prefix}...; pass --include-maybe-cloud to keep them",
                 scan.SuspectedCloudSkipped, CaptureRejection.SuspectedCloudPrefix);
+        }
+        if (scan.WorkdirSkipped > 0)
+        {
+            logger.LogInformation("[scan] left out {Count} file(s) under {Workdir}, the capture's project folder", scan.WorkdirSkipped, WorkdirName);
         }
         logger.LogInformation("[scan] {Count} frames in {ElapsedMs} ms", allFrames.Count, sw.ElapsedMilliseconds);
         // Surface the scan summary on the progress channel (a CLI / TUI floors
@@ -2754,19 +2758,31 @@ public sealed class StackingPipeline(
     /// <summary>What <see cref="ScanFramesAsync"/> found: the frames a stack takes, in the order the folder gave them,
     /// and how many of each kind it left out (or, for integrations, kept).</summary>
     internal sealed record FrameScan(List<FrameInfo> Frames, int IntegrationsSkipped, int RejectionMapsSkipped,
-        int IntegrationsKept, int MastersSkipped, int SuspectedCloudSkipped);
+        int IntegrationsKept, int MastersSkipped, int SuspectedCloudSkipped, int WorkdirSkipped = 0);
+
+    /// <summary>The folder of a capture's project: the frames of the capture never include what is under it.</summary>
+    public const string WorkdirName = "workdir";
 
     /// <summary>
     /// The frames a stack takes from <paramref name="dataRoot"/>, read recursively: every FITS under it less anything
-    /// under <paramref name="outputDir"/>, a rejection or coverage map, a foreign master calibration frame, and an
-    /// integration (ours, or another tool's such as Astro Pixel Processor's composites) or any other TianWen product
-    /// unless <paramref name="includeIntegrations"/>. The one scan a stack and a comet's track request share
-    /// (<see cref="CometTrackFetch.RequestForAsync"/>), so a track is asked for the night the stack registers (#2489).
+    /// under <paramref name="outputDir"/>, anything under the capture's own project folder (<c>&lt;dataRoot&gt;/</c><see cref="WorkdirName"/>,
+    /// counted in <see cref="FrameScan.WorkdirSkipped"/>; a <c>workdir</c> deeper down is read like any other folder), a
+    /// rejection or coverage map, a foreign master calibration frame, and an integration (ours, or another tool's such as Astro
+    /// Pixel Processor's composites) or any other TianWen product unless <paramref name="includeIntegrations"/>. A file named in
+    /// <paramref name="reassigned"/> takes the kind the person set over what its cards and folder say. The one scan a stack and
+    /// a comet's track request share (<see cref="CometTrackFetch.RequestForAsync"/>), so a track is asked for the night the
+    /// stack registers (#2489).
     /// </summary>
     internal static async Task<FrameScan> ScanFramesAsync(string dataRoot, string? outputDir, bool includeIntegrations,
-        bool includeSuspectedCloud, CancellationToken ct)
+        bool includeSuspectedCloud, ImmutableArray<FrameReassignment> reassigned, CancellationToken ct)
     {
-        var source = new FitsFolderFrameSource(dataRoot, recursive: true) { IncludeSuspectedCloud = includeSuspectedCloud };
+        // The project's own folder is never a frame of the capture it belongs to, whatever the output folder is (#2553).
+        var source = new FitsFolderFrameSource(dataRoot, recursive: true)
+        {
+            IncludeSuspectedCloud = includeSuspectedCloud,
+            ExcludedFolder = Path.Combine(dataRoot, WorkdirName),
+        };
+        var kinds = FrameReassignment.LookupOf(reassigned);
         var allFrames = new List<FrameInfo>();
         var outputDirNormalised = outputDir is null ? null : Path.GetFullPath(outputDir);
         var integrationSkipped = 0;
@@ -2837,10 +2853,17 @@ public sealed class StackingPipeline(
                     continue;
                 }
             }
+            // A kind the person set stands over what the cards and the folder said; None leaves the file out of the stack
+            // (a frame of no kind is neither light nor calibration), and it is told apart from a file the scan never met.
+            if (kinds.Count > 0 && FrameReassignment.PlaceOf(dataRoot, frame.Path) is { } place && kinds.TryGetValue(place, out var kind))
+            {
+                allFrames.Add(frame with { Meta = frame.Meta with { FrameType = kind } });
+                continue;
+            }
             allFrames.Add(frame);
         }
 
-        return new FrameScan(allFrames, integrationSkipped, rejectionMapSkipped, integrationKept, masterSkipped, source.SuspectedCloudSkipped);
+        return new FrameScan(allFrames, integrationSkipped, rejectionMapSkipped, integrationKept, masterSkipped, source.SuspectedCloudSkipped, source.ExcludedSkipped);
     }
 
     /// <summary>
