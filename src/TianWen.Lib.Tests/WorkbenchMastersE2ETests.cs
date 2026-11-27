@@ -260,7 +260,16 @@ public sealed class WorkbenchMastersE2ETests : IDisposable
         // routine can finish its file work, and holds at its gate, so the chain's own open meets a run that is going.
         e2e.Click(button);
         e2e.Actions.Jobs.TryStart(e2e.State.View!.Folder, "other", 0).ShouldBeTrue();
-        await e2e.PumpFramesUntilAsync(() => e2e.State.MasterRefusal is not null && !e2e.State.IsProcessingMaster, "the refusal", ct);
+        using var diag = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        diag.CancelAfter(20_000);
+        try
+        {
+            await e2e.PumpFramesUntilAsync(() => e2e.State.MasterRefusal is not null && !e2e.State.IsProcessingMaster, "the refusal", diag.Token);
+        }
+        catch (TimeoutException)
+        {
+            throw new InvalidOperationException($"DIAG image={e2e.State.View!.ImageName} processing={e2e.State.IsProcessingMaster} running={e2e.Actions.Jobs.IsRunning} refusal={e2e.State.MasterRefusal} pending={string.Join('|', e2e.Tracker.PendingDescriptions)} images={(await WorkbenchProjectFile.ReadAsync(project, ct)).Project?.Images.Length}");
+        }
 
         var refusal = e2e.State.MasterRefusal.ShouldNotBeNull();
         refusal.ShouldStartWith("m31_L was processed but its image was not opened: ");
