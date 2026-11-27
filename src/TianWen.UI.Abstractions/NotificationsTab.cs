@@ -66,7 +66,7 @@ namespace TianWen.UI.Abstractions
             var feed = NotificationFeed.Of(view, appState);
             var entries = feed.Entries;
             var ctx = MeasureContext();
-            var header = BuildHeader(feed, appState, level => PostSignal(new SetDesktopAlertLevelSignal(level)), AlertSegmentWidth(ctx, dpiScale));
+            var header = BuildHeader(feed, appState, level => PostSignal(new SetDesktopAlertLevelSignal(level)), AlertSegmentWidth());
             var headerH = Layout.Engine.Measure(header, new Layout.Size<float>(contentRect.Width, contentRect.Height), ctx).Height;
             RenderLayout(header, new RectF32(contentRect.X, contentRect.Y, contentRect.Width, headerH));
 
@@ -129,19 +129,21 @@ namespace TianWen.UI.Abstractions
         private const float AlertChoiceFontSize = BaseFontSize * 0.85f;
 
         /// <summary>
-        /// The width, in design units, of one segment of the alert choice: the widest of the three labels as the engine measures
-        /// it, plus slack. A segmented control has no intrinsic width of its own, so it is measured here and never written as a
-        /// number; an edited label or another face changes it. The pinned DIR.Lib's ButtonGroup has no width sample (only
-        /// <c>Text</c> does), so the equal width is stated through <c>ButtonGroupStyle.SegmentWidth</c>.
+        /// The width, in design units, of one segment of the alert choice: the widest of its options' words as the engine
+        /// measures them at design scale, plus slack. A segmented control has no intrinsic width of its own, so it is measured
+        /// here and never written as a number; an edited label or another face changes it. The pinned DIR.Lib's ButtonGroup
+        /// cannot size its segments to the widest word itself (only <c>Text</c> takes a width sample), so the equal width is
+        /// stated through <c>ButtonGroupStyle.SegmentWidth</c>, as <c>SkyMapTab.BuildModeSwitch</c> does; this goes when
+        /// DIR.Lib's group can.
         /// </summary>
-        private float AlertSegmentWidth(PixelMeasureContext<TSurface> ctx, float dpiScale)
+        private float AlertSegmentWidth()
         {
+            var ctx = MeasureContext(scale: DesignScale.One);
             var widest = 0f;
-            foreach (var level in Enum.GetValues<DesktopAlertLevel>())
+            foreach (var option in AlertOptions)
             {
-                var width = Layout.Engine.Measure(Layout.Builder.Text(LevelLabel(level), AlertChoiceFontSize),
-                    new Layout.Size<float>(float.MaxValue, float.MaxValue), ctx).Width;
-                widest = MathF.Max(widest, width / dpiScale);
+                widest = MathF.Max(widest, Layout.Engine.Measure(Layout.Builder.Text(option.Label ?? "", AlertChoiceFontSize),
+                    new Layout.Size<float>(float.MaxValue, float.MaxValue), ctx).Width);
             }
             return widest + AlertSegmentSlack;
         }
@@ -153,6 +155,15 @@ namespace TianWen.UI.Abstractions
             DesktopAlertLevel.ErrorsAndSafety => "Errors and safety",
             _ => "All warnings"
         };
+
+        // The alert choice's segments, built once: the choice shows these and AlertSegmentWidth measures these, so the words
+        // measured are the words drawn.
+        private static readonly Layout.ButtonGroupOption<DesktopAlertLevel>[] AlertOptions =
+        [
+            new(DesktopAlertLevel.Off, LevelLabel(DesktopAlertLevel.Off)) { Hit = new HitResult.ButtonHit("DesktopAlertOff") },
+            new(DesktopAlertLevel.ErrorsAndSafety, LevelLabel(DesktopAlertLevel.ErrorsAndSafety)) { Hit = new HitResult.ButtonHit("DesktopAlertErrors") },
+            new(DesktopAlertLevel.AllWarnings, LevelLabel(DesktopAlertLevel.AllWarnings)) { Hit = new HitResult.ButtonHit("DesktopAlertAll") },
+        ];
 
         /// <summary>
         /// What the alert choice says on hover: what the levels mean, and why Windows refused the last alert when it did. It names
@@ -215,15 +226,9 @@ namespace TianWen.UI.Abstractions
             if (appState.DesktopAlerts is { IsAvailable: true } alerts)
             {
                 var style = AlertChoiceStyle(segmentWidth);
-                ReadOnlySpan<Layout.ButtonGroupOption<DesktopAlertLevel>> options =
-                [
-                    new(DesktopAlertLevel.Off, LevelLabel(DesktopAlertLevel.Off)) { Hit = new HitResult.ButtonHit("DesktopAlertOff") },
-                    new(DesktopAlertLevel.ErrorsAndSafety, LevelLabel(DesktopAlertLevel.ErrorsAndSafety)) { Hit = new HitResult.ButtonHit("DesktopAlertErrors") },
-                    new(DesktopAlertLevel.AllWarnings, LevelLabel(DesktopAlertLevel.AllWarnings)) { Hit = new HitResult.ButtonHit("DesktopAlertAll") },
-                ];
                 // The ring is reserved inside the choice's box by the engine, so the box stays the row's height and the segments
                 // sit within it.
-                choice = Layout.Builder.ButtonGroup(options, alerts.Level, onLevel, style, AlertChoiceFontSize)
+                choice = Layout.Builder.ButtonGroup<DesktopAlertLevel>(AlertOptions, alerts.Level, onLevel, style, AlertChoiceFontSize)
                     .Border(HeaderControlEdge, GuiTheme.Metrics.ControlEdgeWidth, GuiTheme.Metrics.ControlRadius)
                     .WithTooltip(AlertTooltip(alerts)).HStar();
             }
