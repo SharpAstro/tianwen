@@ -60,8 +60,9 @@ after only where the step has a result and an input.
   the slot); the slot is always there and lights on hover, so nothing moves under the pointer.
 - **Header**: the workflow's name as a dropdown that switches workflow (`SwitchWorkflow`, through
   `WorkbenchWorkflows.ApplyAsync` with the capture's facts read afresh), + Step › (a menu of the operations that take no
-  other image; `WorkbenchWorkflows.AddStepAsync` after the selected step) and Remove (`RemoveStepAsync`). A switch asks
-  first only when `WorkbenchWorkflows.HandChanges` counts a change by hand, in the Lib's words ("Your 3 changes to the
+  other image; `WorkbenchWorkflows.AddStepAsync` after the selected step, or at the end of the image's steps while a frame group
+  is selected, since no step is then shown as selected) and Remove (`RemoveStepAsync`). A switch asks
+  first only when `WorkbenchWorkflows.HandChanges` counts a change by hand (in a project no workflow wrote, every step is one), in the Lib's words ("Your 3 changes to the
   steps are replaced; results already made are kept"), with Switch workflow and Keep my steps; a refusal of any of the
   three is said under the header.
 
@@ -275,7 +276,8 @@ types the scan read, the calibration sets are `CalibrationResolver.GroupCalibrat
   stacked (focus, scout, processed, left out by the person).
 - **Per file:** place, kind, **why** (`IMAGETYP = Light`; `no IMAGETYP; folder named Darks`; `no IMAGETYP; even field at 48 % of
   full scale`; `set by you (detected: ...)`), exposure, filter, sensor temperature, gain, camera, grade
-  (`LightGrading.Verdict`, graded evenly through the run up to `MaxGradedLights`) and an unsure flag.
+  (`LightGrading.Verdict`, read against the graded lights of the file's own light group, each group graded evenly through its
+  run up to `MaxGradedLights`, so a group of another exposure or gain never sets its baselines) and an unsure flag.
 - **Order of evidence:** the cards, then the folder's names (the deepest folder holding a whole word such as `darks`), then the
   pixels for a file both leave open. A guess from the pixels (an even field mid-scale is a flat, no exposure and near black a
   bias, stars a light, near black a dark) is always unsure; its numbers are constants on `CaptureDetection`.
@@ -285,15 +287,21 @@ types the scan read, the calibration sets are `CalibrationResolver.GroupCalibrat
   stack step's settings in `workdir\project.json` (`reassign`: place inside the capture and kind, or `ignore` to leave the file
   out). It is a setting, so the step's key changes and the stack runs again; the scan applies it through
   `StackingOptions.Reassigned`, and `tianwen stack --reassign path=kind` is the same setting on the verb
-  (`WorkbenchStackTests` holds line and verb together). The comet track's request does not apply them.
+  (`WorkbenchStackTests` holds line and verb together). The comet track's request does not apply them. Only a project in the
+  capture's workdir holds reassignments: `ReassignAsync` reads `<capture>\workdir`, so a project made elsewhere with
+  `workbench new --project` is refused with "has no project yet".
+- **The workdir is left out of every scan of its capture** (`StackingPipeline.WorkdirName`, `<capture>\workdir` only, not a
+  `workdir` deeper down); how many files it held is said in the scan's notes and the stack's log ("left out N file(s) under workdir").
 - Tests: `CaptureDetectionTests` on synthetic FITS folders.
 
 ## Choosing a workflow, and editing the steps
 
-`BuiltInWorkflows` (Lib, `WorkbenchWorkflows.cs`) holds four fixed templates, each an edit list and a fit rule, in the order the best
+`BuiltInWorkflows` (Lib, `WorkbenchWorkflows.cs`) holds six fixed templates, each an edit list and a fit rule, in the order the best
 fit is chosen (the first that fits): **Comet, colour camera** (stack on the comet and on the stars with `comet-stack`, finish each,
 blend the comet onto the stars), **Deep sky, colour camera** (stack, white balance, gradient, remove stars, denoise, SCNR on the stars,
-add stars: the enhance's own order, as `EnhanceChain` lays it out), **Quick look** (stack, white balance) and **Empty** (the capture
+add stars: the enhance's own order, as `EnhanceChain` lays it out), **Mono LRGB** and **Narrowband SHO** (a mono camera through at
+least two filters of the kind, each filter read by its whole name through `Filter.FromName`, never by a letter inside it; both only
+stack for now, there is no combine step yet), **Quick look** (stack, white balance) and **Empty** (the capture
 only; it fits everything, so it is the last resort). There are no gates: that is W9.
 
 - **Facts and fit.** `WorkflowFacts.From(detection)` reads the lights (after reassignment), whether the camera is colour
@@ -303,8 +311,10 @@ only; it fits everything, so it is the last resort). There are no gates: that is
 - **Apply.** `WorkbenchWorkflows.ApplyAsync` writes the workflow's images and edits and its id (`Workflow`) into `workdir\project.json`,
   with what it wrote (`WorkflowOrigin`, one line per edit). The step store is not touched: a step with the same settings and inputs
   finds its result by its key. The person's frame reassignments are carried into the new stack step.
-- **Hand changes.** `HandChanges` compares the steps with `WorkflowOrigin`: a step added, removed or changed counts one (reassignments
-  are the capture's and do not count). The screen asks before a switch only when it is above 0 ("Your 3 changes to the steps are
+- **Hand changes.** `HandChanges` compares each image's steps in order with `WorkflowOrigin` (a sequence diff without the edit's
+  index): a step added, removed or changed counts one wherever it is, and the steps after it moving are not changes of their own
+  (reassignments are the capture's and do not count). A project that records no workflow (`workbench new`, the steps before #2553)
+  counts every step, since all of them are the person's. The screen asks before a switch only when it is above 0 ("Your 3 changes to the steps are
   replaced; results already made are kept"); `workbench apply` needs `--replace` for the same case.
 - **Add and remove a step.** `AddStepAsync` inserts an operation of the catalogue at its defaults after a given edit (-1 first),
   refusing an unknown operation or image, a bad index and missing inputs; `RemoveStepAsync` refuses a step whose result another image

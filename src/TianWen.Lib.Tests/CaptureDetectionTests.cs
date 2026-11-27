@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Grading;
 using TianWen.Lib.Imaging.Stacking;
 using TianWen.Lib.Imaging.Workbench;
 using Xunit;
@@ -230,5 +231,50 @@ public sealed class CaptureDetectionTests : IDisposable
         // Refused in words.
         (await WorkbenchProjects.ReassignAsync(folder, "nothing.fits", FrameType.Dark, ct)).Refusal.ShouldNotBeNull().ShouldContain("not a file of the capture");
         (await WorkbenchProjects.ReassignAsync(folder, "odd.fits", FrameType.Focus, ct)).Refusal.ShouldNotBeNull().ShouldContain("no kind of frame");
+    }
+    // Ten lights of each of two groups that the grade's own key cannot tell apart (one exposure and filter, two gains): the
+    // brighter gain's frames score ten times the dimmer's.
+    private static (string Group, string Place, LightGrade Grade)[] TwoGroupsOfLights()
+    {
+        var key = new LightGradeKey(64, 64, SensorType.Monochrome, "", "10P", 60_000, 1);
+        return
+        [
+            .. Enumerable.Range(0, 10).Select(i => ("gain 100", $"high_{i}.fits", new LightGrade(key, new FrameMetrics(2f, 2.2f, 0.1f, 1000), 100f + i))),
+            .. Enumerable.Range(0, 10).Select(i => ("gain 0", $"low_{i}.fits", new LightGrade(key, new FrameMetrics(2f, 2.2f, 0.1f, 100), 10f + i * 0.1f))),
+        ];
+    }
+
+    [Fact]
+    public void EachLightGroupIsGradedAgainstItsOwnLightsAndNotAnothers()
+    {
+        var verdicts = CaptureDetection.VerdictsByGroup(TwoGroupsOfLights());
+
+        verdicts.Count.ShouldBe(20);
+        for (var i = 0; i < 10; i++)
+        {
+            verdicts[$"low_{i}.fits"].Share.ShouldBeGreaterThan(0.9f, "the dimmer group's frames are read against the dimmer group's best");
+            verdicts[$"high_{i}.fits"].Share.ShouldBeGreaterThan(0.9f);
+        }
+
+        // The same lights read as one group would put every dim frame far below the bright group's best: what grading per group prevents.
+        var mixed = CaptureDetection.VerdictsByGroup(TwoGroupsOfLights().Select(static each => ("one", each.Place, each.Grade)));
+        mixed["low_9.fits"].Share.ShouldBeLessThan(0.5f);
+    }
+
+    [Theory]
+    [InlineData(3, 48, 3)]
+    [InlineData(48, 48, 48)]
+    [InlineData(100, 48, 34)]
+    [InlineData(5, 0, 0)]
+    public void ASmallGroupIsSampledAsWellAsALargeOne(int count, int max, int expected)
+    {
+        var indices = CaptureDetection.SampledIndices(count, max).ToList();
+
+        indices.Count.ShouldBe(expected);
+        indices.Count.ShouldBeLessThanOrEqualTo(Math.Max(max, 0));
+        if (expected > 0)
+        {
+            indices[0].ShouldBe(0);
+        }
     }
 }

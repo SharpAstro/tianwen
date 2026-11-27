@@ -231,15 +231,33 @@ public sealed class WorkbenchSettingsEditTests : IDisposable
         (await WorkbenchProjects.ReassignmentsAsync(capture, ct)).Single().Kind.ShouldBe(FrameType.Dark);
     }
 
-    internal static void WriteFrame(string folder, string name, FrameType type, double exposure)
+    // A light holds a sky with a gentle gradient and a few stars, so a stretch has something to show on the canvas; a
+    // calibration frame is the flat field it would be. The cards agree with what a capture's file name says: name a file
+    // with the gain and the target this writes (gain 100; 10P/Tempel 2 for a light unless objectName says otherwise).
+    internal static void WriteFrame(string folder, string name, FrameType type, double exposure, string objectName = "10P/Tempel 2", short gain = 100)
     {
         Directory.CreateDirectory(folder);
-        var pixels = new float[32, 32];
-        for (var y = 0; y < 32; y++)
+        const int width = 96, height = 64;
+        var pixels = new float[height, width];
+        (float X, float Y, float Peak)[] stars = type == FrameType.Light
+            ? [(20.3f, 14.6f, 2400f), (61.8f, 22.2f, 1500f), (44.1f, 47.4f, 3100f), (80.6f, 52.9f, 900f), (11.2f, 50.1f, 1200f)]
+            : [];
+        for (var y = 0; y < height; y++)
         {
-            for (var x = 0; x < 32; x++)
+            for (var x = 0; x < width; x++)
             {
-                pixels[y, x] = 300f + (((x * 7) + (y * 13)) % 5);
+                var value = 300f + (((x * 7) + (y * 13)) % 5);
+                if (type == FrameType.Light)
+                {
+                    value += x * 1.5f + y * 0.8f;
+                    foreach (var (sx, sy, peak) in stars)
+                    {
+                        var r2 = ((x - sx) * (x - sx)) + ((y - sy) * (y - sy));
+                        value += peak * MathF.Exp(-r2 / (2f * 1.6f * 1.6f));
+                    }
+                }
+
+                pixels[y, x] = MathF.Min(value, 4095f);
             }
         }
 
@@ -256,8 +274,8 @@ public sealed class WorkbenchSettingsEditTests : IDisposable
             BinY = 1,
             CCDTemperature = -5f,
             SensorType = SensorType.RGGB,
-            ObjectName = type == FrameType.Light ? "M 42" : string.Empty,
-            Gain = 100,
+            ObjectName = type == FrameType.Light ? objectName : string.Empty,
+            Gain = gain,
             Offset = 25,
             SensorFullScaleAdu = 4096f,
         };

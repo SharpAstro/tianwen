@@ -85,6 +85,42 @@ public sealed class WorkbenchWorkflowTests : IDisposable
         Of(facts, BuiltInWorkflows.QuickLook).Fit.Fits.ShouldBeTrue();
     }
 
+    [Theory]
+    [InlineData("H-alpha", "OIII")]
+    [InlineData("Ha", "OIII", "SII")]
+    [InlineData("Hydrogen-alpha", "S2")]
+    public void AMonoNarrowbandNightIsNarrowbandAndNotLrgb(params string[] filters)
+    {
+        var facts = Facts(colour: false, filters: filters);
+
+        Of(facts, BuiltInWorkflows.MonoLrgb).Fit.Fits.ShouldBeFalse("a letter inside a filter's name is not a filter of its own");
+        Of(facts, BuiltInWorkflows.Narrowband).Fit.Fits.ShouldBeTrue();
+        BuiltInWorkflows.Answer(facts).Single(static each => each.Best).Template.Id.ShouldBe(BuiltInWorkflows.Narrowband);
+    }
+
+    [Theory]
+    [InlineData("L", "R", "G", "B")]
+    [InlineData("Lum", "Red", "Green", "Blue")]
+    [InlineData("Luminance", "R")]
+    public void AMonoLrgbNightIsMonoLrgbAndNotNarrowband(params string[] filters)
+    {
+        var facts = Facts(colour: false, filters: filters);
+
+        Of(facts, BuiltInWorkflows.Narrowband).Fit.Fits.ShouldBeFalse();
+        Of(facts, BuiltInWorkflows.MonoLrgb).Fit.Fits.ShouldBeTrue();
+        BuiltInWorkflows.Answer(facts).Single(static each => each.Best).Template.Id.ShouldBe(BuiltInWorkflows.MonoLrgb);
+    }
+
+    [Fact]
+    public void FiltersOfNeitherKindFitNeitherMonoWorkflow()
+    {
+        var facts = Facts(colour: false, filters: ["L-eXtreme", "UV/IR"]);
+
+        Of(facts, BuiltInWorkflows.MonoLrgb).Fit.Fits.ShouldBeFalse();
+        Of(facts, BuiltInWorkflows.Narrowband).Fit.Fits.ShouldBeFalse();
+        Of(facts, BuiltInWorkflows.MonoLrgb).Fit.Why.ShouldContain("L-eXtreme, UV/IR");
+    }
+
     [Fact]
     public void SeveralFiltersRuleOutTheColourWorkflowsAndNameTheFilters()
     {
@@ -210,6 +246,59 @@ public sealed class WorkbenchWorkflowTests : IDisposable
         switched.Refusal.ShouldBeNull();
         switched.Replaced.ShouldBe(3);
         (await WorkbenchWorkflows.HandChangesAsync(frames, ct)).ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task OneStepInsertedInTheMiddleIsOneChange(int afterIndex)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var frames = NewCapture();
+        var workdir = WorkbenchProjects.WorkdirOf(frames);
+        (await WorkbenchWorkflows.ApplyAsync(frames, BuiltInWorkflows.DeepSkyColour, Facts(frames), ct)).Refusal.ShouldBeNull();
+
+        var added = await WorkbenchWorkflows.AddStepAsync(workdir, Catalog(), "night-starless", afterIndex, ScnrOperation.Id, cancellationToken: ct);
+
+        added.Refusal.ShouldBeNull();
+        (await WorkbenchWorkflows.HandChangesAsync(frames, ct)).ShouldBe(1, "the steps after it moving down are not changes of their own");
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(3)]
+    public async Task OneStepRemovedFromTheMiddleIsOneChange(int index)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var frames = NewCapture();
+        var workdir = WorkbenchProjects.WorkdirOf(frames);
+        (await WorkbenchWorkflows.ApplyAsync(frames, BuiltInWorkflows.DeepSkyColour, Facts(frames), ct)).Refusal.ShouldBeNull();
+
+        var removed = await WorkbenchWorkflows.RemoveStepAsync(workdir, Catalog(), "night-starless", index, ct);
+
+        removed.Refusal.ShouldBeNull();
+        (await WorkbenchWorkflows.HandChangesAsync(frames, ct)).ShouldBe(1, "the steps after it moving up are not changes of their own");
+        var switched = await WorkbenchWorkflows.ApplyAsync(frames, BuiltInWorkflows.QuickLook, Facts(frames), ct);
+        switched.Replaced.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task EveryStepOfAProjectNoWorkflowWroteIsTheirsSoASwitchCountsThem()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var frames = NewCapture();
+        var workdir = WorkbenchProjects.WorkdirOf(frames);
+        var made = await WorkbenchProjects.NewAsync(workdir, frames, ct);
+        made.Project.ShouldNotBeNull().Workflow.ShouldBeNull();
+        var image = made.Project.Images.Single().Name;
+        (await WorkbenchWorkflows.AddStepAsync(workdir, Catalog(), image, 0, WhiteBalanceOperation.Id, cancellationToken: ct)).Refusal.ShouldBeNull();
+
+        (await WorkbenchWorkflows.HandChangesAsync(frames, ct)).ShouldBe(2, "the stack the project was made with and the step added are both the person's");
+
+        var switched = await WorkbenchWorkflows.ApplyAsync(frames, BuiltInWorkflows.QuickLook, Facts(frames), ct);
+        switched.Replaced.ShouldBe(2);
     }
 
     [Fact]

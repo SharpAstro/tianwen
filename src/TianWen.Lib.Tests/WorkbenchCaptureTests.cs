@@ -196,7 +196,7 @@ public sealed class WorkbenchCaptureTests : IDisposable
                 var capture = Path.Combine(_folders.Create("capture-").FullName, "10p_tempel_night_with_a_long_folder_name");
                 for (var i = 1; i <= 6; i++)
                 {
-                    WorkbenchSettingsEditTests.WriteFrame(capture, $"10PTempel2_ASI2600MC_IDAS-LPS-D3_light_60s_gain1600_-5C_000{i}.fits", FrameType.Light, 60);
+                    WorkbenchSettingsEditTests.WriteFrame(capture, $"10PTempel2_ASI2600MC_IDAS-LPS-D3_light_60s_gain100_-5C_000{i}.fits", FrameType.Light, 60);
                 }
 
                 WorkbenchSettingsEditTests.WriteFrame(capture, "dark_60s_-5C_0001.fits", FrameType.Dark, 60);

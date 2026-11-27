@@ -247,8 +247,9 @@ public sealed class WorkbenchTreeTests : IDisposable
         e2e.Actions.SwitchWorkflow(BuiltInWorkflows.DeepSkyColour);
         e2e.State.PendingSwitch.ShouldBeNull("nothing of the person's is replaced, so nothing is asked");
 
-        // A step added by hand is a change: now the question comes first, with the Lib's wording.
-        await SelectAsync(e2e, 2, ct);
+        // A step added by hand in the middle is one change (the steps after it moving down are not): now the question comes
+        // first, with the Lib's wording.
+        await SelectAsync(e2e, 0, ct);
         e2e.Actions.AddStepAfterSelected("served");
         await e2e.PumpUntilAsync(() => e2e.State.View?.Image?.Steps.Length == 4 && !e2e.State.IsReading, "the added step", ct);
         WorkbenchWorkflows.HandChanges(e2e.State.View!.Project!).ShouldBe(1);
@@ -262,5 +263,27 @@ public sealed class WorkbenchTreeTests : IDisposable
         e2e.ClickText("Keep my steps");
         e2e.State.PendingSwitch.ShouldBeNull();
         e2e.State.View!.Image!.Steps.Length.ShouldBe(4, "the steps are as they were");
+    }
+
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task SwitchingTheWorkflowOfAProjectNoWorkflowWroteAsksFirst(float dpi)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = await ProjectAsync("custom");
+        await using var e2e = WorkbenchE2E.Start(dpi, Runner(), Catalog(), height: 1100);
+        await e2e.OpenProjectAsync(folder, ct);
+        e2e.State.View!.Project!.Workflow.ShouldBeNull();
+
+        // Every step of a project no workflow wrote is the person's: the switch asks before replacing them.
+        e2e.Actions.SwitchWorkflow(BuiltInWorkflows.QuickLook);
+
+        e2e.State.PendingSwitch.ShouldNotBeNull().Changes.ShouldBe(3);
+        e2e.Frame();
+        Joined(e2e).ShouldContain(WorkbenchActions.SwitchWords(3));
+        e2e.ClickText("Keep my steps");
+        e2e.State.PendingSwitch.ShouldBeNull();
+        e2e.State.View!.Image!.Steps.Length.ShouldBe(3, "the steps are as they were");
     }
 }

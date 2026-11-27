@@ -124,7 +124,7 @@ public sealed record CaptureDetectionOptions
     /// <summary>Grade each light (<see cref="LightGrading"/>): reads the pixels of every light up to <see cref="MaxGradedLights"/>.</summary>
     public bool GradeLights { get; set; } = true;
 
-    /// <summary>The most lights graded, taken evenly through the run; the rest show no grade. A grade finds stars in a frame, which costs a second or so.</summary>
+    /// <summary>The most lights graded of each light group, taken evenly through that group's run; the rest show no grade. A grade finds stars in a frame, which costs a second or so.</summary>
     public int MaxGradedLights { get; set; } = 48;
 }
 
@@ -344,6 +344,11 @@ public static class CaptureDetection
             notes.Add($"left out {scan.SuspectedCloudSkipped} frame(s) named MAYBE_CLOUD_");
         }
 
+        if (scan.WorkdirSkipped > 0)
+        {
+            notes.Add($"left out {scan.WorkdirSkipped} file(s) under {StackingPipeline.WorkdirName}, the capture's project folder");
+        }
+
         return notes.ToImmutable();
     }
 
@@ -503,39 +508,71 @@ public static class CaptureDetection
             : (FrameType.Light, $"{No}; an uneven field with no stars found ({percent} of full scale)");
     }
 
-    // Grades the lights evenly through the run (at most maxGraded of them): the grade is read against the graded lights of its
-    // group, so it needs several. Returned by place; a light that could not be graded is left out.
+    // Grades the lights of each light group (LightGroupKey, the groups DetectAsync builds) evenly through that group's run, at most
+    // maxGraded of each: a grade is read against the graded lights of its own group (LightGrading.Verdict), so a group of another
+    // exposure or gain never sets its baselines, and a small group is sampled as well as a large one. Returned by place; a light that
+    // could not be graded is left out.
     private static async Task<Dictionary<string, DetectedGrade>> GradeAsync(List<(FrameInfo Frame, DetectedFile File)> lights, int maxGraded, CancellationToken cancellationToken)
     {
-        var answers = new Dictionary<string, DetectedGrade>(StringComparer.OrdinalIgnoreCase);
+        var graded = new List<(string Group, string Place, LightGrade Grade)>();
         if (maxGraded <= 0 || lights.Count == 0)
         {
-            return answers;
+            return [];
         }
 
-        var step = Math.Max(1, (int)Math.Ceiling(lights.Count / (double)maxGraded));
-        var grades = ImmutableDictionary.CreateBuilder<string, LightGrade>(StringComparer.OrdinalIgnoreCase);
-        for (var i = 0; i < lights.Count; i += step)
+        foreach (var group in lights.GroupBy(static each => LightGroupKey(each.Frame), StringComparer.Ordinal))
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var (frame, file) = lights[i];
-            if (!Image.TryReadFitsFile(frame.ReadPath, out var image))
+            var members = group.ToList();
+            foreach (var i in SampledIndices(members.Count, maxGraded))
             {
-                continue;
-            }
+                cancellationToken.ThrowIfCancellationRequested();
+                var (frame, file) = members[i];
+                if (!Image.TryReadFitsFile(frame.ReadPath, out var image))
+                {
+                    continue;
+                }
 
-            var stars = await image.FindStarsAsync(0, snrMin: 10f, cancellationToken: cancellationToken);
-            if (LightGrading.Grade(image, stars) is { } grade)
-            {
-                grades[file.Place] = grade;
+                var stars = await image.FindStarsAsync(0, snrMin: 10f, cancellationToken: cancellationToken);
+                if (LightGrading.Grade(image, stars) is { } grade)
+                {
+                    graded.Add((group.Key, file.Place, grade));
+                }
             }
         }
 
-        var all = grades.ToImmutable();
-        foreach (var (place, grade) in all)
+        return VerdictsByGroup(graded);
+    }
+
+    /// <summary>The indices of at most <paramref name="max"/> of <paramref name="count"/> items, evenly through them, the first always among them.</summary>
+    internal static IEnumerable<int> SampledIndices(int count, int max)
+    {
+        if (max <= 0)
         {
-            var verdict = LightGrading.Verdict(all, grade, selfFit: false);
-            answers[place] = new DetectedGrade(verdict.Shown, verdict.Causes);
+            yield break;
+        }
+
+        var step = Math.Max(1, (int)Math.Ceiling(count / (double)max));
+        for (var i = 0; i < count; i += step)
+        {
+            yield return i;
+        }
+    }
+
+    /// <summary>
+    /// The verdict of each graded light, read against the graded lights of its own group only (<see cref="LightGrading.Verdict"/>):
+    /// <paramref name="graded"/> names each light's group and place. Returned by place.
+    /// </summary>
+    internal static Dictionary<string, DetectedGrade> VerdictsByGroup(IEnumerable<(string Group, string Place, LightGrade Grade)> graded)
+    {
+        var answers = new Dictionary<string, DetectedGrade>(StringComparer.OrdinalIgnoreCase);
+        foreach (var group in graded.GroupBy(static each => each.Group, StringComparer.Ordinal))
+        {
+            var grades = group.ToImmutableDictionary(static each => each.Place, static each => each.Grade, StringComparer.OrdinalIgnoreCase);
+            foreach (var (place, grade) in grades)
+            {
+                var verdict = LightGrading.Verdict(grades, grade, selfFit: false);
+                answers[place] = new DetectedGrade(verdict.Shown, verdict.Causes);
+            }
         }
 
         return answers;

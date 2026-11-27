@@ -161,7 +161,8 @@ internal sealed class WorkbenchSubCommand(IConsoleHost consoleHost, OperationCat
         var kindArg = new Argument<string>("kind") { Description = $"What it is: {FrameReassignment.KindWords} (ignore leaves it out of the stack), or auto to take the reassignment back." };
         var cmd = new Command("reassign",
             "Take a file for another kind of frame than its cards and its folder say. The project (in the capture's workdir) records it in the stack step's settings, "
-            + "so the step's key changes and the stack runs again; the stack takes it as tianwen stack --reassign does.")
+            + "so the step's key changes and the stack runs again; the stack takes it as tianwen stack --reassign does. "
+            + "Only a project in the capture's own workdir holds reassignments: one made elsewhere with workbench new --project is refused.")
         {
             Arguments = { framesArg, fileArg, kindArg },
         };

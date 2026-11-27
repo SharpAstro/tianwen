@@ -129,7 +129,7 @@ public static class BuiltInWorkflows
             Id = MonoLrgb,
             Title = "Mono LRGB",
             Summary = "Stacks each filter of a mono camera; the filters are then combined in the workbench.",
-            Fit = static facts => MonoRefusal(facts, "Mono LRGB", "L, R, G and B", LrgbNames) ?? new(true, $"mono camera, {FilterText(facts)}"),
+            Fit = static facts => MonoRefusal(facts, "Mono LRGB", "L, R, G and B", IsLrgb) ?? new(true, $"mono camera, {FilterText(facts)}"),
             Build = BuildStackOnly,
         },
         new WorkflowTemplate
@@ -137,7 +137,7 @@ public static class BuiltInWorkflows
             Id = Narrowband,
             Title = "Narrowband SHO",
             Summary = "Stacks each narrowband filter of a mono camera; the filters are then combined in the workbench.",
-            Fit = static facts => MonoRefusal(facts, "Narrowband SHO", "Ha, OIII and SII", NarrowbandNames) ?? new(true, $"mono camera, {FilterText(facts)}"),
+            Fit = static facts => MonoRefusal(facts, "Narrowband SHO", "Ha, OIII and SII", IsNarrowband) ?? new(true, $"mono camera, {FilterText(facts)}"),
             Build = BuildStackOnly,
         },
         new WorkflowTemplate
@@ -190,19 +190,38 @@ public static class BuiltInWorkflows
             : facts.Filters.Length > 1 ? new WorkflowFit(false, $"{facts.Filters.Length} filters ({string.Join(", ", facts.Filters)}): this workflow stacks one filter")
             : null;
 
-    private static readonly string[] LrgbNames = ["l", "lum", "luminance", "r", "red", "g", "green", "b", "blue"];
-    private static readonly string[] NarrowbandNames = ["ha", "h-alpha", "oiii", "o3", "sii", "s2"];
+    // A filter is of a kind by its whole name, as the stacker reads it (Filter.FromName: "L", "Lum", "Red", "Ha", "H-alpha", "OIII"
+    // and so on), never by a letter inside it: "H-alpha" holds an l and "L-eXtreme" starts with one, and neither is a luminance filter.
+    private static bool IsLrgb(Filter filter) => filter == Filter.Luminance || filter == Filter.Red || filter == Filter.Green || filter == Filter.Blue;
 
-    // The conditions of the two mono workflows: a mono camera, and filters of the kind the workflow combines; null when they hold.
-    private static WorkflowFit? MonoRefusal(WorkflowFacts facts, string title, string wanted, string[] names)
-        => facts.LightCount == 0 ? NoLights
-            : facts.Colour == true ? new WorkflowFit(false, $"the camera is colour: {title} needs a mono camera's frames through {wanted} filters")
-            : facts.Filters.Length < 2 ? new WorkflowFit(false, facts.Filters.Length == 0
+    private static bool IsNarrowband(Filter filter)
+        => !filter.IsUnknown && filter.Bandpass != Bandpass.None && filter.Bandpass != Bandpass.Luminance && !IsLrgb(filter);
+
+    // The conditions of the two mono workflows: a mono camera, and at least two filters of the kind the workflow combines; null when they hold.
+    private static WorkflowFit? MonoRefusal(WorkflowFacts facts, string title, string wanted, Func<Filter, bool> ofKind)
+    {
+        if (facts.LightCount == 0)
+        {
+            return NoLights;
+        }
+
+        if (facts.Colour == true)
+        {
+            return new WorkflowFit(false, $"the camera is colour: {title} needs a mono camera's frames through {wanted} filters");
+        }
+
+        if (facts.Filters.Length < 2)
+        {
+            return new WorkflowFit(false, facts.Filters.Length == 0
                 ? $"{title} needs frames through {wanted} filters, and no filter is named in these frames"
-                : $"{title} needs frames through {wanted} filters, and these are through one ({facts.Filters[0]})")
-            : !facts.Filters.Any(filter => names.Any(name => filter.Contains(name, StringComparison.OrdinalIgnoreCase)))
-                ? new WorkflowFit(false, $"{title} needs frames through {wanted} filters, and these are through {string.Join(", ", facts.Filters)}")
-                : null;
+                : $"{title} needs frames through {wanted} filters, and these are through one ({facts.Filters[0]})");
+        }
+
+        var kinds = facts.Filters.Select(Filter.FromName).Where(ofKind).Select(static filter => filter.Name).Distinct(StringComparer.Ordinal).Count();
+        return kinds >= 2
+            ? null
+            : new WorkflowFit(false, $"{title} needs frames through {wanted} filters, and these are through {string.Join(", ", facts.Filters)}");
+    }
 
     private static ImmutableArray<ProjectImage> BuildStackOnly(WorkflowFacts facts)
         => [new ProjectImage { Name = BaseName(facts), Path = facts.FramesFolder, Edits = [Edit(StackOperation.Id)] }];
@@ -348,50 +367,82 @@ public static class WorkbenchWorkflows
                 $"{image.Name}|{image.Path}|{image.From}|{image.Result}|{index}|{edit.Operation}|{settings.ToJsonString()}|{edit.Enabled}|{string.Join(",", edit.Inputs)}");
         })).Order(StringComparer.Ordinal)];
 
-    /// <summary>How many steps of <paramref name="project"/> differ from the workflow it was made from: a step added, removed or changed counts one. 0 for a project that did not start from a workflow.</summary>
+    /// <summary>
+    /// How many steps of <paramref name="project"/> differ from the workflow it was made from: a step added, removed or changed counts
+    /// one, wherever in its image it is (the steps after it moving up or down are not changes of their own). In a project that records no
+    /// workflow every step is the person's, so each one counts.
+    /// </summary>
     public static int HandChanges(WorkbenchProject project)
     {
         ArgumentNullException.ThrowIfNull(project);
+        var now = StepsByImage(SignatureOf(project.Images));
         if (project.Workflow is null)
         {
-            return 0;
+            return now.Values.Sum(static steps => steps.Count);
         }
 
-        var now = SignatureOf(project.Images).ToList();
-        var made = project.WorkflowOrigin.ToList();
-        var gone = new List<string>();
-        foreach (var line in made)
-        {
-            if (!now.Remove(line))
-            {
-                gone.Add(line);
-            }
-        }
-
-        // What is left in now is what the workflow did not write. A step of the same image and operation that is gone and
-        // present with other settings is one step changed, one change; every other step gone or present is a change of its own.
-        static string Pair(string line)
-        {
-            var parts = line.Split('|', 7);
-            return $"{parts[0]}|{parts[1]}|{parts[2]}|{parts[3]}|{parts[5]}";
-        }
-
+        var made = StepsByImage(project.WorkflowOrigin);
         var changes = 0;
-        foreach (var line in gone)
+        foreach (var image in now.Keys.Union(made.Keys))
         {
-            var match = now.FindIndex(each => Pair(each) == Pair(line));
-            if (match >= 0)
-            {
-                now.RemoveAt(match);
-            }
-
-            changes++;
+            changes += Distance(made.GetValueOrDefault(image) ?? [], now.GetValueOrDefault(image) ?? []);
         }
 
-        return changes + now.Count;
+        return changes;
+    }
+
+    // One step of a signature line without its index: Operation is the operation's id, Whole the rest of the line that says the step.
+    private readonly record struct SignedStep(string Operation, string Whole);
+
+    // The signature lines (SignatureOf) grouped by image, each image's steps in their order. The image's four fields lead and the
+    // index and operation follow them; the settings (JSON, which may hold a '|') sit between the operation and the last two fields.
+    private static Dictionary<string, List<SignedStep>> StepsByImage(ImmutableArray<string> lines)
+    {
+        var parsed = new List<(string Image, int Index, SignedStep Step)>();
+        foreach (var line in lines.IsDefault ? [] : lines)
+        {
+            var head = line.Split('|', 7);
+            if (head.Length < 7 || !int.TryParse(head[4], NumberStyles.Integer, CultureInfo.InvariantCulture, out var index))
+            {
+                continue;
+            }
+
+            var image = string.Join('|', head[0], head[1], head[2], head[3]);
+            parsed.Add((image, index, new SignedStep(head[5], head[5] + "|" + head[6])));
+        }
+
+        return parsed.GroupBy(static each => each.Image, StringComparer.Ordinal)
+            .ToDictionary(static group => group.Key, static group => group.OrderBy(static each => each.Index).Select(static each => each.Step).ToList(), StringComparer.Ordinal);
+    }
+
+    // The fewest steps added, removed or changed that turn one image's steps into the other's: a step of the same operation with other
+    // settings is one change, a step of another operation in its place is one removed and one added.
+    private static int Distance(List<SignedStep> made, List<SignedStep> now)
+    {
+        var row = new int[now.Count + 1];
+        for (var j = 0; j <= now.Count; j++)
+        {
+            row[j] = j;
+        }
+
+        for (var i = 1; i <= made.Count; i++)
+        {
+            var diagonal = row[0];
+            row[0] = i;
+            for (var j = 1; j <= now.Count; j++)
+            {
+                var above = row[j];
+                var replace = made[i - 1].Whole == now[j - 1].Whole ? 0 : made[i - 1].Operation == now[j - 1].Operation ? 1 : 2;
+                row[j] = Math.Min(Math.Min(above + 1, row[j - 1] + 1), diagonal + replace);
+                diagonal = above;
+            }
+        }
+
+        return row[now.Count];
     }
 
     /// <summary>The hand changes of the project in the capture's workdir (<see cref="HandChanges"/>); 0 where there is no project.</summary>
+    /// <remarks>A project of no workflow with steps counts each of them, so a switch asks before replacing them.</remarks>
     public static async Task<int> HandChangesAsync(string framesFolder, CancellationToken cancellationToken = default)
     {
         var (project, _) = await WorkbenchProjectFile.ReadAsync(WorkbenchProjects.WorkdirOf(framesFolder), cancellationToken);
@@ -560,7 +611,16 @@ public static class WorkbenchWorkflows
             }
 
             var settings = edit.Settings?.DeepClone() as JsonObject ?? [];
-            settings[setting] = value?.DeepClone();
+            // A null value leaves the setting out (its default), so the project file and HandChanges see one form of it.
+            if (value is null)
+            {
+                settings.Remove(setting);
+            }
+            else
+            {
+                settings[setting] = value.DeepClone();
+            }
+
             if (!operation.TryReadSettings(settings.ToJsonString(), out _, out var refusal))
             {
                 return (refusal, null);

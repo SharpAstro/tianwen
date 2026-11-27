@@ -212,13 +212,22 @@ public sealed partial class WorkbenchActions
                     return new WorkbenchFrameGroup(name, [.. files.Select(static f => f.Place)]) { Details = files };
                 }
 
-                return new WorkbenchFrames(capture,
-                [
-                    Group("Lights", DetectedGroupKind.Lights),
-                    Group("Darks", DetectedGroupKind.Darks),
-                    Group("Flats", DetectedGroupKind.Flats),
-                    Group("Bias", DetectedGroupKind.Bias),
-                ]);
+                // The four a stack always takes are always listed; flat darks, files that need a look and files not stacked only
+                // where the capture has them, so each can be seen and reassigned from the workbench as from the Import page.
+                var groups = ImmutableArray.CreateBuilder<WorkbenchFrameGroup>();
+                groups.Add(Group("Lights", DetectedGroupKind.Lights));
+                groups.Add(Group("Darks", DetectedGroupKind.Darks));
+                groups.Add(Group("Flats", DetectedGroupKind.Flats));
+                groups.Add(Group("Bias", DetectedGroupKind.Bias));
+                foreach (var (name, kind) in new[] { ("Flat darks", DetectedGroupKind.FlatDarks), ("Needs a look", DetectedGroupKind.NeedsALook), ("Not stacked", DetectedGroupKind.NotStacked) })
+                {
+                    if (Group(name, kind) is { Files.Length: > 0 } present)
+                    {
+                        groups.Add(present);
+                    }
+                }
+
+                return new WorkbenchFrames(capture, groups.ToImmutable());
             }, appToken, logger, "Read what the capture folder holds",
             onError: _ => state.Frames = new WorkbenchFrames(capture, []),
             onFinally: () => state.NeedsRedraw = true);
@@ -239,7 +248,10 @@ public sealed partial class WorkbenchActions
         => [.. catalog.All.Where(static o => o.Description.ExtraInputs.All(static role => role.Optional))
             .Select(static o => (o.Description.Id, o.Description.Title)).OrderBy(static t => t.Title, StringComparer.Ordinal)];
 
-    /// <summary>Adds a step of the operation after the selected one, through <see cref="WorkbenchWorkflows.AddStepAsync"/>; the new step is then selected.</summary>
+    /// <summary>
+    /// Adds a step of the operation after the selected one, through <see cref="WorkbenchWorkflows.AddStepAsync"/>; the new step is then selected.
+    /// With a frame group selected (no step shown as selected) or no step selected it goes at the end of the image's steps.
+    /// </summary>
     public void AddStepAfterSelected(string operationId)
     {
         if (_jobs.IsRunning || state.View is not { ImageName: { } image } view)
@@ -247,7 +259,7 @@ public sealed partial class WorkbenchActions
             return;
         }
 
-        var after = state.SelectedStep >= 0 ? state.SelectedStep : (view.Image?.Steps.Length ?? 0) - 1;
+        var after = state.SelectedFrames is null && state.SelectedStep >= 0 ? state.SelectedStep : (view.Image?.Steps.Length ?? 0) - 1;
         state.TreeRefusal = null;
         tracker.RunGuarded(async ct =>
         {

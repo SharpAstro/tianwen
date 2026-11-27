@@ -43,6 +43,7 @@ public sealed class FitsFolderFrameSource : IFrameSource
     private int _filterAlreadyPresent;
     private int _rejectedAtCapture;
     private int _suspectedCloudSkipped;
+    private int _excludedSkipped;
 
     /// <param name="folder">Folder to scan. Must exist.</param>
     /// <param name="recursive">If true, descend into subdirectories. Default false.</param>
@@ -87,6 +88,9 @@ public sealed class FitsFolderFrameSource : IFrameSource
     /// project's own folder (<c>workdir</c>) holds masters and results, which a scan of the capture must not take as lights.</summary>
     public string? ExcludedFolder { get; init; }
 
+    /// <summary>FITS files the most recent enumeration left out because they are under <see cref="ExcludedFolder"/>.</summary>
+    public int ExcludedSkipped => _excludedSkipped;
+
     /// <summary>
     /// Headers remembered from earlier scans (<see cref="FitsHeaderIndex"/>): an unchanged file is
     /// parsed from its stored header instead of being read. The caller loads and saves it.
@@ -109,6 +113,7 @@ public sealed class FitsFolderFrameSource : IFrameSource
             cancellationToken.ThrowIfCancellationRequested();
             if (excludedWithSeparator is not null && Path.GetFullPath(stamp.Path).StartsWith(excludedWithSeparator, PathComparison))
             {
+                _excludedSkipped++;
                 continue;
             }
             // Before the header read, because the answer is in the name and the read is the cost.

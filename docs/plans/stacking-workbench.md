@@ -621,8 +621,8 @@ Workflow, Main). New project now takes the capture folder alone and keeps the pr
 (the stack never reads it); `CaptureDetection` says what the folder holds (groups, each file's kind and why, an unsure mark,
 Needs a look) over the stack's own scan and matching; a per-file reassignment is a stack-step setting (`reassign`, `tianwen
 stack --reassign`) that changes the step's key and is taken by the stack. Verbs: `workbench new <folder>`, `workbench
-detected`, `workbench reassign`. Workflows, headless (second leg): four built-in templates (comet colour, deep sky colour, quick
-look, empty) with a fit rule and one line of why each, the best fit chosen by order, apply into `workdir\project.json` with
+detected`, `workbench reassign`. Workflows, headless (second leg): six built-in templates (comet colour, deep sky colour, mono LRGB,
+narrowband SHO, quick look, empty; the two mono ones only stack, there is no combine step yet) with a fit rule and one line of why each, the best fit chosen by order, apply into `workdir\project.json` with
 hand-change detection, add and remove a step, the tree of splits and joins; verbs `workbench workflows` and `workbench apply`.
 **Screens built (2026-11-28):** New project, the Import page, the Workflow page, the project tree with a run to each step, the toolbar,
 the canvas with its empty state and the status strip (legs three and four), and the panel beside the tree (leg five): a selected
