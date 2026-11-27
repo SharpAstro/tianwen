@@ -372,6 +372,7 @@ public sealed partial class WorkbenchScreen<TSurface>
             Words($"{group.Count} {(group.Count == 1 ? "file" : "files")} in {state.Frames?.Folder}. Press a file to see it; change what a file is taken for in its box.", palette.DimText),
         };
         var seen = new HashSet<string>(StringComparer.Ordinal);
+        DetectedFile? selectedFile = null;
         foreach (var file in group.Details)
         {
             seen.Add(file.Place);
@@ -379,17 +380,69 @@ public sealed partial class WorkbenchScreen<TSurface>
             var fill = picked ? palette.Selection : palette.PanelBg;
             var ink = picked ? palette.SelectionText : palette.BodyText;
             var full = file.FullPath;
-            // A grade is said where there is one; "not graded" on every row would be the same line six times.
-            var grade = file.Grade is { } g && (g.Causes != GradeCause.None || g.Share > 0f) ? GradeWords(g) : null;
+            // The grade is a short word on the file's row, dim when the file was not graded, as the Import table has it.
+            var graded = file.Grade is { } g && (g.Causes != GradeCause.None || g.Share > 0f);
+            var gradeWord = file.Grade is { } given ? GradeWords(given) : "not graded";
+            var gradeInk = picked ? palette.SelectionText : file.Grade is { Causes: GradeCause.None, Share: > 0f } ? palette.Success
+                : graded ? palette.Warn : palette.DimText;
             var name = Layout.Builder.Text(file.Place, BaseFontSize, ink, trim: TextTrim.Start).WStar().HStar()
                 .WithTooltip(file.FullPath)
                 .Clickable(new HitResult.ButtonHit("Frame:" + file.Place), _ => actions.ShowFrameFile(full), CursorKind.Pointer);
-            var line = Layout.Builder.HStack(name, KindCell(file, actions.ReassignFrame).WFixed(124f).HStar())
-                .WithGap(Gap).CrossCenter().Pad(Gap / 2, 0f).Bg(fill).BgHover(GuiTheme.Hover(fill)).Radius(4f).WStar().HFixed(TreeRowHeight + 6f);
+            var gradeCell = Layout.Builder.Text(gradeWord, BaseFontSize * 0.85f, gradeInk, TextAlign.Far, trim: TextTrim.End)
+                .WFixed(64f).WithTooltip($"Grade: {gradeWord}");
+            var line = Layout.Builder.HStack(name, gradeCell, KindCell(file, actions.ReassignFrame).WFixed(110f).HStar())
+                .WithGap(Gap / 2).CrossCenter().Pad(Gap / 2, 0f).Bg(fill).BgHover(GuiTheme.Hover(fill)).Radius(4f).WStar().HFixed(TreeRowHeight + 6f);
             rows.Add(line);
-            if (grade is not null)
+            if (picked)
             {
-                rows.Add(Layout.Builder.Text($"Grade: {grade}", BaseFontSize * 0.85f, palette.DimText, trim: TextTrim.End).WStar().WithTooltip(grade).Pad(Gap / 2, 0f));
+                selectedFile = file;
+            }
+        }
+
+        // The selected file's details, a few dim lines: what the picture is not told, and why it is taken for what it is.
+        if (selectedFile is { } chosen)
+        {
+            rows.Add(Heading("Selected file"));
+            rows.Add(Words(chosen.Place, palette.BodyText));
+            var facts = new List<string>();
+            if (chosen.ExposureSeconds > 0)
+            {
+                facts.Add($"{chosen.ExposureSeconds.ToString("0.###", CultureInfo.InvariantCulture)} s");
+            }
+
+            if (chosen.Filter.Length > 0)
+            {
+                facts.Add(chosen.Filter);
+            }
+
+            if (float.IsFinite(chosen.SensorTemperatureC))
+            {
+                facts.Add($"{chosen.SensorTemperatureC.ToString("0.#", CultureInfo.InvariantCulture)} °C");
+            }
+
+            if (chosen.Gain > 0)
+            {
+                facts.Add($"gain {chosen.Gain.ToString(CultureInfo.InvariantCulture)}");
+            }
+
+            if (chosen.Camera.Length > 0)
+            {
+                facts.Add(chosen.Camera);
+            }
+
+            if (facts.Count > 0)
+            {
+                rows.Add(Words(string.Join(", ", facts), palette.DimText));
+            }
+
+            if (chosen.Why.Length > 0)
+            {
+                rows.Add(Words($"Taken for {chosen.Kind}: {chosen.Why}", palette.DimText));
+            }
+
+            if (chosen.Note is { Length: > 0 } note)
+            {
+                rows.Add(Words(note, palette.Warn));
             }
         }
 

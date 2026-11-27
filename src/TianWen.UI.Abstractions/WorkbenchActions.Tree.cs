@@ -44,7 +44,7 @@ public sealed partial class WorkbenchActions
 
     /// <summary>The workflow's name: the built-in workflow the project was made from, or Steps for one with none.</summary>
     public string WorkflowTitle
-        => state.View?.Project?.Workflow is { } id && BuiltInWorkflows.Find(id) is { } template ? template.Title : "Steps";
+        => state.View?.Project?.Workflow is { } id && BuiltInWorkflows.Find(id) is { } template ? template.Title : "Custom workflow";
 
     /// <summary>The project's rows as the tree draws them, each step in the runner's state.</summary>
     public ImmutableArray<WorkbenchTreeRow> Tree()
