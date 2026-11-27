@@ -473,6 +473,13 @@ public class GuiAppState
     private ImmutableArray<NotificationEntry> _notifications = [];
 
     /// <summary>
+    /// The host's opt-in to desktop alerts (#2507): this computer's own notes (<see cref="RecordNotification"/>) and every
+    /// connected node's (through <see cref="ViewContext"/>'s mirror) are offered to it. Null, as in the TUI and in tests that
+    /// set none, and nothing alerts.
+    /// </summary>
+    public DesktopAlerts? DesktopAlerts { get; set; }
+
+    /// <summary>
     /// The Home tab's rig board, rebuilt once per frame by the telemetry poll and read by the tab. A
     /// snapshot rather than live state, published by atomic reference swap, so the render thread cannot
     /// observe a card half-built from a session that is being updated underneath it.
@@ -507,8 +514,9 @@ public class GuiAppState
     /// </summary>
     public void RecordNotification(DateTimeOffset when, NotificationSeverity severity, string message, NoteKind kind = NoteKind.None)
     {
-        ImmutableInterlocked.Update(ref _notifications, static (current, entry) => WithNotification(current, entry),
-            new NotificationEntry(when, severity, message, kind));
+        var note = new NotificationEntry(when, severity, message, kind);
+        ImmutableInterlocked.Update(ref _notifications, static (current, entry) => WithNotification(current, entry), note);
+        DesktopAlerts?.Offer(note, null, null);
         if (ActiveTab != GuiTab.Notifications)
         {
             Interlocked.Increment(ref _unreadNotificationCount);
