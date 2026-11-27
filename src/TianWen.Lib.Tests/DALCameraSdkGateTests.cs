@@ -1,7 +1,10 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Shouldly;
 using TianWen.DAL;
+using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Fake;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
@@ -64,6 +67,53 @@ public class DALCameraSdkGateTests(ITestOutputHelper output)
         await Should.ThrowAsync<System.InvalidOperationException>(async () => await camera.GetCoolerPowerAsync(ct));
         state.CallsWhileClosed.ShouldBe(0);
         camera.SdkCallsInFlight.ShouldBe(0);
+    }
+
+    /// <summary>
+    /// A connect that found no camera leaves <c>_deviceInfo</c> the default, which on ZWO addresses camera id 0, possibly a
+    /// body another driver holds (#1760). Nothing may call through it: the gate opens only for a connect that found its
+    /// camera. Here the default fake has no state at all, so a call that got through would throw rather than answer.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task ACameraNeverFoundIsNeverCalledThrough()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var time = new FakeTimeProviderWrapper();
+        var external = new FakeExternal(output, time);
+        var device = new FakeDevice(DeviceType.Camera, 1);
+        // int.MaxValue: never back on the bus (FakeCmosState.Enumerate brings it back after that many listings otherwise).
+        var state = new FakeCmosState(device.DeviceId) { Present = false, EnumerationsLeft = int.MaxValue };
+        var camera = new TestDalCameraDriver(device, external.BuildServiceProvider(), state);
+
+        await Should.ThrowAsync<InvalidOperationException>(camera.ConnectAsync(ct).AsTask());
+
+        camera.Connected.ShouldBeFalse();
+        (await camera.GetCCDTemperatureAsync(ct)).ShouldBe(double.NaN, "a camera never found has no temperature");
+        state.Opens.ShouldBe(0);
+        camera.SdkCallsInFlight.ShouldBe(0);
+    }
+
+    /// <summary>
+    /// A camera that opened and then refused its init is closed once, by the connect that opened it (a second close, as the
+    /// ZWO driver's own did, ended a listing's hold under it), and nothing reaches it afterwards (#1760).
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task ACameraWhoseInitFailedIsClosedOnceAndNeverCalledAfter()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var time = new FakeTimeProviderWrapper();
+        var external = new FakeExternal(output, time);
+        var device = new FakeDevice(DeviceType.Camera, 1);
+        var state = new FakeCmosState(device.DeviceId) { RefuseSdkInit = true };
+        var camera = new TestDalCameraDriver(device, external.BuildServiceProvider(), state);
+
+        await Should.ThrowAsync<InvalidOperationException>(camera.ConnectAsync(ct).AsTask());
+
+        state.Opens.ShouldBe(1);
+        state.Closes.ShouldBe(1, "closed by the connect that opened it, and only by it");
+        // Only the temperature read discriminates on the gate: the cooler flag is set in InitCamera, which never ran here.
+        (await camera.GetCCDTemperatureAsync(ct)).ShouldBe(double.NaN);
+        state.CallsWhileClosed.ShouldBe(0);
     }
 
     [Fact(Timeout = 60_000)]
