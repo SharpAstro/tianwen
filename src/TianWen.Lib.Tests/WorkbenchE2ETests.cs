@@ -411,7 +411,7 @@ public sealed class WorkbenchE2ETests : IDisposable
         e2e.ClickText("Log ⌄");
         Normalise(string.Join(' ', e2e.Texts().Select(static t => t.Text))).ShouldContain("at the gate", Case.Sensitive, "the run's line, in the log behind the disclosure");
         e2e.Texts().ShouldContain(t => t.Text == "■ Stop");
-        e2e.Actions.RunToHereOffer().CanRun.ShouldBeTrue("the offer is the plan's; the toolbar dims its button while a run goes");
+        e2e.Actions.RunToHereOffer().CanRun.ShouldBeFalse("no start is offered while one runs (the toolbar dims its Run)");
         e2e.Actions.Jobs.TryStart(folder, "m", through: null).ShouldBeFalse();
 
         e2e.ClickText("■ Stop");
