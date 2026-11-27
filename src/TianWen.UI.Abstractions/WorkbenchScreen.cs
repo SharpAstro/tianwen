@@ -56,7 +56,10 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
     }
 
     /// <inheritdoc/>
-    protected override IReadOnlyList<PixelWidgetBase<TSurface>> Children => _children;
+    protected override IReadOnlyList<PixelWidgetBase<TSurface>> Children => _onPages ? [] : _children;
+
+    // The pages of New project hold no viewer, so what it painted last is neither drawn nor hit nor listed while they are on show.
+    private bool _onPages;
 
     /// <summary>The viewer is painted over the canvas this widget lays out, after this widget's own tree.</summary>
     protected override int ChildrenUnderOwn => 0;
@@ -100,6 +103,8 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
         // the same frame only when a flow's width changed (the first frame, a resize, a new DPI), so a break is never a frame late.
         var bounds = new RectF32(0, 0, width, height);
         var onPages = state.Stage != WorkbenchStage.Workbench;
+        _onPages = onPages;
+        _designWidth = Scale.ToDesignX(width);
         var arranged = ArrangeLayout(onPages ? BuildNewProject(state, actions) : Build(state, actions), bounds);
         if (TookRooms(arranged))
         {

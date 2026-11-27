@@ -33,16 +33,35 @@ public sealed partial class WorkbenchScreen<TSurface>
     private readonly Dictionary<string, DropdownMenuState<string>> _kindMenus = new(StringComparer.Ordinal);
     private string? _openKindMenu;
 
-    private static readonly Layout.TableColumn[] FileColumns =
+    // The file table's columns in the order they are given up when the window is narrow: the sensor temperature first, the file's name and
+    // its kind never. Each is (key, column, the narrowest it is worth showing at); a star column's width is its minimum.
+    private static readonly (string Key, Layout.TableColumn Column, float Min)[] FileColumnSet =
     [
-        new("File", Layout.Sizing.Star(2f), TextAlign.Near),
-        new("Is", Layout.Sizing.Fixed(124f), TextAlign.Near),
-        new("Because", Layout.Sizing.Star(3f), TextAlign.Near),
-        new("Exposure", Layout.Sizing.Fixed(92f), TextAlign.Far),
-        new("Filter", Layout.Sizing.Fixed(84f), TextAlign.Near),
-        new("Sensor", Layout.Sizing.Fixed(80f), TextAlign.Far),
-        new("Grade", Layout.Sizing.Fixed(110f), TextAlign.Near),
+        ("file", new("File", Layout.Sizing.Star(2f), TextAlign.Near), 190f),
+        ("kind", new("Is", Layout.Sizing.Fixed(124f), TextAlign.Near), 124f),
+        ("why", new("Because", Layout.Sizing.Star(3f), TextAlign.Near), 170f),
+        ("grade", new("Grade", Layout.Sizing.Fixed(110f), TextAlign.Near), 110f),
+        ("exposure", new("Exposure", Layout.Sizing.Fixed(104f), TextAlign.Far), 104f),
+        ("filter", new("Filter", Layout.Sizing.Fixed(84f), TextAlign.Near), 84f),
+        ("sensor", new("Sensor", Layout.Sizing.Fixed(88f), TextAlign.Far), 88f),
     ];
+
+    // The width of the window in design units, from the last Render: the columns that fit are shown, the rest are left to the hover of
+    // the row's Because column, so a narrow window never cuts a title to an ellipsis.
+    private float _designWidth = float.PositiveInfinity;
+
+    private ImmutableArray<(string Key, Layout.TableColumn Column)> FileColumnsFor()
+    {
+        // The files' own area: the window less the groups column, the page's padding and the scroll bar.
+        var room = _designWidth - GroupsWidth - (Gap * 5) - 16f;
+        var keep = FileColumnSet.ToList();
+        while (keep.Count > 3 && keep.Sum(static c => c.Min) + ((keep.Count - 1) * Gap) > room)
+        {
+            keep.RemoveAt(keep.Count - 1);
+        }
+
+        return [.. keep.Select(static c => (c.Key, c.Column))];
+    }
 
     // The pages of New project: a title bar, the three-step strip, one reserved line for a refusal, the page and its footer.
     private Layout.Node BuildNewProject(WorkbenchState state, WorkbenchActions actions)
@@ -220,15 +239,18 @@ public sealed partial class WorkbenchScreen<TSurface>
 
         var style = new Layout.TableStyle(palette.PanelBg, palette.DimText, GuiTheme.Hover(palette.PanelBg), palette.Accent) { Gap = Gap };
         var rowHeight = GuiTheme.Metrics.ButtonHeight + Gap;
+        var columns = FileColumnsFor();
+        var span = columns.Select(static c => c.Column).ToArray();
         var rows = new List<Layout.Node>
         {
-            Layout.Builder.TableHeader(FileColumns, null, null, in style, rowHeight, "Files:").WStar(),
+            Layout.Builder.TableHeader(span, null, null, in style, rowHeight, "Files:").WStar(),
         };
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var file in group.Files)
         {
             seen.Add(file.Place);
-            rows.Add(Layout.Builder.TableRow(FileColumns, FileCells(file, actions), in style)
+            var cells = FileCells(file, actions);
+            rows.Add(Layout.Builder.TableRow(span, [.. columns.Select(c => cells[c.Key])], in style)
                 .WStar().HFixed(rowHeight).Bg(file.NeedsALook ? GuiTheme.Mix(palette.ContentBg, palette.Warn, 0.08f) : palette.ContentBg));
         }
 
@@ -254,7 +276,7 @@ public sealed partial class WorkbenchScreen<TSurface>
         return grade.Causes == GradeCause.None ? percent : $"{percent} {grade.Causes.ToString().ToLowerInvariant()}";
     }
 
-    private Layout.Node[] FileCells(DetectedFile file, WorkbenchActions actions)
+    private Dictionary<string, Layout.Node> FileCells(DetectedFile file, WorkbenchActions actions)
     {
         var palette = GuiTheme.Palette;
         Layout.Node Cell(string text, RGBAColor32 ink, TextAlign align = TextAlign.Near, string? tooltip = null)
@@ -263,16 +285,16 @@ public sealed partial class WorkbenchScreen<TSurface>
         var why = file.Note is { } note ? $"{file.Why} · {note}" : file.Why;
         var grade = file.Grade is { } g ? GradeWords(g) : "—";
         var gradeInk = file.Grade is { Causes: GradeCause.None } ? palette.Success : file.Grade is null ? palette.DimText : palette.Warn;
-        return
-        [
-            Layout.Builder.Text(file.Place, BaseFontSize, palette.BodyText, trim: TextTrim.Start).WithTooltip(file.FullPath),
-            KindCell(file, actions),
-            Cell(why, palette.DimText),
-            Cell(Seconds(file.ExposureSeconds), palette.BodyText, TextAlign.Far),
-            Cell(file.Filter.Length > 0 ? file.Filter : "—", palette.BodyText),
-            Cell(float.IsFinite(file.SensorTemperatureC) ? $"{file.SensorTemperatureC.ToString("0.#", CultureInfo.InvariantCulture)} °C" : "—", palette.BodyText, TextAlign.Far),
-            Cell(grade, gradeInk),
-        ];
+        return new Dictionary<string, Layout.Node>
+        {
+            ["file"] = Layout.Builder.Text(file.Place, BaseFontSize, palette.BodyText, trim: TextTrim.Start).WithTooltip(file.FullPath),
+            ["kind"] = KindCell(file, actions),
+            ["why"] = Cell(why, palette.DimText),
+            ["exposure"] = Cell(Seconds(file.ExposureSeconds), palette.BodyText, TextAlign.Far),
+            ["filter"] = Cell(file.Filter.Length > 0 ? file.Filter : "—", palette.BodyText),
+            ["sensor"] = Cell(float.IsFinite(file.SensorTemperatureC) ? $"{file.SensorTemperatureC.ToString("0.#", CultureInfo.InvariantCulture)} °C" : "—", palette.BodyText, TextAlign.Far),
+            ["grade"] = Cell(grade, gradeInk),
+        };
     }
 
     // What the file is taken for, as a dropdown of the kinds a stack takes. The label is the Lib's answer (the kind the detection
