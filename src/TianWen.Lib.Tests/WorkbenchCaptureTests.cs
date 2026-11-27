@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using DIR.Lib;
 using Shouldly;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Workbench;
 using TianWen.UI.Abstractions;
 using Xunit;
