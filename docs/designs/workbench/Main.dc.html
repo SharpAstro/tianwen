@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TianWen Edit workbench</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#101318}
+button{font:inherit}
+.btn{height:28px;padding:0 12px;border-radius:4px;border:1px solid #3c444f;background:#262c36;color:#e2e6ec;cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-size:13px}
+.btn:hover{background:#2f3642}
+.btn-accent{background:#ff5e00;border-color:#ff5e00;color:#101318;font-weight:600}
+.btn-accent:hover{background:#ff7a2e}
+.btn-subtle{background:transparent;border-color:transparent;color:#c9ced6}
+.btn-subtle:hover{background:#262c36}
+.seg{display:inline-flex;height:28px;border:1px solid #3c444f;border-radius:4px;overflow:hidden;background:#262c36}
+.seg button{border:0;background:transparent;color:#c9ced6;padding:0 12px;font-size:13px;cursor:pointer;border-right:1px solid #3c444f}
+.seg button:last-child{border-right:0}
+.seg button.on{background:#ff5e00;color:#101318;font-weight:600}
+.tab{border:0;background:transparent;color:#8b939f;font-size:12px;font-weight:500;padding:0 10px;height:32px;cursor:pointer;border-bottom:2px solid transparent}
+.tab.on{color:#e2e6ec;border-bottom-color:#ff5e00}
+.node{display:flex;align-items:center;gap:6px;height:28px;padding-right:4px;border-radius:4px;color:#e2e6ec;cursor:pointer}
+.node:hover{background:#1e232c}
+.node.sel{background:#302820;box-shadow:inset 2px 0 0 #ff5e00}
+.node.off{color:#5a626c}
+.node .pick{flex:1;display:flex;align-items:center;gap:6px;border:0;background:transparent;color:inherit;height:28px;text-align:left;cursor:pointer;min-width:0;padding:0}
+.play{width:24px;height:24px;border-radius:4px;border:0;background:transparent;color:#8b939f;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-size:11px;opacity:0}
+.node:hover .play,.node.sel .play{opacity:1}
+.play:hover{background:#ff5e00;color:#101318}
+.node.sel .play{background:#ff5e00;color:#101318}
+.dim{color:#8b939f}
+.sw{width:32px;height:18px;border-radius:9px;background:#3c444f;position:relative;border:0;cursor:pointer;flex:none;padding:0}
+.sw.on{background:#ff5e00}
+.sw span{position:absolute;top:3px;left:3px;width:12px;height:12px;border-radius:6px;background:#e2e6ec}
+.sw.on span{left:17px;background:#101318}
+.label{font-size:11px;font-weight:600;letter-spacing:.04em;color:#8b939f;text-transform:uppercase}
+.slider{position:relative;height:18px;display:flex;align-items:center}
+.slider .track{height:4px;border-radius:2px;background:#3c444f;flex:1;position:relative}
+.slider .fill{position:absolute;left:0;top:0;bottom:0;border-radius:2px;background:#ff5e00}
+.slider .thumb{position:absolute;top:-6px;width:16px;height:16px;border-radius:8px;background:#e2e6ec;margin-left:-8px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; display: grid; grid-template-rows: 40px 44px 1fr 24px; background: #101318; color: #e2e6ec; font-family: Inter, system-ui, sans-serif; font-size: 13px; overflow: hidden">
+
+  <div style="display: flex; align-items: center; gap: 12px; padding: 0 12px; background: #1e232c; border-bottom: 1px solid #2a3039">
+    <span style="font-weight: 600">TianWen Edit</span>
+    <span class="dim" style="font-size: 12px">10P/Tempel 2 · C:\temp\10p_tempel\workdir</span>
+    <div style="flex: 1"></div>
+    <a href="Import.dc.html" class="btn btn-subtle" style="text-decoration: none">New project</a>
+    <button class="btn btn-subtle">Open… <span class="dim">›</span></button>
+  </div>
+
+  <!-- Toolbar -->
+  <div style="display: flex; align-items: center; gap: 8px; padding: 0 12px; background: #171b22; border-bottom: 1px solid #2a3039">
+    <button class="btn btn-accent">▶ Run to “{{sel.title}}”</button>
+    <button class="btn btn-subtle" disabled style="opacity: .5">■ Stop</button>
+    <span class="dim" style="font-size: 12px; margin-left: 6px">{{sel.runs}}</span>
+    <div style="flex: 1"></div>
+    <div class="seg" role="group" aria-label="What the canvas shows">
+      <sc-for list="{{views}}" as="v" hint-placeholder-count="3">
+        <button class="{{v.cls}}" onClick="{{v.pick}}">{{v.label}}</button>
+      </sc-for>
+    </div>
+    <div style="width: 1px; height: 20px; background: #2a3039; margin: 0 4px"></div>
+    <button class="btn btn-subtle">Fit</button>
+    <button class="btn btn-subtle">1:1</button>
+    <button class="btn btn-subtle">Stretch: Auto <span class="dim">⌄</span></button>
+  </div>
+
+  <!-- Body: workflow tree | step settings | output canvas -->
+  <div style="display: grid; grid-template-columns: 300px 320px 1fr; min-height: 0">
+
+    <!-- Workflow tree -->
+    <div style="background: #171b22; border-right: 1px solid #2a3039; display: flex; flex-direction: column; min-height: 0">
+      <div style="display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid #2a3039">
+        <span style="font-weight: 600; flex: 1">Comet, colour camera</span>
+        <button class="btn btn-subtle" aria-label="Add a step after the selected one" title="Add a step after the selected one">+ Step <span class="dim">›</span></button>
+        <button class="btn btn-subtle" aria-label="Remove the selected step" title="Remove the selected step">Remove</button>
+      </div>
+      <div style="padding: 6px; overflow: auto; flex: 1">
+        <div class="label" style="padding: 8px 8px 4px">Frames</div>
+        <sc-for list="{{groups}}" as="g" hint-placeholder-count="4">
+          <div class="{{g.cls}}" style="padding-left: 6px">
+            <button class="pick" onClick="{{g.pick}}">
+              <span style="{{g.markStyle}}">{{g.mark}}</span>
+              <span style="flex: 1">{{g.name}}</span>
+              <span class="dim" style="font-size: 11px; padding-right: 6px">{{g.count}}</span>
+            </button>
+          </div>
+        </sc-for>
+        <div class="label" style="padding: 14px 8px 4px">Workflow</div>
+        <sc-for list="{{tree}}" as="n" hint-placeholder-count="14">
+          <div class="{{n.cls}}" style="{{n.indent}}">
+            <button class="pick" onClick="{{n.pick}}">
+              <span style="{{n.markStyle}}">{{n.mark}}</span>
+              <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{n.title}}</span>
+              <span class="dim" style="font-size: 11px">{{n.note}}</span>
+            </button>
+            <button class="play" onClick="{{n.pick}}" aria-label="{{n.playLabel}}" title="{{n.playLabel}}">▶</button>
+          </div>
+        </sc-for>
+      </div>
+      <div style="padding: 8px 12px; border-top: 1px solid #2a3039; font-size: 11px" class="dim">✓ made · ↻ stale · ○ not made · ⚠ refused · ▶ runs every step up to it</div>
+    </div>
+
+    <!-- A frame group's files, when a group is selected -->
+    <sc-if value="{{isGroup}}" hint-placeholder-val="{{ false }}">
+    <div style="background: #14181e; border-right: 1px solid #2a3039; display: flex; flex-direction: column; min-height: 0">
+      <div style="padding: 14px 16px; border-bottom: 1px solid #2a3039">
+        <div style="font-size: 16px; font-weight: 600">{{group.name}}</div>
+        <div class="dim" style="margin-top: 4px">{{group.detail}}</div>
+      </div>
+      <div style="display: flex; padding: 6px 16px; font-size: 11px; font-weight: 600; color: #8b939f; text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid #2a3039">
+        <span style="flex: 1">File</span><span style="width: 64px">Kind</span><span style="width: 78px; text-align: right">Grade</span>
+      </div>
+      <div style="overflow: auto; flex: 1; padding: 4px 6px">
+        <sc-for list="{{files}}" as="f" hint-placeholder-count="8">
+          <div class="{{f.cls}}" style="padding-left: 10px">
+            <button class="pick" onClick="{{f.pick}}">
+              <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap" title="{{f.name}}">{{f.short}}</span>
+              <span class="dim" style="width: 64px; font-size: 12px">{{f.kind}}</span>
+              <span style="{{f.gradeStyle}}">{{f.grade}}</span>
+            </button>
+          </div>
+        </sc-for>
+      </div>
+      <div class="dim" style="padding: 8px 16px; border-top: 1px solid #2a3039; font-size: 11px">Change a file's kind from its menu; a left-out file is not stacked.</div>
+    </div>
+    </sc-if>
+
+    <!-- Settings of the selected step -->
+    <sc-if value="{{isStep}}" hint-placeholder-val="{{ true }}">
+    <div style="background: #14181e; border-right: 1px solid #2a3039; display: flex; flex-direction: column; min-height: 0; overflow: auto">
+      <div style="padding: 14px 16px; border-bottom: 1px solid #2a3039">
+        <div style="display: flex; align-items: center; gap: 10px">
+          <div style="font-size: 16px; font-weight: 600; flex: 1">{{sel.title}}</div>
+          <button class="{{sel.onCls}}" onClick="{{flipOn}}" aria-label="Step is on" title="Switch this step off; the steps after it take its input"><span></span></button>
+        </div>
+        <div class="dim" style="margin-top: 4px; line-height: 1.45">{{sel.does}}</div>
+        <div style="{{sel.stateStyle}}">{{sel.stateMark}} {{sel.stateText}}</div>
+      </div>
+      <div style="padding: 14px 16px; display: flex; flex-direction: column; gap: 14px">
+        <sc-if value="{{sel.isRemove}}" hint-placeholder-val="{{ true }}">
+          <label style="display: flex; flex-direction: column; gap: 6px">
+            <span class="dim" style="font-size: 12px">Star remover</span>
+            <button class="btn" style="justify-content: space-between; width: 100%">StarXTerminator (RC-Astro) <span class="dim">⌄</span></button>
+          </label>
+          <sc-for list="{{switches}}" as="s" hint-placeholder-count="3">
+            <div style="display: flex; align-items: center; gap: 10px">
+              <div style="flex: 1">
+                <div>{{s.label}}</div>
+                <div class="dim" style="font-size: 11px">{{s.hint}}</div>
+              </div>
+              <button class="{{s.cls}}" onClick="{{s.flip}}" aria-label="{{s.label}}"><span></span></button>
+            </div>
+          </sc-for>
+        </sc-if>
+        <sc-if value="{{sel.isDenoise}}" hint-placeholder-val="{{ false }}">
+          <label style="display: flex; flex-direction: column; gap: 6px">
+            <span class="dim" style="font-size: 12px">Denoiser</span>
+            <button class="btn" style="justify-content: space-between; width: 100%">NoiseXTerminator (RC-Astro) <span class="dim">⌄</span></button>
+          </label>
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <div style="display: flex; justify-content: space-between"><span>Strength</span><span class="dim">Auto (0.90)</span></div>
+            <div class="slider"><div class="track"><div class="fill" style="width: 90%"></div><div class="thumb" style="left: 90%"></div></div></div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <div style="display: flex; justify-content: space-between"><span>Detail</span><span class="dim">0.15</span></div>
+            <div class="slider"><div class="track"><div class="fill" style="width: 15%"></div><div class="thumb" style="left: 15%"></div></div></div>
+          </div>
+        </sc-if>
+        <sc-if value="{{sel.plain}}" hint-placeholder-val="{{ false }}">
+          <div class="dim">This step has no settings to change.</div>
+        </sc-if>
+        <div style="border-top: 1px solid #2a3039; padding-top: 12px; display: flex; flex-direction: column; gap: 6px">
+          <div class="label">Gives</div>
+          <sc-for list="{{sel.gives}}" as="g" hint-placeholder-count="2">
+            <div style="display: flex; justify-content: space-between"><span>{{g.name}}</span><span class="dim">{{g.state}}</span></div>
+          </sc-for>
+          <div class="label" style="margin-top: 8px">Served by</div>
+          <div class="dim">{{sel.served}}</div>
+          <button class="btn btn-subtle" style="align-self: flex-start; margin-top: 8px; padding-left: 0">Command line <span class="dim">⌄</span></button>
+        </div>
+      </div>
+    </div>
+    </sc-if>
+
+    <!-- Output of the selected step -->
+    <div style="position: relative; background: #0b0d11; overflow: hidden; min-width: 0">
+      <div style="position: absolute; top: 10px; left: 14px; right: 14px; display: flex; justify-content: space-between; font-size: 12px; color: #8b939f">
+        <span>{{caption}}</span>
+        <span>{{zoomText}}</span>
+      </div>
+      <sc-if value="{{hasImage}}" hint-placeholder-val="{{ true }}">
+        <div style="position: absolute; inset: 48px 40px 64px; border: 1px dashed #2a3039; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: #5a626c">[{{shownLabel}}]</div>
+        <sc-if value="{{isSplit}}" hint-placeholder-val="{{ false }}">
+          <div style="position: absolute; top: 48px; bottom: 64px; left: 50%; width: 2px; background: #e2e6ec; opacity: .7"></div>
+          <div style="position: absolute; bottom: 72px; left: 52px; font-size: 12px; background: rgba(23,27,34,.85); padding: 3px 8px; border-radius: 4px">Input · {{sel.input}}</div>
+          <div style="position: absolute; bottom: 72px; right: 52px; font-size: 12px; background: rgba(23,27,34,.85); padding: 3px 8px; border-radius: 4px">Output · {{sel.title}}</div>
+        </sc-if>
+      </sc-if>
+      <sc-if value="{{noImage}}" hint-placeholder-val="{{ false }}">
+        <div style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center">
+          <div style="font-size: 15px">{{sel.title}} has no output yet</div>
+          <div class="dim" style="max-width: 420px; line-height: 1.5">{{sel.runs}}</div>
+          <button class="btn btn-accent">▶ Run to “{{sel.title}}”</button>
+        </div>
+      </sc-if>
+      <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 14px; background: #171b22; border-top: 1px solid #2a3039; font-size: 12px">
+        <span class="dim">Last run:</span><span>Gradient made in 41 s</span>
+        <div style="flex: 1; max-width: 240px; height: 6px; background: #262c36; border-radius: 3px; overflow: hidden"><div style="width: 69%; height: 100%; background: #4cc38a"></div></div>
+        <span class="dim">9 of 13 made</span>
+        <div style="flex: 1"></div>
+        <button class="btn btn-subtle">Log <span class="dim">⌄</span></button>
+      </div>
+    </div>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 16px; padding: 0 12px; background: #1e232c; border-top: 1px solid #2a3039; font-size: 11px; color: #8b939f">
+    <span>x — y — · R — G — B —</span>
+    <div style="flex: 1"></div>
+    <span>Results kept in workdir\store</span>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { sel: 'remove-stars', mode: 'step', grp: 'lights', file: 2, view: 'Output', off: {}, sw: { cores: true, digs: true, over: false } };
+  }
+  renderVals() {
+    const S = (kind, title, does, state, input, out, runs, gives, served) => ({ kind, title, does, state, input, out, runs, gives, served });
+    const steps = {
+      'calibrate': S('', 'Calibrate', 'Subtracts the darks and bias and divides by the flats, frame by frame.', 'made', 'Lights', 'a calibrated light', 'Kept: nothing to run.', [{ name: 'Calibrated lights', state: 'made' }], 'TianWen'),
+      'stack': S('', 'Stack on the stars', 'Registers the lights on their stars and integrates them into one master.', 'made', 'Calibrated lights', 'master “night”', 'Kept: nothing to run.', [{ name: 'Master “night”', state: 'made' }], 'TianWen stacker'),
+      'crop': S('', 'Crop', 'Cuts off the stacking edges, where too few frames overlap.', 'made', 'Master “night”', 'the cropped master', 'Kept: nothing to run.', [{ name: 'Image', state: 'made' }], 'TianWen'),
+      'gradient': S('', 'Gradient', 'Removes the sky gradient and light pollution.', 'made', 'Crop', 'the flattened master', 'Kept: nothing to run.', [{ name: 'Image', state: 'made' }], 'TianWen background extractor'),
+      'deblur': S('', 'Deblur', 'Sharpens stars and detail, keeping their brightness.', 'made', 'Gradient', 'the deblurred master', 'Kept: nothing to run.', [{ name: 'Image', state: 'made' }], 'BlurXTerminator (RC-Astro)'),
+      'remove-stars': S('', 'Remove stars', 'Splits the image into a starless plate and a star layer.', 'stale', 'Deblur', 'the starless plate (made before Deblur changed)', 'Runs Remove stars. Steps 1 to 5 are kept.', [{ name: 'Starless plate', state: 'stale' }, { name: 'Stars', state: 'stale' }], 'StarXTerminator (RC-Astro)'),
+      'denoise': S('', 'Denoise', 'Smooths the noise in the starless plate. Stars are never denoised.', 'todo', 'Remove stars: starless', '', 'Runs Remove stars, then Denoise. Steps 1 to 5 are kept.', [{ name: 'Image', state: 'not made' }], 'NoiseXTerminator (RC-Astro)'),
+      'add-stars': S('', 'Add stars', 'Puts the star layer back onto the denoised starless plate.', 'todo', 'Denoise + Stars', '', 'Runs Remove stars, Denoise, then Add stars. Steps 1 to 5 are kept.', [{ name: 'Image', state: 'not made' }], 'TianWen'),
+      'comet': S('', 'Stack on the comet', 'Registers the lights on the nucleus along the 10P track, so the comet is sharp.', 'made', 'Calibrated lights', 'the comet master', 'Kept: nothing to run.', [{ name: 'Comet master', state: 'made' }], 'TianWen stacker'),
+      'comet-crop': S('', 'Crop', 'Cuts off the stacking edges.', 'made', 'Comet master', 'the cropped comet master', 'Kept: nothing to run.', [{ name: 'Image', state: 'made' }], 'TianWen'),
+      'comet-stars': S('', 'Remove stars', 'Takes the trailed stars out of the comet master.', 'made', 'Crop', 'the starless comet', 'Kept: nothing to run.', [{ name: 'Starless comet', state: 'made' }], 'StarXTerminator (RC-Astro)'),
+      'solve': S('', 'Plate solve', 'Finds where the image points on the sky.', 'refused', 'Starless comet', '', 'Refused: a starless comet has no stars to solve on. Solve the star stack instead.', [{ name: 'Finding', state: 'refused' }], 'TianWen solver'),
+      'blend': S('', 'Blend comet onto the stars', 'Lays the sharp comet over the finished star image.', 'todo', 'Add stars + Starless comet', '', 'Runs Remove stars, Denoise, Add stars, then Blend.', [{ name: 'Finished image', state: 'not made' }], 'TianWen')
+    };
+    const marks = { made: ['✓', 'color:#4cc38a'], stale: ['↻', 'color:#ccac18'], todo: ['○', 'color:#8b939f'], refused: ['⚠', 'color:#ff7a70'] };
+    const words = { made: 'Made, still valid', stale: 'Stale: Deblur was made again, so this runs again', todo: 'Not made yet', refused: 'Refused: nothing to solve on' };
+    const pick = (id) => () => this.setState({ sel: id, mode: 'step' });
+    const isStep = this.state.mode === 'step';
+    const node = (id, depth, note, mark) => {
+      const s = steps[id]; const m = marks[s.state]; const off = this.state.off[id];
+      return { title: s.title, note: note || '', mark: mark || m[0], markStyle: (mark ? 'color:#8b939f' : m[1]) + ';width:14px;text-align:center', cls: 'node' + (isStep && this.state.sel === id ? ' sel' : '') + (off ? ' off' : ''), indent: 'padding-left:' + (6 + depth * 16) + 'px', pick: pick(id), playLabel: 'Run every step up to ' + s.title };
+    };
+    const F = (name, kind, grade, exp, temp) => ({ name, kind, grade, exp, temp });
+    const groupList = [
+      { id: 'lights', name: 'Lights', detail: '10P/Tempel 2 · 60 s · IDAS LPS-D3 · gain 1600 · −5 °C', count: '[n]', mark: '✓', c: '#4cc38a',
+        files: [F('10PTempel2_light_60s_-5C_0001.fits', 'Light', 'good', '60 s', '−5 °C'), F('10PTempel2_light_60s_-5C_0002.fits', 'Light', 'good', '60 s', '−5 °C'), F('10PTempel2_light_60s_-5C_0003.fits', 'Light', 'maybe cloud', '60 s', '−5 °C'), F('10PTempel2_light_60s_-5C_0004.fits', 'Light', 'good', '60 s', '−5 °C'), F('10PTempel2_light_60s_-5C_0005.fits', 'Light', 'trailed', '60 s', '−5 °C'), F('10PTempel2_light_60s_-5C_0006.fits', 'Light', 'good', '60 s', '−5 °C'), F('10PTempel2_light_60s_-2C_0007.fits', 'Light', 'no dark', '60 s', '−2 °C')] },
+      { id: 'darks', name: 'Darks', detail: '60 s · −5 °C · matched to the lights', count: '[n]', mark: '✓', c: '#4cc38a',
+        files: [F('dark_60s_-5C_0001.fits', 'Dark', 'good', '60 s', '−5 °C'), F('dark_60s_-5C_0002.fits', 'Dark', 'good', '60 s', '−5 °C'), F('dark_60s_-5C_0003.fits', 'Dark', 'good', '60 s', '−5 °C')] },
+      { id: 'flats', name: 'Flats', detail: 'IDAS LPS-D3 · one run', count: '[n]', mark: '✓', c: '#4cc38a',
+        files: [F('flat_LPS-D3_0001.fits', 'Flat', 'good', '2 s', '—'), F('flat_LPS-D3_0002.fits', 'Flat', 'good', '2 s', '—'), F('IMG_0412.fits', 'Flat?', 'unsure', '2 s', '—')] },
+      { id: 'bias', name: 'Bias', detail: 'from the dark library', count: '[n]', mark: '✓', c: '#4cc38a',
+        files: [F('bias_0001.fits', 'Bias', 'good', '1/4000 s', '−5 °C'), F('bias_0002.fits', 'Bias', 'good', '1/4000 s', '−5 °C')] }
+    ];
+    const grp = groupList.find((g) => g.id === this.state.grp);
+    const file = grp.files[Math.min(this.state.file, grp.files.length - 1)];
+    const gradeColor = (g) => g === 'good' ? 'color:#4cc38a' : 'color:#ccac18';
+    const tree = [
+      node('calibrate', 0), node('stack', 0, 'master'),
+      node('crop', 1), node('gradient', 1), node('deblur', 1), node('remove-stars', 1, 'splits'),
+      node('denoise', 2, 'starless'), node('add-stars', 1, 'joins'),
+      node('comet', 0, 'master'), node('comet-crop', 1), node('comet-stars', 1), node('solve', 1),
+      node('blend', 0, 'joins')
+    ];
+    const s = steps[this.state.sel]; const m = marks[s.state];
+    const hasOut = s.state === 'made' || s.state === 'stale';
+    const view = this.state.view;
+    const flip = (k) => () => this.setState({ sw: { ...this.state.sw, [k]: !this.state.sw[k] } });
+    const step = {
+      tree,
+      isStep,
+      isGroup: !isStep,
+      groups: groupList.map((g) => ({ ...g, cls: 'node' + (!isStep && this.state.grp === g.id ? ' sel' : ''), markStyle: 'color:' + g.c + ';width:14px;text-align:center', pick: () => this.setState({ mode: 'group', grp: g.id, file: 0 }) })),
+      group: grp,
+      files: grp.files.map((f, i) => ({ ...f, short: f.name.replace('10PTempel2_light_', ''), cls: 'node' + (this.state.file === i ? ' sel' : ''), gradeStyle: gradeColor(f.grade) + ';width:78px;text-align:right;font-size:12px', pick: () => this.setState({ file: i }) })),
+      sel: { ...s, stateMark: m[0], stateText: words[s.state], stateStyle: m[1] + ';margin-top:10px;font-size:12px', isRemove: this.state.sel === 'remove-stars', isDenoise: this.state.sel === 'denoise', plain: this.state.sel !== 'remove-stars' && this.state.sel !== 'denoise', onCls: this.state.off[this.state.sel] ? 'sw' : 'sw on' },
+      flipOn: () => this.setState({ off: { ...this.state.off, [this.state.sel]: !this.state.off[this.state.sel] } }),
+      views: ['Output', 'Input', 'Before / after'].map((v) => ({ label: v, cls: view === v ? 'on' : '', pick: () => this.setState({ view: v }) })),
+      hasImage: hasOut || view === 'Input',
+      noImage: !hasOut && view !== 'Input',
+      isSplit: view === 'Before / after' && hasOut,
+      shownLabel: view === 'Input' ? 'input: ' + s.input : 'output: ' + s.out,
+      caption: view === 'Input' ? 'Input of ' + s.title + ': ' + s.input : (view === 'Output' ? 'Output of ' + s.title + (s.state === 'stale' ? ' (stale)' : '') : s.title + ': input and output'),
+      zoomText: hasOut || view === 'Input' ? 'Fit · 22 %' : '',
+      switches: [
+        { label: 'Protect star cores', hint: 'Keeps saturated cores out of the starless plate', cls: this.state.sw.cores ? 'sw on' : 'sw', flip: flip('cores') },
+        { label: 'Fill digs', hint: 'Fills the holes a removed star leaves', cls: this.state.sw.digs ? 'sw on' : 'sw', flip: flip('digs') },
+        { label: 'Keep overshoot', hint: 'Keeps values above 1 in the star layer', cls: this.state.sw.over ? 'sw on' : 'sw', flip: flip('over') }
+      ]
+    };
+    if (!isStep) {
+      // A frame is shown as it is on disk: the canvas previews the file, debayered and auto-stretched.
+      step.hasImage = true; step.noImage = false; step.isSplit = false;
+      step.shownLabel = file.name;
+      step.caption = file.kind + ' · ' + file.exp + ' · ' + file.temp + ' · ' + file.grade;
+      step.zoomText = 'Fit · 22 %';
+    }
+    return step;
+  }
+}
+</script>
+</body>
+</html>
