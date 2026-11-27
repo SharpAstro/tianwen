@@ -17,10 +17,14 @@ namespace TianWen.Lib.Tests;
 [Trait("Category", "Invariant")]
 public partial class VendorInitSdkNeverClosesTests
 {
+    [GeneratedRegex(@"//[^\n]*|/\*.*?\*/", RegexOptions.Singleline)]
+    private static partial Regex Comment();
+
     [GeneratedRegex(@"\bInitSdkAsync\s*\(")]
     private static partial Regex Declaration();
 
-    [GeneratedRegex(@"\bClose\w*\s*\(")]
+    // No leading \b: a vendor-API close is spelled ASICloseCamera( / SVBCloseCamera( / POACloseCamera(, with a word character before Close.
+    [GeneratedRegex(@"Close\w*\s*\(")]
     private static partial Regex CloseCall();
 
     private static string? FindSourceRoot()
@@ -71,24 +75,28 @@ public partial class VendorInitSdkNeverClosesTests
                 }
 
                 end = end < 0 ? text.Length : Math.Min(end, text.Length);
-                return (text.AsSpan(0, m.Index).Count('\n') + 1, text[m.Index..end]);
+                return (text.AsSpan(0, m.Index).Count('\n') + 1, Comment().Replace(text[m.Index..end], " "));
             })];
 
     [Fact]
     public void NoVendorInitSdkOverrideClosesTheSdk()
     {
-        if (FindSourceRoot() is not { } root)
-        {
-            return;
-        }
+        // Throws, never returns quietly: a guard that found no source tree has checked nothing.
+        var root = FindSourceRoot() ?? throw new InvalidOperationException("src/TianWen.slnx was not found above the test binaries");
 
         var sep = Path.DirectorySeparatorChar;
-        var offenders = FileEnumeration.EnumerateFiles(root, ".cs", recursive: true)
+        var bodies = FileEnumeration.EnumerateFiles(root, ".cs", recursive: true)
             .Where(f => !f.Contains($"{sep}bin{sep}", StringComparison.Ordinal) && !f.Contains($"{sep}obj{sep}", StringComparison.Ordinal))
             .Where(f => !f.EndsWith("VendorInitSdkNeverClosesTests.cs", StringComparison.Ordinal))
-            .SelectMany(f => InitBodies(File.ReadAllText(f))
-                .Where(b => CloseCall().IsMatch(b.Body))
-                .Select(b => $"{Path.GetRelativePath(root, f)}:{b.Line}"))
+            .SelectMany(f => InitBodies(File.ReadAllText(f)).Select(b => (File: Path.GetRelativePath(root, f), b.Line, b.Body)))
+            .ToArray();
+
+        // The five vendor drivers (PlayerOne, QHY, SVBony, ToupTek, ZWO) plus the test driver: a scan that saw fewer has lost its grip.
+        bodies.Length.ShouldBeGreaterThanOrEqualTo(5, "the scan found too few InitSdkAsync overrides: the 'override' lookback or a rename stopped matching");
+
+        var offenders = bodies
+            .Where(b => CloseCall().IsMatch(b.Body))
+            .Select(b => $"{b.File}:{b.Line}")
             .Order(StringComparer.Ordinal)
             .ToArray();
 
@@ -103,6 +111,10 @@ public partial class VendorInitSdkNeverClosesTests
             .Single().Body).ShouldBeTrue();
         CloseCall().IsMatch(InitBodies("protected override ValueTask<bool> InitSdkAsync(CancellationToken c) => Close(1);")
             .Single().Body).ShouldBeTrue();
+        CloseCall().IsMatch(InitBodies("protected override ValueTask<bool> InitSdkAsync(CancellationToken ct)\n{\n  ASICloseCamera(id);\n  return x;\n}")
+            .Single().Body).ShouldBeTrue();
+        CloseCall().IsMatch(InitBodies("protected override ValueTask<bool> InitSdkAsync(CancellationToken ct)\n{\n  // it never Close(s) here\n  return ok;\n}")
+            .Single().Body).ShouldBeFalse();
         CloseCall().IsMatch(InitBodies("protected override ValueTask<bool> InitSdkAsync(CancellationToken c)\n{\n return ok;\n}\nvoid M() { Close(); }")
             .Single().Body).ShouldBeFalse();
     }
