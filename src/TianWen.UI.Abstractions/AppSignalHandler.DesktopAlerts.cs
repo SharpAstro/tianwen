@@ -1,3 +1,5 @@
+using DIR.Lib;
+
 namespace TianWen.UI.Abstractions
 {
     // AppSignalHandler.DesktopAlerts.cs -- the desktop alert level a person chooses on the Notifications tab (#2507).
