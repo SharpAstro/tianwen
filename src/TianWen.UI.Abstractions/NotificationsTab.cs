@@ -168,7 +168,7 @@ namespace TianWen.UI.Abstractions
         internal static Layout.Node BuildHeader(NotificationFeed feed, GuiAppState appState, Action<DesktopAlertLevel> onLevel, float segmentWidth)
         {
             static Layout.Node Row(List<Layout.Node> nodes)
-                => Layout.Builder.HStack([.. nodes]).WithGap(8f).PadX(BasePadding).PadY(3f).CrossCenter().WStar().HFixed(HeaderRowHeight).Bg(HeaderBg);
+                => Layout.Builder.HStack([.. nodes]).WithGap(8f).Pad(BasePadding, 3f).CrossCenter().WStar().HFixed(HeaderRowHeight).Bg(HeaderBg);
 
             Layout.Node Heading()
                 => Layout.Builder.Text(feed.Header, BaseFontSize * 1.05f, HeaderText, TextAlign.Near, TextAlign.Center).HStar();
