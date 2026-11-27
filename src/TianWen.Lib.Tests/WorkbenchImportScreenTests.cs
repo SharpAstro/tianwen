@@ -236,7 +236,7 @@ public sealed class WorkbenchImportScreenTests : IDisposable
         // The file left the needs-a-look group; the group on show is now the light with no dark, and the table says what the Lib answered.
         e2e.State.Import.NeedsALook.ShouldBe(1);
         Shows(e2e, "IMG_0412.fits").ShouldBeFalse("it is no longer among the files to look at");
-        e2e.Click(e2e.Region($"Group:{GroupIndex(e2e, DetectedGroupKind.Bias)}"));
+        e2e.Click(e2e.Region($"Group:{e2e.State.Import.Capture!.Groups.ToList().FindIndex(g => g.Kind == DetectedGroupKind.Bias && g.Files.Any(f => f.Place == "IMG_0412.fits"))}"));
         Shows(e2e, "IMG_0412.fits").ShouldBeTrue("it is a bias now");
         Shows(e2e, "Bias ✎").ShouldBeTrue("its kind box says it was set by the person");
         Shows(e2e, "Flat?").ShouldBeFalse();

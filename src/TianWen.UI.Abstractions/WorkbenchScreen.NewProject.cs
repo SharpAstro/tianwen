@@ -78,7 +78,7 @@ public sealed partial class WorkbenchScreen<TSurface>
                     .WithGap(Gap * 1.5f).CrossCenter().Pad(Gap * 1.5f, 0f).Bg(palette.HeaderBg).WStar().HFixed(TopBarHeight),
                 Strip(import, onWorkflow).WStar().HFixed(StripHeight),
                 Layout.Builder.HStack(refusal is not null ? refusalText.WithTooltip(refusal) : refusalText)
-                    .CrossCenter().Pad(Gap * 3, 0f).Bg(palette.ContentBg).WStar().HFixed(RefusalHeight),
+                    .CrossCenter().Pad(Gap * 3, 0f).Bg(palette.PanelBg).WStar().HFixed(RefusalHeight),
                 (onWorkflow ? WorkflowPage(import, actions) : ImportPage(import, actions)).WStar().HStar(),
                 (onWorkflow ? WorkflowFooter(import, actions) : ImportFooter(import, actions)).WStar().HFixed(FooterHeight))
             .Stretch().Bg(palette.ContentBg);
@@ -243,7 +243,7 @@ public sealed partial class WorkbenchScreen<TSurface>
         var span = columns.Select(static c => c.Column).ToArray();
         var rows = new List<Layout.Node>
         {
-            Layout.Builder.TableHeader(span, null, null, in style, rowHeight, "Files:").WStar(),
+            Layout.Builder.TableHeader(span, null, null, in style, BaseFontSize * 0.85f, "Files:").WStar().HFixed(rowHeight),
         };
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var file in group.Files)
@@ -284,7 +284,7 @@ public sealed partial class WorkbenchScreen<TSurface>
 
         var why = file.Note is { } note ? $"{file.Why} · {note}" : file.Why;
         var grade = file.Grade is { } g ? GradeWords(g) : "—";
-        var gradeInk = file.Grade is { Causes: GradeCause.None } ? palette.Success : file.Grade is null ? palette.DimText : palette.Warn;
+        var gradeInk = file.Grade is { Causes: GradeCause.None, Share: >= 0.5f } ? palette.Success : file.Grade is { Causes: not GradeCause.None } ? palette.Warn : palette.DimText;
         return new Dictionary<string, Layout.Node>
         {
             ["file"] = Layout.Builder.Text(file.Place, BaseFontSize, palette.BodyText, trim: TextTrim.Start).WithTooltip(file.FullPath),
