@@ -320,17 +320,36 @@ public static class WorkbenchWorkflows
 
         var now = SignatureOf(project.Images).ToList();
         var made = project.WorkflowOrigin.ToList();
-        var gone = 0;
+        var gone = new List<string>();
         foreach (var line in made)
         {
             if (!now.Remove(line))
             {
-                gone++;
+                gone.Add(line);
             }
         }
 
-        // What is left in now is what the workflow did not write.
-        return Math.Max(gone, now.Count);
+        // What is left in now is what the workflow did not write. A step of the same image and operation that is gone and
+        // present with other settings is one step changed, one change; every other step gone or present is a change of its own.
+        static string Pair(string line)
+        {
+            var parts = line.Split('|', 7);
+            return $"{parts[0]}|{parts[1]}|{parts[2]}|{parts[3]}|{parts[5]}";
+        }
+
+        var changes = 0;
+        foreach (var line in gone)
+        {
+            var match = now.FindIndex(each => Pair(each) == Pair(line));
+            if (match >= 0)
+            {
+                now.RemoveAt(match);
+            }
+
+            changes++;
+        }
+
+        return changes + now.Count;
     }
 
     /// <summary>The hand changes of the project in the capture's workdir (<see cref="HandChanges"/>); 0 where there is no project.</summary>
