@@ -84,7 +84,7 @@ public sealed class WorkbenchMastersE2ETests : IDisposable
         await e2e.OpenProjectAsync(project, ct);
 
         e2e.State.SelectedStep.ShouldBe(0);
-        var panel = e2e.PanelText();
+        var panel = string.Join(' ', e2e.PanelText().Split([' ', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries));
         panel.ShouldContain("The masters come once the stack has run");
         panel.ShouldNotContain("m31_L");
         e2e.Texts().ShouldNotContain(static t => t.Text == Process, "no master, no button");
@@ -115,7 +115,7 @@ public sealed class WorkbenchMastersE2ETests : IDisposable
             (names[i].Bounds.X + names[i].Bounds.Width).ShouldBeLessThanOrEqualTo(buttons[i].X + 0.5f, "the name ends before its button");
         }
 
-        e2e.PanelText().ShouldNotContain("The masters come once", Case.Sensitive);
+        string.Join(' ', e2e.PanelText().Split([' ', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries)).ShouldNotContain("The masters come once", Case.Sensitive);
     }
 
     [Theory(Timeout = 300_000)]
@@ -195,7 +195,8 @@ public sealed class WorkbenchMastersE2ETests : IDisposable
         e2e.Click(Buttons(e2e).Single());
         await e2e.PumpUntilAsync(() => e2e.State.MasterRefusal is not null && !e2e.State.IsProcessingMaster, "the refusal", ct);
 
-        e2e.State.MasterRefusal.ShouldNotBeNull().ShouldContain("not in the store any more");
+        // With the files gone the runner no longer reports the stack as kept, so the routine says to run it first.
+        e2e.State.MasterRefusal.ShouldNotBeNull().ShouldContain("has not been run: run it first");
         e2e.State.View!.ImageName.ShouldBe("night-1", "nothing was opened");
         e2e.PanelText().ShouldContain("was not processed", Case.Sensitive, "the refusal is shown in words beside the list");
         (await WorkbenchProjectFile.ReadAsync(project, ct)).Project.ShouldNotBeNull().Images.Length.ShouldBe(1, "nothing was added");
