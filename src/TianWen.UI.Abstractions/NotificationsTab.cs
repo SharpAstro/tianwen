@@ -118,6 +118,9 @@ namespace TianWen.UI.Abstractions
         // Header control height, design units: the header's own 28 less its 3-unit margins, one height for the choice and Clear.
         private const float HeaderControlHeight = 22f;
 
+        // The alert choice's width, design units: 3 segments of 118 (the longest label, 103, plus its inset) and 2 gaps of 1.
+        private const float AlertChoiceWidth = 356f;
+
         /// <summary>The words of the three alert levels, as the choice shows them.</summary>
         internal static string LevelLabel(DesktopAlertLevel level) => level switch
         {
@@ -161,7 +164,10 @@ namespace TianWen.UI.Abstractions
                 ];
                 var choice = Layout.Builder.ButtonGroup(options, alerts.Level, onLevel, style, BaseFontSize * 0.85f)
                     .WithTooltip(AlertTooltip(alerts));
-                items.Add(Centred(choice));
+                // A segmented control has no intrinsic width, so it states its widest state: three equal segments, each wide
+                // enough for the longest label ("Errors and safety", about 103 units at this font) and its inset.
+                items.Add(Layout.Builder.Spacer().WFixed(8f).HStar());
+                items.Add(Centred(choice.WFixed(AlertChoiceWidth)));
             }
 
             // Clear: this computer's own notes only, since a rig's are its node's.
