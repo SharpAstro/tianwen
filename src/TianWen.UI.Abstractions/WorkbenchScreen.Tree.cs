@@ -368,6 +368,15 @@ public sealed partial class WorkbenchScreen<TSurface>
             }
         }
 
+        // Files the detection has not described yet (or a project whose frames were given by place only) are listed by their places.
+        if (group.Details.IsEmpty)
+        {
+            foreach (var file in group.Files)
+            {
+                rows.Add(Layout.Builder.Text(file, BaseFontSize, palette.BodyText, trim: TextTrim.Start).WStar().WithTooltip(file));
+            }
+        }
+
         foreach (var stale in _kindMenus.Keys.Where(key => !seen.Contains(key)).ToList())
         {
             _kindMenus.Remove(stale);

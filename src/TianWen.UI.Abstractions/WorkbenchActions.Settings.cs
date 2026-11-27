@@ -173,15 +173,8 @@ public sealed partial class WorkbenchActions
         var items = ImmutableArray.CreateBuilder<(string, string)>();
         if (description.NamedByRun)
         {
-            if (panel.Masters.IsEmpty)
-            {
-                items.Add(("Masters, one for each group", words));
-            }
-
-            foreach (var master in panel.Masters)
-            {
-                items.Add((master, words));
-            }
+            // The masters are listed by name in their own block of the panel (each with Process this master): said once.
+            items.Add((panel.Masters.IsEmpty ? "Masters, one for each group" : $"{panel.Masters.Length} masters", words));
         }
         else
         {

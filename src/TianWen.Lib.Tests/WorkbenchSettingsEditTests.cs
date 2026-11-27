@@ -175,7 +175,7 @@ public sealed class WorkbenchSettingsEditTests : IDisposable
 
         (await WorkbenchProjectFile.ReadAsync(folder, ct)).Project!.Images[0].Edits[0].Enabled.ShouldBeFalse();
         (await StatusAsync(folder, ct))[0].State.ShouldBe(StepState.Off);
-        e2e.PanelText().ShouldContain("Switch it on", Case.Insensitive, "the panel says what fixes it");
+        string.Join(' ', e2e.PanelText().Split(' ', StringSplitOptions.RemoveEmptyEntries)).ShouldContain("Switch it on", Case.Insensitive, "the panel says what fixes it");
 
         e2e.Click(e2e.Region(WorkbenchScreen<RgbaImage>.StepSwitchHit));
         await e2e.PumpUntilAsync(() => !e2e.State.IsReading && e2e.State.View?.Image?.Steps[0].State is not StepState.Off, "the step to be on again", ct);
