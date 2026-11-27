@@ -232,6 +232,7 @@ public sealed class CaptureDetectionTests : IDisposable
         (await WorkbenchProjects.ReassignAsync(folder, "nothing.fits", FrameType.Dark, ct)).Refusal.ShouldNotBeNull().ShouldContain("not a file of the capture");
         (await WorkbenchProjects.ReassignAsync(folder, "odd.fits", FrameType.Focus, ct)).Refusal.ShouldNotBeNull().ShouldContain("no kind of frame");
     }
+
     // Ten lights of each of two groups that the grade's own key cannot tell apart (one exposure and filter, two gains): the
     // brighter gain's frames score ten times the dimmer's.
     private static (string Group, string Place, LightGrade Grade)[] TwoGroupsOfLights()

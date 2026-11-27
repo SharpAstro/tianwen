@@ -289,7 +289,7 @@ types the scan read, the calibration sets are `CalibrationResolver.GroupCalibrat
   `StackingOptions.Reassigned`, and `tianwen stack --reassign path=kind` is the same setting on the verb
   (`WorkbenchStackTests` holds line and verb together). The comet track's request does not apply them. Only a project in the
   capture's workdir holds reassignments: `ReassignAsync` reads `<capture>\workdir`, so a project made elsewhere with
-  `workbench new --project` is refused with "has no project yet".
+  `workbench new --project` is refused with "has no project in its own workdir folder" and a hint to make one without `--project`.
 - **The workdir is left out of every scan of its capture** (`StackingPipeline.WorkdirName`, `<capture>\workdir` only, not a
   `workdir` deeper down); how many files it held is said in the scan's notes and the stack's log ("left out N file(s) under workdir").
 - Tests: `CaptureDetectionTests` on synthetic FITS folders.

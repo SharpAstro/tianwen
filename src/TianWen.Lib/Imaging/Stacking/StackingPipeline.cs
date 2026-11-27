@@ -2773,7 +2773,6 @@ public sealed class StackingPipeline(
     /// a comet's track request share (<see cref="CometTrackFetch.RequestForAsync"/>), so a track is asked for the night the
     /// stack registers (#2489).
     /// </summary>
-
     internal static async Task<FrameScan> ScanFramesAsync(string dataRoot, string? outputDir, bool includeIntegrations,
         bool includeSuspectedCloud, ImmutableArray<FrameReassignment> reassigned, CancellationToken ct)
     {

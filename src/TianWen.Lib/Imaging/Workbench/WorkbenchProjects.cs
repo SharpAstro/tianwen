@@ -160,7 +160,8 @@ public static class WorkbenchProjects
         var project = WorkdirOf(frames);
         if (!File.Exists(WorkbenchProjectFile.PathIn(project)))
         {
-            return new([], $"{frames} has no project yet: make one first (workbench new {framesFolder})");
+            return new([], $"{frames} has no project in its own {StackingPipeline.WorkdirName} folder: make one first (workbench new {framesFolder}). " +
+                "A project kept elsewhere with workbench new --project holds no reassignments; make one without --project to reassign files.");
         }
 
         if (kind is { } named && !FrameReassignment.Kinds.Contains(named))
