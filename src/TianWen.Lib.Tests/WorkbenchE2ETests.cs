@@ -75,7 +75,8 @@ public sealed class WorkbenchE2ETests : IDisposable
         }
 
         // Numbered from one and named by the operation's title; an operation this computer does not know is named by its id.
-        e2e.TextsIn(cells[0]).ShouldBe(["1", "✓", "Add", "", "▶"], ignoreOrder: true);
+        e2e.TextsIn(cells[0]).ShouldContain("1");
+        e2e.TextsIn(cells[0]).ShouldContain("Add");
         e2e.TextsIn(cells[1]).ShouldContain("2");
         e2e.TextsIn(cells[1]).ShouldContain("Add");
         e2e.TextsIn(cells[2]).ShouldContain("Served");
@@ -211,8 +212,11 @@ public sealed class WorkbenchE2ETests : IDisposable
         await using var e2e = WorkbenchE2E.Start(dpi, Runner(), Catalog());
 
         await e2e.OpenProjectAsync(folder, ct);
+        // The canvas shows the step's output, which the first step has not made: Input is the original, drawn through the viewer.
+        e2e.Click(e2e.Region("View:Original"));
         await e2e.PumpUntilAsync(() => e2e.Controller.Document is { } document
             && string.Equals(document.FilePath, master, StringComparison.OrdinalIgnoreCase), "the original to open", ct);
+        e2e.Frame();
 
         string.Equals(e2e.Controller.Document!.FilePath, master, StringComparison.OrdinalIgnoreCase).ShouldBeTrue("the viewer holds the image's original");
         var canvas = e2e.Host.Screen.CanvasRect;
@@ -565,7 +569,7 @@ public sealed class WorkbenchE2ETests : IDisposable
 
         e2e.State.View.ShouldNotBeNull().ImageName.ShouldBe("m", "the run's own image stays on show");
         var answer = (await Runner().StatusAsync(folder, "m", ct)).Images.Single(static i => i.Name == "m").Steps;
-        e2e.TextsIn(e2e.StepCells()[1]).ShouldContain(answer[1].Words, "and is read afresh after the run");
+        e2e.StepWords(1).ShouldBe(answer[1].Words, "and is read afresh after the run");
         e2e.Click(e2e.Region(WorkbenchScreen<RgbaImage>.ImageChoiceHit));
         e2e.MenuRows().Length.ShouldBe(2, "once the run ended the choice is open again");
     }

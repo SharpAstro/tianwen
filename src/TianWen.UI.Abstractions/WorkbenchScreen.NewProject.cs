@@ -430,11 +430,6 @@ public sealed partial class WorkbenchScreen<TSurface>
             cards.Add(Card(choice, import.ChosenWorkflow == choice.Id, actions));
         }
 
-        var empty = Layout.Builder.Button("Start from an empty workflow", Layout.ButtonKind.Standard, () => actions.UseWorkflow(BuiltInWorkflows.Empty),
-            GuiTheme.Theme, tooltip: "Make the project with no steps; add them in the workbench").WAuto();
-        cards.Add(Layout.Builder.Spacer().HFixed(Gap));
-        cards.Add(Layout.Builder.HStack(import.Applying ? empty.Disabled("The workflow is being written") : empty).WStar());
-
         var rest = import.Workflows.Where(static w => !w.Answer.Fit.Fits).ToList();
         if (rest.Count > 0)
         {
@@ -546,10 +541,12 @@ public sealed partial class WorkbenchScreen<TSurface>
         var use = Layout.Builder.Button("Use selected workflow ›", Layout.ButtonKind.Accent, () => actions.UseWorkflow(), GuiTheme.Theme,
             tooltip: waits ?? "Make the project with this workflow and open the workbench").WAuto().WithShortcut(InputKey.Enter);
         const string hint = "Or double-click a workflow, or press Enter";
+        var empty = Layout.Builder.Button("Start from an empty workflow", Layout.ButtonKind.Standard, () => actions.UseWorkflow(BuiltInWorkflows.Empty),
+            GuiTheme.Theme, tooltip: "Make the project with no steps; add them in the workbench").WAuto();
         return Layout.Builder.HStack(
                 applying ? back.Disabled(waits!) : back,
-                Layout.Builder.Spacer().WStar(),
                 Layout.Builder.Text(hint, BaseFontSize * 0.9f, palette.DimText, TextAlign.Far, trim: TextTrim.End).WStar().HStar().WithTooltip(hint),
+                applying ? empty.Disabled("The workflow is being written") : empty,
                 waits is not null ? use.Disabled(waits) : use)
             .WithGap(Gap * 1.5f).CrossCenter().Pad(Gap * 3, 0f).Bg(palette.PanelBg);
     }

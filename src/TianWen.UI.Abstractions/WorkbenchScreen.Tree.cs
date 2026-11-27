@@ -105,7 +105,7 @@ public sealed partial class WorkbenchScreen<TSurface>
             running ? stop : stop.Disabled("No run is going"),
             Layout.Builder.Spacer().WStar(),
             ViewChoice(actions),
-            Layout.Builder.Text("|", BaseFontSize, palette.Separator).WAuto(),
+            Layout.Builder.Fill().WFixed(1f).HFixed(BaseFontSize * 1.4f).Bg(palette.Separator),
             Layout.Builder.Button("Fit", Layout.ButtonKind.Standard, () => { if (_viewerState is { } v) { ViewerActions.ZoomToFit(v); } }, GuiTheme.Theme,
                 tooltip: "Fit the picture to the canvas").WAuto(),
             Layout.Builder.Button("1:1", Layout.ButtonKind.Standard, () => { if (_viewerState is { } v) { ViewerActions.ZoomToActual(v); } }, GuiTheme.Theme,
