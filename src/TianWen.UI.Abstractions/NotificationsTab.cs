@@ -66,7 +66,8 @@ namespace TianWen.UI.Abstractions
             var feed = NotificationFeed.Of(view, appState);
             var entries = feed.Entries;
             var ctx = MeasureContext();
-            var header = BuildHeader(feed, appState, level => PostSignal(new SetDesktopAlertLevelSignal(level)), AlertSegmentWidth());
+            var (segmentWidth, choiceFont) = AlertChoiceFit(contentRect.Width / dpiScale);
+            var header = BuildHeader(feed, appState, level => PostSignal(new SetDesktopAlertLevelSignal(level)), segmentWidth, choiceFont);
             var headerH = Layout.Engine.Measure(header, new Layout.Size<float>(contentRect.Width, contentRect.Height), ctx).Height;
             RenderLayout(header, new RectF32(contentRect.X, contentRect.Y, contentRect.Width, headerH));
 
@@ -136,7 +137,7 @@ namespace TianWen.UI.Abstractions
         /// stated through <c>ButtonGroupStyle.SegmentWidth</c>, as <c>SkyMapTab.BuildModeSwitch</c> does; this goes when
         /// DIR.Lib's group can.
         /// </summary>
-        private float AlertSegmentWidth()
+        private (float SegmentWidth, float FontSize) AlertChoiceFit(float surfaceWidthDesign)
         {
             var ctx = MeasureContext(scale: DesignScale.One);
             var widest = 0f;
@@ -145,8 +146,23 @@ namespace TianWen.UI.Abstractions
                 widest = MathF.Max(widest, Layout.Engine.Measure(Layout.Builder.Text(option.Label ?? "", AlertChoiceFontSize),
                     new Layout.Size<float>(float.MaxValue, float.MaxValue), ctx).Width);
             }
-            return widest + AlertSegmentSlack;
+            var wanted = widest + AlertSegmentSlack;
+
+            // The choice has a row of its own where the surface is narrow, so it must fit the surface whatever the face's width:
+            // three equal segments, the two gaps, the ring and the row's padding either side. Where the words want more than the
+            // surface leaves, the segments take what it leaves and the words shrink with them (never cut, never past the edge).
+            var overhead = 2f * BasePadding + 2f * GuiTheme.Metrics.ControlEdgeWidth + 2f * AlertSegmentGap;
+            var room = MathF.Max(0f, (surfaceWidthDesign - overhead) / 3f);
+            if (wanted <= room || wanted <= 0f)
+            {
+                return (wanted, AlertChoiceFontSize);
+            }
+            var shrink = MathF.Max(room / wanted, 0.5f);
+            return (wanted * shrink, AlertChoiceFontSize * shrink);
         }
+
+        // The gap between the choice's segments, design units.
+        private const float AlertSegmentGap = 1f;
 
         /// <summary>The words of the three alert levels, as the choice shows them.</summary>
         internal static string LevelLabel(DesktopAlertLevel level) => level switch
@@ -201,7 +217,7 @@ namespace TianWen.UI.Abstractions
             var rest = HeaderControlFill;
             return new Layout.ButtonGroupStyle(chosen, rest, GuiTheme.InkOn(chosen), BodyText, GuiTheme.Hover(rest))
             {
-                Gap = 1f,
+                Gap = AlertSegmentGap,
                 InsetFraction = 0.7f,
                 SegmentWidth = segmentWidth,
             };
@@ -214,7 +230,7 @@ namespace TianWen.UI.Abstractions
         /// <see cref="GuiAppState.DesktopAlerts"/>, or none on this OS). Clear stays on this computer's own feed.
         /// </summary>
         /// <param name="segmentWidth">Design units each segment of the choice takes (see <c>AlertSegmentWidth</c>).</param>
-        internal static Layout.Node BuildHeader(NotificationFeed feed, GuiAppState appState, Action<DesktopAlertLevel> onLevel, float segmentWidth)
+        internal static Layout.Node BuildHeader(NotificationFeed feed, GuiAppState appState, Action<DesktopAlertLevel> onLevel, float segmentWidth, float choiceFontSize = AlertChoiceFontSize)
         {
             static Layout.Node Row(List<Layout.Node> nodes)
                 => Layout.Builder.HStack([.. nodes]).WithGap(8f).Pad(BasePadding, 3f).CrossCenter().WStar().HFixed(HeaderRowHeight).Bg(HeaderBg);
@@ -228,7 +244,7 @@ namespace TianWen.UI.Abstractions
                 var style = AlertChoiceStyle(segmentWidth);
                 // The ring is reserved inside the choice's box by the engine, so the box stays the row's height and the segments
                 // sit within it.
-                choice = Layout.Builder.ButtonGroup<DesktopAlertLevel>(AlertOptions, alerts.Level, onLevel, style, AlertChoiceFontSize)
+                choice = Layout.Builder.ButtonGroup<DesktopAlertLevel>(AlertOptions, alerts.Level, onLevel, style, choiceFontSize)
                     .Border(HeaderControlEdge, GuiTheme.Metrics.ControlEdgeWidth, GuiTheme.Metrics.ControlRadius)
                     .WithTooltip(AlertTooltip(alerts)).HStar();
             }
