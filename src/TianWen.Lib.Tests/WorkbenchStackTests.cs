@@ -154,7 +154,10 @@ public sealed class WorkbenchStackTests(ITestOutputHelper output) : IDisposable
 
             exit.ShouldBe(0, $"{name}: {string.Join(Environment.NewLine, said)}");
             // The enhance options are the one member the verb always builds where a step, which never enhances, has none.
-            (resolved.ShouldNotBeNull(name) with { EnhanceOptions = null }).ShouldBe(StackOperation.OptionsOf(settings, frames, into), name);
+            // The reassignments are an array a record compares by reference: held to the settings' own, in order, apart.
+            var options = resolved.ShouldNotBeNull(name);
+            options.Reassigned.Select(static each => each.Format()).ShouldBe(FrameReassignment.Sorted(settings.Reassign).Select(static each => each.Format()), name);
+            (options with { EnhanceOptions = null, Reassigned = [] }).ShouldBe(StackOperation.OptionsOf(settings, frames, into) with { Reassigned = [] }, name);
         }
 
         operation.CommandLine(new StackSettings(), [frames], into).Length.ShouldBe(10,"settings at their defaults put nothing on the line");

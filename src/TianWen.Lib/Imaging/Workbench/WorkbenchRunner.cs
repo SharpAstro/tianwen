@@ -1,4 +1,5 @@
 using System;
+using TianWen.Lib.Imaging.Stacking;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
@@ -1258,7 +1259,9 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                 {
                     // A set of frames (a night's lights and its calibration frames): its key is every frame's place
                     // and digest, a digest taken from the index where the frame's size and time have not moved.
-                    if (HoldsOrIs(plan.Path, store.Folder))
+                    // The capture's own workdir is the one place a store may be inside it: the frames' key and the stack's scan
+                    // leave workdir out (#2553).
+                    if (HoldsOrIs(plan.Path, store.Folder) && !HoldsOrIs(Path.Combine(plan.Path, StackingPipeline.WorkdirName), store.Folder))
                     {
                         plan.Refusal = "its folder holds this project's store, so a result would be one of its frames: keep the project's folder outside the frames";
                     }

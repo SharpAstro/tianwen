@@ -774,7 +774,7 @@ public sealed class WorkbenchE2ETests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
         await using var e2e = WorkbenchE2E.Start(dpi, new WorkbenchRunner(StackCatalog()), StackCatalog());
-        e2e.FakeFolderPicks(null);
+        e2e.FakeFolderPicks((string?)null);
 
         e2e.Click(e2e.RegionOfLabel("New project"));
         await e2e.PumpUntilAsync(() => true, "the dialog to end", ct);

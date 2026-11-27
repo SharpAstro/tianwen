@@ -42,9 +42,16 @@ public sealed class CaptureDetectionTests : IDisposable
 
         if (stars)
         {
-            for (var s = 0; s < 6; s++)
+            // Two 6x6 blocks, so a walk that takes every fourth pixel still meets them.
+            foreach (var (bx, by) in new[] { (4, 4), (20, 18) })
             {
-                pixels[3 + (s * 4), 5 + (s * 3)] = 3900f;
+                for (var y = by; y < by + 6; y++)
+                {
+                    for (var x = bx; x < bx + 6; x++)
+                    {
+                        pixels[y, x] = 3900f;
+                    }
+                }
             }
         }
 
