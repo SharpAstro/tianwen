@@ -1,11 +1,11 @@
 # Star-remover training (P4): the inject-and-remove bootstrap
 
-**Status, 2026-11-26: rounds 1 to 4 run (R2a to R4k), and NO model ships.** `image remove-stars --model` runs
-weights a caller names, none are in `src/TianWen.AI.Imaging/models/`, and RC-Astro stays the registered
-`IStarRemover`. What did reach the product is the chain round our models: catalogue-aware core protection and the
-dig fill (floor5). The baseline every arm is now held against is R4h, trained twice; R4i, R4j and R4k were killed
-by their registrations. Against StarXTerminator on the held-out whole masters, through the chain unless a row says
-as trained:
+**Status, 2026-11-27: rounds 1 to 4 run (R2a to R4m; R4l's seed 0 still trains), and NO model ships.**
+`image remove-stars --model` runs weights a caller names, none are in `src/TianWen.AI.Imaging/models/`, and
+RC-Astro stays the registered `IStarRemover`. What did reach the product is the chain round our models:
+catalogue-aware core protection and the dig fill (floor5). The baseline every arm is now held against is R4h,
+trained twice; R4i, R4j, R4k and R4m were killed by their registrations. Against StarXTerminator on the held-out
+whole masters, through the chain unless a row says as trained:
 
 | row | StarXTerminator | R4h seed 0 / 1 | where it stands |
 |---|---|---|---|
@@ -65,7 +65,12 @@ most of them taken on its training sessions (counted) and it still did not take 
 the owner sent the list of routes not yet tried back whole, which the session read as a go** ("The routes not yet tried,
 the owner's go" in section 6, which quotes no words): first the net 1.5 times as wide in channels (2.25 times the weights)
 on R4h's data (R4l, registered there), then denser crowded scenes without compact groups (R4m, registered there), then the loss
-weighed up in crowded areas, then depth pairs for the faint stars on bright nebula. The free check that came first:
+weighed up in crowded areas, then depth pairs for the faint stars on bright nebula. **R4m's read (2026-11-27):
+killed.** One seed passed both crowded bars through the chain (the Tarantula's crowded flat 94.8, BP 17-19 with the
+level set aside 95.8, its most crowded cell 97.5 % against the judge's 99.2) while taking more of the Tarantula
+field's light than its guard allows (88 % of the whole frame, bar 84); the other stayed at the parent's level (91.4
+and 92.1). Both left about 6 points fewer of the Lagoon's 84 real faint stars than the parent (27.4 and 28.6 %).
+The free check that came first:
 on the held-out Tarantula StarXTerminator keeps about a third of a real compact cluster's unresolved glow and R4h
 less at the median (cluster by cluster a lean, not a clear split), so the scenes' rule that a compact cluster is all
 stars is further from the judge than the model already is.
@@ -11104,6 +11109,106 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     scenes stand at the crowding the rows are read at, where R4h's draws almost never do. What speaks against: R4a's
     cluster scenes, at this same share of the draw, moved nothing; the scenes are one master's stars at one window;
     and an eighth of the draw may be too little to move a net trained on the rest.
+  - **Nothing is adopted;** adoption is the owner's.
+- **R4m's read, 2026-11-27: KILLED. Both seeds trained as the others, and seed 0 fails one guard: the light taken
+  from the Tarantula field (88 % of the whole frame, bar at most 84).** The question is not cleared, for two reasons:
+  seed 0 passes both of its rows through the chain (94.8 and 95.8) but fails that guard, and seed 1 misses both rows,
+  reading at the parent's level (91.4 and 92.1).
+  - **In plain words.** One of the two runs on the denser scenes took the Tarantula's crowded stars nearly as
+    StarXTerminator does. It also took more of the faint field light between the stars than the guard allows, and
+    kept less of the compact clusters' glow than the parent. The other run, trained the same way on the same
+    data, stands where the parent stood. One thing is better than the parent on both runs: they left fewer of the
+    Lagoon's real faint stars on bright nebula (27.4 and 28.6 % left against the parent's 34.5 and 33.3, which is 7.1
+    and 4.7 points fewer).
+  - **Looked at first**, before any row was read: both seeds beside R4h's two and StarXTerminator, through the chain
+    and as trained, the Tarantula's crowded field first (`seeds_look.py` beside the scoring scripts, arm_look.py's
+    crops and stretch with any columns; `r4-look/r4m/r4m-{chain,trained}-{crowded,others}.png`). What they show:
+    - **The crowded field** is a faint mottle on all four of our plates, at a stretch where StarXTerminator's is
+      black; seed 0's is a little darker in places, seed 1's like the parent's. Nothing is dug, and no seam or new
+      texture shows.
+    - **30 Doradus's core:** all four keep the bright central knot as StarXTerminator does; seed 0 leaves a faint
+      yellow cast beside it that the input does not have. A small dark notch at the crop's upper left is on all
+      four plates through the chain, so it is the chain's, not the arm's.
+    - **M31's nucleus through the chain** is round and clean on both seeds, where R4h's seed 1 shows a reddish rim.
+      **The Lagoon's core** reads as the parent's on both.
+  - **The training, by the stall rule: neither seed stalled.** Seed 0 (a Batch job on a low-priority T4) halved
+    first at step 61,500; the median of its held-out windows is 2.21e-5 from step 30,000 to there and 1.16e-5 over
+    the next 60,000 steps, a ratio of 0.53, with 17 new bests in those steps. It halved again at 156,000, 195,500 and
+    220,000, was moved to a new node twice (resumed after steps 120,000 and 226,000 from the container's checkpoint)
+    and stopped itself at 232,000 (best 8.21e-6 at 208,000). Seed 1 (also a T4) halved first at 71,500: 1.84e-5
+    before, 1.05e-5 after, a ratio of 0.57, with 13 new bests; again at 145,500, 169,500 and 203,000; resumed after
+    106,000 and 208,000; stopped itself at 227,000 (best 8.30e-6 at 215,000). Both are under 0.60: trained, as
+    launched.
+  - **The question, through the chain** (`explore/r4h1-step.sh`, the script R4h's seed 1 was read with: R4h's frozen
+    trainer copy for the export, `bh-bin14`, `--keep-overshoot`, the contract's black point none):
+
+    | row | bar | R4h seed 0 / 1 | R4m seed 0 | R4m seed 1 |
+    |---|---|---|---|---|
+    | Tarantula crowded flat | at least 94.0 | 91.9 / 90.5 | 94.8 | 91.4 |
+    | Gaia BP 17-19 removed, level set aside | at least 94.3 | 91.4 / 91.9 | 95.8 | 92.1 |
+
+  - **Guards, on each seed** (R4l's terms), through the chain unless the row says as trained:
+
+    | guard | bar | R4h seed 0 / 1 | R4m seed 0 | R4m seed 1 | read |
+    |---|---|---|---|---|---|
+    | Sagittarius crowded flat | at least 96.3 | 97.4 / 96.8 | 97.4 | 96.6 | held |
+    | Andromeda dark flat, dug | at least 95, at most 3 | 98.6, 0.5 / 98.2, 0.9 | 98.2, 1.0 | 98.2, 1.1 | held |
+    | Tarantula dark flat | at least 91 | 95.9 / 95.5 | 96.7 | 95.6 | held |
+    | the glow's green median, Andromeda and Tarantula | within 450 and 500 of zero | -48, -15 / -90, -85 | -73, -245 | 31, -14 | held |
+    | M31's nucleus taken | under 10 % | 0.0 / 0.0 | 0.0 | 0.0 | held |
+    | purity | at most 1.0 | 0.9 / 0.9 | 1.0 | 0.9 | held |
+    | light taken from the Tarantula field, densest tenth and whole frame | at most 83, 84 % | 81, 84 / 80, 84 | 83, **88** | 80, 84 | **fails on seed 0** |
+    | light added on each master's nebula, as trained | at most 1.0 % | 0.0 / 0.0 | 0.0, 0.0, 0.0 | 0.1, 0.3, 0.0 | held |
+    | the brightest tenth of the Tarantula's peaks standing, as trained | at least 11 of 77 | 18 / 15 | 12 | 17 | held |
+    | faint stars left on the Lagoon's core and on 30 Doradus, as trained | at most 37 and 27 % | 30, 17 / 25, 21 | 19, 22 | 33, 24 | held |
+    | the Lagoon's broad light taken, as trained | at most 2.67 | 1.91 / 1.70 | 2.30 | 1.61 | held |
+    | the 205 plants on dark sky, left | at most 12.0 % | 6.8 / 7.3 | 6.8 | 8.3 | held |
+
+    Seed 0 reads 82 and 88 % on the field-light row as trained too, and its best step's weights 82 and 87 through
+    the chain, so the failure is not the chain's and not the last step's alone.
+  - **Reported, no bar:**
+    - **Gaia BP 17-19's most crowded cell** (`gaia_bp_by_level.py`, the 4,066 stars at 10 to 20 sky sigma of level
+      with 99 or more catalogued stars within 16 px, through the chain): 97.5 and 89.4 % removed, against R4h's 82.7
+      and 87.5 and StarXTerminator's 99.2.
+    - **The two-sided crowded row** (#2404, the Tarantula, through the chain): the flat cells' median band 3.28 and
+      3.36 (R4h's seed 0 3.25, the judge 1.49); the structure cells within 0.8 to 1.25 of the judge's 41.9 and 48.4
+      % (R4h 45.2).
+    - **The compact clusters' kept share** (`sxt_compact_clusters.py`, the 35 clusters at S/N 10 or over on the
+      held-out Tarantula, through the chain): 0.04 and 0.08 at the median, against R4h's 0.10 and 0.06 and
+      StarXTerminator's 0.32; seed 0 keeps less than the judge in 27 of 35 and seed 1 in 24 (R4h 22 and 23). As
+      trained 0.09 and 0.15
+      (R4h 0.15 and 0.14).
+    - **The bright plants on the Lagoon's nebula, left as trained** (the layer stamp): 63.9 and 69.3 % (R4h 67.8
+      and 70.7, StarXTerminator 42.4); on the psf stamp 64.4 and 70.0, on the donor stamp 58.8 and 64.3.
+    - **The Lagoon's 84 real faint stars on bright nebula, left as trained** (the repo's `nebula_stars_row.py`, its
+      magnitude check keeping 84 of 180; re-read the same day on R4h's and StarXTerminator's plates, which give
+      34.5, 33.3 and 15.5 % as before): **27.4 and 28.6 %**, a gain on the parent's 34.5 and 33.3 (7.1 and 4.7 points fewer of the stars left).
+    - **Route A's four scenes** (`cluster_models_band.py`): not read yet. They need the GTX 1070, which is scoring
+      R4l; they are owed with R4l's read.
+    - **The extra cache's held-out objective at the best step:** 7.58e-6 and 7.59e-6, beside the main cache's
+      8.20e-6 and 8.29e-6 (the same two best steps as the training paragraph's 8.21e-6 and 8.30e-6; the last digit
+      differs by one, and whether that is a re-evaluation or a rounding was not recorded). The trainer prints no training objective per cache.
+    - **The best step's weights, through the chain:** seed 0 (step 208,000) 94.4 and 95.1 on the question's rows,
+      field light 82 and 87 %; seed 1 (step 215,000) 90.4 and 91.1, field light 79 and 82 %.
+  - **Against the prediction.** It said both seeds gain 1 to 2.5 points over R4h's mean (91.2 and 91.7). Seed 0
+    gained 3.6 and 4.1, seed 1 0.2 and 0.4: the pair's mean (1.9 and 2.3) is inside the range, and neither seed is.
+    Sagittarius's crowded flat within a point of R4h's: held (97.4 and 96.6). The standing-peaks guard held, but
+    not comfortably on seed 0 (12 of 77, bar 11).
+  - **What it says, and what it does not.**
+    - On one seed the scenes moved the crowded rows past both bars and the densest Gaia cell to within two points
+      of the judge. On the other, trained the same way, nothing moved. So this recipe's seeds stand at least 3.4
+      points apart on the Tarantula's crowded flat (R4h's two stood 1.4 apart), and one seed is not the recipe.
+    - The seed that moved also takes more of the field's diffuse light: 88 % of the whole frame (R4h 84). Its
+      Tarantula glow is darker (green median -245 through the chain, R4h -15 and -85), and it keeps less of the
+      compact clusters' unresolved light (0.04 against the judge's 0.32).
+    - The field-light guard reads the level and nothing else (StarXTerminator's plate reads 98 and 106 % on it,
+      "For this arm purity is therefore reported" above). Its bar is R4d's 81 and 82 plus two points.
+    - Whether seed 0's gain is stars or level, these rows do not separate. The BP row with the level set aside gains
+      as well (95.8), and the field-light row says more level is taken. Not measured.
+    - Both seeds' gain on the Lagoon's 84 real stars (about 6 points) agrees, where the planted rows moved on seed
+      0 alone.
+  - **Next, the owner's.** The go's next route is the loss weighed up in crowded areas (`--crowd-weight`), on these
+    dense scenes, registered before it trains. R4l's read comes when its seed 0 ends on Batch.
   - **Nothing is adopted;** adoption is the owner's.
 
 #### The dig floor inside bright nebula: floor4, and what it leaves (2026-11-20)
