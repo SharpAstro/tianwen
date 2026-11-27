@@ -269,7 +269,8 @@ public sealed class WorkbenchImportScreenTests : IDisposable
         foreach (var choice in import.Workflows.Where(static w => !w.Answer.Fit.Fits))
         {
             Shows(e2e, choice.Answer.Template.Title).ShouldBeTrue($"{choice.Id} says it does not fit");
-            e2e.Regions().ShouldNotContain(r => r.Result is HitResult.ButtonHit hit && hit.Action == $"Workflow:{choice.Id}", "a workflow that does not fit is not chosen");
+            e2e.Regions().Any(r => r.Result is HitResult.ButtonHit hit && hit.Action == $"Workflow:{choice.Id}")
+                .ShouldBeFalse("a workflow that does not fit is not chosen");
         }
 
         var preview = import.Workflows.Single(static w => w.Id == BuiltInWorkflows.CometColour).Tree;
