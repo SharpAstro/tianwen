@@ -26,13 +26,13 @@ Rest, hover and asking; Remove, Goto the Sun and Abort in tianwen
 
 ## Busy button
 
-**Objective:** Shows a button for a long-running task: once pressed it shows a spinner and the task in progress, says how long it should take, and offers Stop beside it.
+**Objective:** Shows a button for a long-running task: once pressed it shows a spinner and the task in progress, grows a Stop segment joined to its left edge, and says how long it should take.
 
 ```screen id=busy
-Rest, busy, past its estimate, done and failed; plate solve, autofocus and a catalogue update
+Rest, busy with its Stop, stopping, past its estimate, done and failed; plate solve, autofocus and a catalogue update
 ```
 
-**Notes:** Warboard's "Reading the records… about 15 seconds", in DIR.Lib. Pressed, the button keeps its place and size: a spinner (a turning arc in the accent on a SeparatorStrong ring) replaces nothing but sits before the label, which turns into the verb in progress ("Solving…") in DimText, and the button takes no press. Beside it, to its left: the estimate in words ("about 15 seconds") or the count when the task has steps ("step 4 of 9"), and Stop where the task can be stopped. Neither sits under the pointer that pressed the button. Past its estimate the text turns Warn ("longer than usual (45 s)") rather than counting below zero. Done shows a Success tick and edge with the result beside it for three seconds, then the button rests. Failed puts the button back at rest and says why beside it in Error. The spinner is drawn here as a ring with a dot, because the prototype has no arc; the product needs a spinner icon (`IconKind.Spinner`), drawn as an arc that turns, slower under reduced motion.
+**Notes:** Warboard's "Reading the records… about 15 seconds", in DIR.Lib, as one special button rather than a button and a separate Stop. Pressed, the button keeps its place and size: a spinner (a turning arc in the accent on a SeparatorStrong ring) sits before the label, which turns into the verb in progress ("Solving…") in DimText, and that part takes no press. Where the task can be stopped, a Stop segment (a small square) grows out of the button's left edge, joined to it by a hairline inside one rounded edge, so Stop reads as part of this task and not as a neighbour. It grows to the left, never the right, so the part under the pointer that pressed it is still the busy part and a double-click cannot stop what it just started. Stop is neutral at rest and turns Error on hover; pressing it folds the segment away and the label reads "Stopping…" until the task has let go. A task that cannot be stopped (the cooler warming) never grows the segment. The estimate sits to the left of the whole control, in words ("about 15 seconds") or as a count when the task has steps ("step 4 of 9"). Past its estimate the text turns Warn ("longer than usual (45 s)") rather than counting below zero. Done shows a Success tick and edge with the result beside it for three seconds, then the button rests. Failed puts the button back at rest and says why beside it in Error. The spinner is drawn here as a ring with a dot, because the prototype has no arc; the product needs a spinner icon (`IconKind.Spinner`), drawn as an arc that turns, slower under reduced motion.
 
 ## Segmented choices
 

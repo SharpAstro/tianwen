@@ -108,19 +108,34 @@
                 ]},
                 {"kind": "spacer", "when": "sun=busy", "width": "star"},
                 {"kind": "text", "when": "sun=busy", "text": "about 40 seconds", "width": 110, "height": "star", "align": "far", "fontSize": 12, "color": "#8b939f"},
-                {"kind": "text", "when": "sun=busy", "text": "Stop", "width": 56, "height": "star", "align": "center", "background": "#1e232c", "border": "#3c444f", "color": "#e2e6ec", "borderRadius": 8, "action": "set:sun=false"},
-                {"kind": "hstack", "when": "sun=busy", "width": 120, "height": "star", "padding": 8, "gap": 8, "background": "#1e232c", "border": "#3c444f", "borderRadius": 8, "children": [
-                  {"kind": "overlay", "width": 14, "height": 14, "children": [
-                    {"kind": "spacer", "width": "star", "height": "star", "border": "#3c444f", "borderWidth": 2, "borderRadius": 7},
-                    {"kind": "vstack", "width": "star", "height": "star", "children": [
-                      {"kind": "hstack", "width": "star", "height": 6, "children": [
-                        {"kind": "spacer", "width": "star"},
-                        {"kind": "spacer", "width": 6, "height": 6, "background": "#ff5e00", "borderRadius": 3}
+                {"kind": "hstack", "when": "sun=busy", "width": 160, "height": "star", "background": "#1e232c", "border": "#3c444f", "borderRadius": 8, "children": [
+                  {"kind": "hstack", "width": 34, "height": "star", "action": "set:sun=false", "tooltip": "Stop the slew", "children": [
+                    {"kind": "spacer", "width": "star"},
+                    {"kind": "vstack", "width": 9, "height": "star", "children": [
+                      {"kind": "spacer", "height": "star"},
+                      {"kind": "spacer", "width": 9, "height": 9, "background": "#e2e6ec", "borderRadius": 2},
+                      {"kind": "spacer", "height": "star"}
+                    ]},
+                    {"kind": "spacer", "width": "star"}
+                  ]},
+                  {"kind": "spacer", "width": 1, "height": "star", "background": "#3c444f"},
+                  {"kind": "hstack", "width": "star", "height": "star", "padding": 6, "gap": 8, "tooltip": "Slewing: takes no press until it arrives", "children": [
+                    {"kind": "vstack", "width": 14, "height": "star", "children": [
+                      {"kind": "spacer", "height": "star"},
+                      {"kind": "overlay", "width": 14, "height": 14, "children": [
+                        {"kind": "spacer", "width": "star", "height": "star", "border": "#3c444f", "borderWidth": 2, "borderRadius": 7},
+                        {"kind": "vstack", "width": "star", "height": "star", "children": [
+                          {"kind": "hstack", "width": "star", "height": 6, "children": [
+                            {"kind": "spacer", "width": "star"},
+                            {"kind": "spacer", "width": 6, "height": 6, "background": "#ff5e00", "borderRadius": 3}
+                          ]},
+                          {"kind": "spacer", "height": "star"}
+                        ]}
                       ]},
                       {"kind": "spacer", "height": "star"}
-                    ]}
-                  ]},
-                  {"kind": "text", "text": "Slewing…", "width": "star", "height": "star", "fontSize": 13, "color": "#8b939f"}
+                    ]},
+                    {"kind": "text", "text": "Slewing…", "width": "star", "height": "star", "fontSize": 13, "color": "#8b939f"}
+                  ]}
                 ]}
               ]}
             ]},
