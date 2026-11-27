@@ -324,7 +324,7 @@ public sealed record StackingOptions(
     /// the scan sets each one's kind before any group or calibration is made. Empty (the default) leaves every file as the
     /// cards and the folder named it.
     /// </summary>
-    public ImmutableArray<FrameReassignment> Reassigned { get; init; } = [];
+    public ImmutableArray<FrameReassignment> Reassigned { get; init; } = ImmutableArray<FrameReassignment>.Empty;
 
     /// <summary>
     /// Judge cloud against the clear nights this computer keeps (<c>LightGradeReferenceStore</c>, #1976), where the

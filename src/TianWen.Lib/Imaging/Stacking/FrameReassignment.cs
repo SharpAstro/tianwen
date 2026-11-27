@@ -138,7 +138,13 @@ public sealed record FrameReassignment
 
     /// <summary>The list in one order whatever order it was made in (by place), so the same reassignments are one step key.</summary>
     public static ImmutableArray<FrameReassignment> Sorted(IEnumerable<FrameReassignment> reassignments)
-        => [.. reassignments
+    {
+        var sorted = reassignments
             .OrderBy(static each => Normalise(each.Path), StringComparer.OrdinalIgnoreCase)
-            .Select(static each => new FrameReassignment { Path = Normalise(each.Path), Kind = each.Kind })];
+            .Select(static each => new FrameReassignment { Path = Normalise(each.Path), Kind = each.Kind })
+            .ToImmutableArray();
+        // An ImmutableArray is equal to another only when both hold the same array instance, so nothing reassigned is the
+        // shared empty one, which is also what StackingOptions.Reassigned defaults to: a bare stack line equals the record's defaults.
+        return sorted.IsEmpty ? ImmutableArray<FrameReassignment>.Empty : sorted;
+    }
 }
