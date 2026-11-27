@@ -31,6 +31,9 @@ public sealed record WorkbenchView(
     /// </summary>
     public ImmutableHashSet<string> Existing { get; init; } = [];
 
+    /// <summary>The runner's report of every image of the project, so the tree marks the steps of the images that are not on show too.</summary>
+    public ImmutableArray<ImageReport> Reports { get; init; } = [];
+
     /// <summary>What the image's original is to the viewer, worked out with the answer; null before there is an image.</summary>
     public WorkbenchOriginal? Original { get; init; }
 
@@ -55,6 +58,30 @@ public sealed class WorkbenchState
         get => Volatile.Read(ref _view);
         set => Volatile.Write(ref _view, value);
     }
+
+    private WorkbenchFrames? _frames;
+
+    /// <summary>What the project's capture folder holds (the tree's Frames section), read off the render thread; null until it is read.</summary>
+    public WorkbenchFrames? Frames
+    {
+        get => Volatile.Read(ref _frames);
+        set => Volatile.Write(ref _frames, value);
+    }
+
+    /// <summary>The frame group selected in the tree (Lights, Darks, Flats, Bias); null while a step is the selection.</summary>
+    public string? SelectedFrames { get; set; }
+
+    /// <summary>True while the log is open under the status strip.</summary>
+    public bool LogOpen { get; set; }
+
+    /// <summary>True when a row's ▶ asked for a run on an image that is not on show yet: the run starts when its status is in.</summary>
+    public bool RunAfterStatus { get; set; }
+
+    /// <summary>A workflow the person chose while their hand changes to the steps stand: asked about before it replaces them; null for none.</summary>
+    public WorkbenchSwitch? PendingSwitch { get; set; }
+
+    /// <summary>Why the last add, remove or switch of steps was refused, in words; null otherwise.</summary>
+    public string? TreeRefusal { get; set; }
 
     private int _stage;
 
@@ -147,11 +174,30 @@ public sealed class WorkbenchState
     private WorkbenchPlan? _plan;
 
     /// <summary>The view the person chose over the canvas; one that the selected step cannot offer is shown as the original.</summary>
-    public WorkbenchViewKind ChosenView { get; set; } = WorkbenchViewKind.Original;
+    public WorkbenchViewKind ChosenView { get; set; } = WorkbenchViewKind.Result;
 
     /// <summary>The step to select once the next status is in (after a run that stopped at it), or -1 for none.</summary>
     public int SelectAfterStatus { get; set; } = -1;
 }
+
+/// <summary>One group of the capture the tree's Frames section lists.</summary>
+/// <param name="Name">Lights, Darks, Flats or Bias.</param>
+/// <param name="Files">The files, as their places in the capture folder.</param>
+public sealed record WorkbenchFrameGroup(string Name, ImmutableArray<string> Files)
+{
+    /// <summary>How many files the group holds.</summary>
+    public int Count => Files.Length;
+}
+
+/// <summary>What the project's capture folder holds, as the tree lists it.</summary>
+/// <param name="Folder">The capture folder.</param>
+/// <param name="Groups">Lights, Darks, Flats and Bias, in that order.</param>
+public sealed record WorkbenchFrames(string Folder, ImmutableArray<WorkbenchFrameGroup> Groups);
+
+/// <summary>A workflow switch waiting for the person's answer.</summary>
+/// <param name="Id">The workflow to switch to.</param>
+/// <param name="Changes">How many hand changes to the steps it replaces.</param>
+public sealed record WorkbenchSwitch(string Id, int Changes);
 
 /// <summary>Which picture the canvas shows.</summary>
 public enum WorkbenchViewKind

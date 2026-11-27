@@ -23,11 +23,9 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
     internal const string CanvasKey = "WorkbenchCanvas";
 
     private static float BaseFontSize => GuiTheme.Metrics.BaseFontSize;
-    private const float PanelWidth = 340f;
-    private const float StepBarHeight = 52f;
+    internal const float PanelWidth = 340f;
     private const float Gap = 8f;
     private const float TopBarHeight = 44f;
-    private const float ViewRowHeight = 36f;
     private const float JobLinesHeight = 150f;
 
     private readonly ImageRendererBase<TSurface> _viewer;
@@ -96,6 +94,7 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
     public void Render(WorkbenchState state, WorkbenchActions actions, ViewerState viewerState, IPreviewSource? source, float width, float height)
     {
         BeginFrame();
+        _viewerState = viewerState;
         var palette = GuiTheme.Palette;
         FillRect(0, 0, width, height, palette.ContentBg);
 
@@ -126,7 +125,11 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
 
         if (CanvasRect.Width > 0f && CanvasRect.Height > 0f)
         {
-            if (state.OriginalNote is { } note && actions.EffectiveView() is WorkbenchViewKind.Original)
+            if (actions.ShowsEmptyState)
+            {
+                RenderLayout(EmptyState(actions), CanvasRect);
+            }
+            else if (state.OriginalNote is { } note && actions.EffectiveView() is WorkbenchViewKind.Original)
             {
                 RenderLayout(Layout.Builder.VStack(
                         Layout.Builder.Text(note, BaseFontSize, palette.DimText, TextAlign.Center, TextAlign.Center).WStar().HStar())
@@ -142,19 +145,19 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
             }
         }
 
-        RenderImageMenu(arranged, width, height);
+        RenderMenu(_imageMenu, ImageChoiceHit, arranged, width, height);
+        RenderMenu(_stretchMenu, StretchChoiceHit, arranged, width, height);
+        RenderMenu(_workflowMenu, WorkflowChoiceHit, arranged, width, height);
+        RenderMenu(_addMenu, AddStepHit, arranged, width, height);
     }
 
     private Layout.Node Build(WorkbenchState state, WorkbenchActions actions)
     {
         var palette = GuiTheme.Palette;
-        var steps = actions.Steps();
         var body = Layout.Builder.HStack(
+                Tree(state, actions).WFixed(TreeWidth).HStar(),
                 Panel(state, actions).WFixed(PanelWidth).HStar(),
-                Layout.Builder.VStack(
-                        ViewRow(actions).WStar().HFixed(ViewRowHeight),
-                        Layout.Builder.Fill(key: CanvasKey).WStar().HStar())
-                    .WStar().HStar())
+                Layout.Builder.Fill(key: CanvasKey).WStar().HStar())
             .WStar().HStar();
         var rows = new List<Layout.Node> { TopBar(state, actions).WStar().HFixed(TopBarHeight) };
         // A refused New project is said in words under the bar, whole text on hover. The row is always there, empty while there is
@@ -163,10 +166,11 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
         // An empty row carries no hover text: an empty one would still be shown, as an empty bubble.
         var refusalText = Layout.Builder.Text(refusal ?? string.Empty, BaseFontSize, palette.Error, trim: TextTrim.End).WStar().HStar();
         rows.Add(Layout.Builder.HStack(refusal is not null ? refusalText.WithTooltip(refusal) : refusalText)
-            .CrossCenter().Pad(Gap, 0f).Bg(palette.PanelBg).WStar().HFixed(TopBarHeight));
+            .CrossCenter().Pad(Gap, 0f).Bg(palette.PanelBg).WStar().HFixed(RefusalHeight));
 
-        rows.Add(StepBar(state, actions, steps).WStar().HFixed(StepBarHeight));
+        rows.Add(Toolbar(state, actions).WStar().HFixed(ToolbarHeight));
         rows.Add(body);
+        rows.Add(StatusStrip(state, actions).WStar());
         return Layout.Builder.VStack([.. rows]).Stretch().Bg(palette.ContentBg);
     }
 
@@ -209,32 +213,6 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
         return Layout.Builder.HStack([.. parts]).WithGap(Gap).CrossCenter().Pad(Gap, 0f).Bg(palette.HeaderBg);
     }
 
-    // Original, Result and Comparison as one choice of one height; a view the selected step cannot show is not offered.
-    private Layout.Node ViewRow(WorkbenchActions actions)
-    {
-        var palette = GuiTheme.Palette;
-        var offer = actions.ViewOffer();
-        var kinds = new List<Layout.ButtonGroupOption<WorkbenchViewKind>>
-        {
-            new(WorkbenchViewKind.Original, "Original") { Hit = new HitResult.ButtonHit("View:Original") },
-        };
-        if (offer.ResultOffered)
-        {
-            kinds.Add(new(WorkbenchViewKind.Result, "Result") { Hit = new HitResult.ButtonHit("View:Result") });
-        }
-
-        if (offer.ComparisonOffered)
-        {
-            kinds.Add(new(WorkbenchViewKind.Comparison, "Comparison") { Hit = new HitResult.ButtonHit("View:Comparison") });
-        }
-
-        // The engine measures the segments: the control is as wide as its words, and drops to its narrow form when the row is short.
-        return Layout.Builder.HStack(
-                Layout.Builder.Segmented<WorkbenchViewKind>([.. kinds], actions.EffectiveView(), actions.ChooseView, GuiTheme.Theme,
-                    _viewCursor, "WorkbenchViews", BaseFontSize).WAuto())
-            .WithGap(Gap).CrossCenter().Pad(Gap, 0f).Bg(palette.HeaderBg);
-    }
-
     // Image names are the user's own and can be many and long, so the choice is the engine's dropdown: a box that shows the image on
     // show, ellipsised inside its share of the row with the whole name on hover, and a menu of every image to pick from directly.
     private Layout.Node ImageChoice(WorkbenchView view, WorkbenchActions actions, string? waits)
@@ -257,97 +235,16 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
         return waits is not null ? box.Disabled(waits) : box;
     }
 
-    // The image menu, over everything the frame painted (the viewer included), hung under the box where this frame arranged it.
-    private void RenderImageMenu(ImmutableArray<Layout.ArrangedNode<float>> arranged, float width, float height)
-    {
-        if (!_imageMenu.IsOpen)
-        {
-            return;
-        }
-
-        var box = arranged.FirstOrDefault(static a => a.Node.Hit is HitResult.ButtonHit { Action: ImageChoiceHit });
-        if (box.Node is null)
-        {
-            _imageMenu.Close();
-            return;
-        }
-
-        // The anchor's place is the box's arranged rect in surface units, as the engine places an anchor. Its width is the list's
-        // width, which Dropdown takes as a DESIGN size (Sizing.Fixed), so the box's width goes back through the scale and the
-        // menu is as wide as its box. The menu's height is a design size too: the room below the box, so a long list scrolls.
-        var anchor = new RectF32(box.Bounds.X, box.Bounds.Y, Scale.ToDesignX(box.Bounds.Width), box.Bounds.Height);
-        var below = Scale.ToDesignY(height - (box.Bounds.Y + box.Bounds.Height));
-        RenderLayout(Layout.Builder.Dropdown(anchor, _imageMenu, GuiTheme.Theme, maxHeight: MathF.Max(BaseFontSize, below)),
-            new RectF32(0, 0, width, height));
-    }
-
-    // Each step numbered and named by its operation's title, with its state in words and a mark from the runner's answer.
-    private Layout.Node StepBar(WorkbenchState state, WorkbenchActions actions, ImmutableArray<WorkbenchStepItem> steps)
-    {
-        var palette = GuiTheme.Palette;
-        if (steps.IsEmpty)
-        {
-            var message = state.View switch
-            {
-                null => "Open a project, or make a new one from a capture folder, to see the steps of an image.",
-                { Refusal: { } refusal } => refusal,
-                _ => state.IsReading ? "Reading the project" : "This image has no edits yet.",
-            };
-            return Layout.Builder.Text(message, BaseFontSize, palette.DimText).WStar().HStar().Pad(Gap, 0f).Bg(palette.PanelBg);
-        }
-
-        var cells = new Layout.Node[steps.Length];
-        for (var i = 0; i < cells.Length; i++)
-        {
-            cells[i] = StepCell(state, actions, steps[i]);
-        }
-
-        // A project being asked again keeps the bar it had, and the bar says so rather than showing it as current.
-        return Layout.Builder.HStack(cells).WithGap(1f).Bg(palette.Separator);
-    }
-
-    private Layout.Node StepCell(WorkbenchState state, WorkbenchActions actions, WorkbenchStepItem step)
-    {
-        var palette = GuiTheme.Palette;
-        var selected = step.Index == state.SelectedStep;
-        var fill = selected ? palette.Selection : palette.PanelBg;
-        var ink = selected ? palette.SelectionText : palette.BodyText;
-        var dim = selected ? palette.SelectionText : palette.DimText;
-        var stateInk = step.State is StepState.Refused or StepState.Blocked ? palette.Error
-            : step.State is StepState.Kept or StepState.Ran ? palette.Success
-            : dim;
-        if (selected)
-        {
-            stateInk = palette.SelectionText;
-        }
-
-        var stateRow = new List<Layout.Node>
-        {
-            Layout.Builder.Text(step.Mark, BaseFontSize * 0.9f, stateInk).WAuto().HStar(),
-            Layout.Builder.Text(step.Words, BaseFontSize * 0.85f, stateInk).WStar().HStar(),
-        };
-        if (step.Changed)
-        {
-            stateRow.Add(Layout.Builder.Text("●", BaseFontSize * 0.7f, selected ? palette.SelectionText : palette.Warn).WAuto().HStar());
-        }
-
-        var index = step.Index;
-        return Layout.Builder.VStack(
-                Layout.Builder.Text(step.Label, BaseFontSize, ink).WStar().HStar(),
-                Layout.Builder.HStack([.. stateRow]).WithGap(4f).CrossCenter().WStar().HStar())
-            .Pad(Gap, 4f)
-            .Bg(fill)
-            .BgHover(GuiTheme.Hover(fill))
-            .WStar().HStar()
-            .WithTooltip(step.Hover)
-            .Clickable(new HitResult.ButtonHit($"Step:{index}"), _ => actions.SelectStep(index), CursorKind.Pointer);
-    }
-
     // The selected step: what the operation does, its settings (shown, not edited), what serves it, its command line.
     private Layout.Node Panel(WorkbenchState state, WorkbenchActions actions)
     {
         var palette = GuiTheme.Palette;
         var rows = new List<Layout.Node>();
+        if (actions.SelectedFrameGroup is { } frameGroup)
+        {
+            return FramesPanel(frameGroup, state);
+        }
+
         if (actions.Panel() is not { } panel)
         {
             rows.Add(Words(state.View is { Refusal: { } refusal } ? refusal : "Select a step to see what it does.", palette.DimText));
@@ -492,26 +389,6 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
                 .WStar().HFixed(BaseFontSize * 0.6f));
         }
 
-        if (job.Lines.IsEmpty)
-        {
-            return;
-        }
-
-        var lines = new Layout.Node[job.Lines.Length];
-        for (var i = 0; i < lines.Length; i++)
-        {
-            lines[i] = Words(job.Lines[i], palette.DimText, FlowRoom.JobLines);
-        }
-
-        if (job.Lines.Length != _jobLinesDrawn)
-        {
-            // A new line scrolls the list to its end, so the newest is the one in view.
-            _jobLinesDrawn = job.Lines.Length;
-            _jobScroll.ScrollToEnd();
-        }
-
-        rows.Add(Layout.Builder.VStack(lines).WithGap(Gap / 2).Pad(Gap / 2).Bg(palette.ContentBg).WithScroll(_jobScroll)
-            .WStar().HFixed(JobLinesHeight));
     }
 
     // The stack step's masters, one row each as the runner answered them: the group's name (ellipsised inside its share of the row with
@@ -597,10 +474,10 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
 
     // Where a flow of words stands: straight in the panel's column, or in the job's list of lines (narrower by its own padding
     // and scroll bar). Each has one width the engine arranges, read back by TookRooms.
-    private enum FlowRoom { Panel, JobLines, Groups, Cards, Preview }
+    private enum FlowRoom { Panel, JobLines, Groups, Cards, Preview, Tree }
 
     // The width, in surface units, the last arrange gave each kind of flow; infinite until a frame has arranged one.
-    private readonly float[] _rooms = [float.PositiveInfinity, float.PositiveInfinity, float.PositiveInfinity, float.PositiveInfinity, float.PositiveInfinity];
+    private readonly float[] _rooms = [float.PositiveInfinity, float.PositiveInfinity, float.PositiveInfinity, float.PositiveInfinity, float.PositiveInfinity, float.PositiveInfinity];
 
     // The flows this build made, by reference, so the arranged tree tells which node is which flow.
     private readonly Dictionary<Layout.Node, FlowRoom> _flows = new(ReferenceEqualityComparer.Instance);
@@ -609,7 +486,7 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
     // against, so the caller builds again with the arranged widths.
     private bool TookRooms(ImmutableArray<Layout.ArrangedNode<float>> arranged)
     {
-        Span<float> seen = [float.PositiveInfinity, float.PositiveInfinity, float.PositiveInfinity, float.PositiveInfinity, float.PositiveInfinity];
+        Span<float> seen = [float.PositiveInfinity, float.PositiveInfinity, float.PositiveInfinity, float.PositiveInfinity, float.PositiveInfinity, float.PositiveInfinity];
         foreach (var node in arranged)
         {
             if (_flows.TryGetValue(node.Node, out var where))

@@ -327,8 +327,9 @@ public sealed partial class WorkbenchActions(
     /// <summary>Selects a step: its panel is drawn. Nothing runs and nothing about any step's state changes.</summary>
     public void SelectStep(int index)
     {
-        if (state.SelectedStep != index)
+        if (state.SelectedStep != index || state.SelectedFrames is not null)
         {
+            state.SelectedFrames = null;
             state.SelectedStep = index;
             state.CommandCopied = false;
             state.NeedsRedraw = true;
@@ -499,6 +500,7 @@ public sealed partial class WorkbenchActions(
     /// </summary>
     public void TryAdoptStatus()
     {
+        TryAdoptFrames();
         if (tracker.TryCollect<WorkbenchPlan>(PlanSlot, out var plan) && plan is not null && state.View is { } current
             && string.Equals(plan.Folder, current.Folder, StringComparison.Ordinal)
             && string.Equals(plan.Image, current.ImageName, StringComparison.Ordinal)
@@ -534,6 +536,18 @@ public sealed partial class WorkbenchActions(
         state.SelectAfterStatus = -1;
         ShowOriginal(view);
         RequestPlan();
+        RequestFrames(view);
+
+        // A ▶ on a row of an image that was not on show asked for a run: the image is on show and its step selected, so it starts now.
+        if (state.RunAfterStatus)
+        {
+            state.RunAfterStatus = false;
+            if (view is { ImageName: { } name, Image: { } shown } && state.SelectedStep >= 0 && state.SelectedStep < shown.Steps.Length
+                && shown.Steps[state.SelectedStep].State is not (StepState.Refused or StepState.Blocked or StepState.Off))
+            {
+                _jobs.TryStart(view.Folder, name, state.SelectedStep);
+            }
+        }
     }
 
     /// <summary>The step bar: each edit of the image, named by its operation's title, in the runner's state.</summary>
@@ -702,7 +716,8 @@ public sealed partial class WorkbenchActions(
         {
             WorkbenchViewKind.Result => new WorkbenchShown(WorkbenchViewKind.Result, null, offer.ResultFile),
             WorkbenchViewKind.Comparison => new WorkbenchShown(WorkbenchViewKind.Comparison, offer.InputFile, offer.ResultFile),
-            _ => new WorkbenchShown(WorkbenchViewKind.Original, null, state.OriginalFile),
+            // Input: the step's own input where it has a picture, else the image's original.
+            _ => new WorkbenchShown(WorkbenchViewKind.Original, null, offer.InputFile ?? state.OriginalFile),
         };
     }
 
@@ -770,11 +785,13 @@ public sealed partial class WorkbenchActions(
             return new WorkbenchView(folder, project, names, null, null, "The project has no images.");
         }
 
-        var report = await runner.StatusAsync(folder, name, ct);
+        // Every image is asked at once (the runner plans them all anyway), so the tree marks the steps of the images not on show too.
+        var report = await runner.StatusAsync(folder, (string?)null, ct);
         var imageReport = report.Images.FirstOrDefault(i => string.Equals(i.Name, name, StringComparison.Ordinal));
         return new WorkbenchView(folder, project, names, name, imageReport, report.Refusal ?? imageReport?.Refusal)
         {
             Existing = imageReport is null ? [] : WorkbenchOriginal.ExistingOutputs(imageReport.Steps),
+            Reports = report.Images,
             Original = WorkbenchOriginal.Of(imageReport?.Path),
         };
     }

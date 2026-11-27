@@ -120,7 +120,7 @@ public sealed class WorkbenchWorkflowTests : IDisposable
         BuiltInWorkflows.Answer(Facts(colour: false)).Single(static each => each.Best).Template.Id.ShouldBe(BuiltInWorkflows.QuickLook);
         BuiltInWorkflows.Answer(Facts()).Count(static each => each.Best).ShouldBe(1);
         BuiltInWorkflows.All.Select(static each => each.Id).ShouldBe(
-            [BuiltInWorkflows.CometColour, BuiltInWorkflows.DeepSkyColour, BuiltInWorkflows.QuickLook, BuiltInWorkflows.Empty]);
+            [BuiltInWorkflows.CometColour, BuiltInWorkflows.DeepSkyColour, BuiltInWorkflows.MonoLrgb, BuiltInWorkflows.Narrowband, BuiltInWorkflows.QuickLook, BuiltInWorkflows.Empty]);
     }
 
     [Fact]

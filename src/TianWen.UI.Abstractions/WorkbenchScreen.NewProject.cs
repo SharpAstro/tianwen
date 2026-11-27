@@ -346,15 +346,7 @@ public sealed partial class WorkbenchScreen<TSurface>
         var tooltip = file.Reassigned ? $"{file.Why}. Press to change it, or to take your answer back." : $"{file.Why}. Press to change it.";
         // The box is as tall as a control with the row's breathing room above and below, and ends in the small chevron at the text's
         // size (the engine's own box ends in a filled caret); a press toggles the menu as the engine's box does.
-        var ink = file.NeedsALook ? palette.Warn : palette.BodyText;
-        var box = Layout.Builder.HStack(
-                Layout.Builder.Text(label, BaseFontSize, ink, trim: TextTrim.End).WStar(),
-                Layout.Builder.Text("⌄", BaseFontSize, palette.DimText, TextAlign.Center).WAuto())
-            .WithGap(4f).CrossCenter().Pad(Gap, 0f).Bg(palette.ControlFill).BgHover(GuiTheme.Hover(palette.ControlFill))
-            .Border(palette.Separator, 1f, 4f)
-            .WStar().HFixed(GuiTheme.Metrics.ButtonHeight)
-            .WithTooltip(tooltip)
-            .Clickable(new HitResult.ButtonHit(KindHitPrefix + place), _ => menu.Popover.Toggle(), CursorKind.Pointer);
+        var box = MenuBox(label, file.NeedsALook ? palette.Warn : palette.BodyText, menu, KindHitPrefix + place, tooltip);
         return Layout.Builder.VStack(Layout.Builder.Spacer().HStar(), box, Layout.Builder.Spacer().HStar()).WStar().HStar();
     }
 
@@ -438,6 +430,11 @@ public sealed partial class WorkbenchScreen<TSurface>
             cards.Add(Card(choice, import.ChosenWorkflow == choice.Id, actions));
         }
 
+        var empty = Layout.Builder.Button("Start from an empty workflow", Layout.ButtonKind.Standard, () => actions.UseWorkflow(BuiltInWorkflows.Empty),
+            GuiTheme.Theme, tooltip: "Make the project with no steps; add them in the workbench").WAuto();
+        cards.Add(Layout.Builder.Spacer().HFixed(Gap));
+        cards.Add(Layout.Builder.HStack(import.Applying ? empty.Disabled("The workflow is being written") : empty).WStar());
+
         var rest = import.Workflows.Where(static w => !w.Answer.Fit.Fits).ToList();
         if (rest.Count > 0)
         {
@@ -451,11 +448,6 @@ public sealed partial class WorkbenchScreen<TSurface>
                     .WithGap(4f).Pad(Gap * 1.5f).Bg(palette.PanelBg).Radius(6f).WStar());
             }
         }
-
-        var empty = Layout.Builder.Button("Start from an empty workflow", Layout.ButtonKind.Standard, () => actions.UseWorkflow(BuiltInWorkflows.Empty),
-            GuiTheme.Theme, tooltip: "Make the project with no steps; add them in the workbench").WAuto();
-        cards.Add(Layout.Builder.Spacer().HFixed(Gap));
-        cards.Add(Layout.Builder.HStack(import.Applying ? empty.Disabled("The workflow is being written") : empty).WStar());
 
         return Layout.Builder.HStack(
                 Layout.Builder.VStack([.. cards]).WithGap(Gap * 1.25f).Pad(Gap * 3, Gap * 2.5f).WithScroll(_workflowScroll).WStar().HStar(),
@@ -506,8 +498,21 @@ public sealed partial class WorkbenchScreen<TSurface>
                 rows.Add(Words("No steps: add them in the workbench.", palette.DimText, FlowRoom.Preview));
             }
 
+            string? previousImage = null;
             foreach (var row in steps)
             {
+                // A branch of a split starts under a caption saying which it is ("on stars"), so two branches that both run a Gradient are told
+                // apart. The caption is drawn here from the row's image; the Lib's rows are the steps alone.
+                if (row.Depth > 0 && row.EditIndex == 0 && row.Image != previousImage)
+                {
+                    var branch = "on " + row.Image[(row.Image.LastIndexOf('-') + 1)..];
+                    rows.Add(Layout.Builder.HStack(
+                            Layout.Builder.Spacer().WFixed(row.Depth * TreeIndent).HStar(),
+                            Layout.Builder.Text(branch, BaseFontSize * 0.85f, palette.DimText, trim: TextTrim.End).WStar())
+                        .WithGap(Gap).CrossCenter().WStar().HFixed(TreeRowHeight).WithTooltip(row.Image));
+                }
+
+                previousImage = row.Image;
                 var note = row.Kind switch
                 {
                     WorkflowRowKind.Split => row.Detail.Length > 0 ? row.Detail + " · splits" : "splits",

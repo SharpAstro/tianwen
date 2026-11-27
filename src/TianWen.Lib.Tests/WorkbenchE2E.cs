@@ -256,10 +256,10 @@ internal sealed class WorkbenchE2E : IAsyncDisposable
         => [.. Regions().Where(static r => r.Result is HitResult.ListItemHit { ListId: DropdownMenuState<string>.ListId })
             .OrderBy(static r => ((HitResult.ListItemHit)r.Result).Index).Select(static r => new RectF32(r.X, r.Y, r.Width, r.Height))];
 
-    /// <summary>The step cells of the step bar, left to right, as painted.</summary>
+    /// <summary>The rows of the current image's steps in the project tree, top to bottom, as painted.</summary>
     internal ImmutableArray<RectF32> StepCells()
         => [.. Regions().Where(r => r.Result is HitResult.ButtonHit hit && hit.Action.StartsWith("Step:", StringComparison.Ordinal))
-            .OrderBy(static r => r.X).Select(static r => new RectF32(r.X, r.Y, r.Width, r.Height))];
+            .OrderBy(static r => r.Y).Select(static r => new RectF32(r.X, r.Y, r.Width, r.Height))];
 
     /// <summary>Every text leaf the last frame painted, with where it was arranged.</summary>
     internal ImmutableArray<(string Text, RectF32 Bounds)> Texts()
@@ -291,13 +291,7 @@ internal sealed class WorkbenchE2E : IAsyncDisposable
             .OrderBy(static t => t.Bounds.Y).ThenBy(static t => t.Bounds.X).Select(static t => t.Text);
 
     /// <summary>The words painted in the step panel, in reading order, joined by a space.</summary>
-    internal string PanelText()
-    {
-        var canvas = Host.Screen.CanvasRect;
-        var cells = StepCells();
-        var top = cells.IsEmpty ? 0f : cells.Max(static c => c.Y + c.Height);
-        return string.Join(' ', TextsIn(new RectF32(0, top, canvas.X, _renderer.Height - top)));
-    }
+    internal string PanelText() => string.Join(' ', TextsIn(Host.Screen.PanelRect));
 
     public async ValueTask DisposeAsync()
     {
