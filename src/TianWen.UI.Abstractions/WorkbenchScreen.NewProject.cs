@@ -218,7 +218,7 @@ public sealed partial class WorkbenchScreen<TSurface>
         var hintRow = Layout.Builder.Text(hint, BaseFontSize * 0.85f, palette.DimText, trim: TextTrim.End).WStar().HFixed(BaseFontSize * 1.6f)
             .Pad(Gap * 2.5f, 0f).WithTooltip(hint);
 
-        var style = new Layout.TableStyle(palette.PanelBg, palette.DimText, GuiTheme.Hover(palette.PanelBg), palette.Accent) { Gap = Gap, Padding = Gap };
+        var style = new Layout.TableStyle(palette.PanelBg, palette.DimText, GuiTheme.Hover(palette.PanelBg), palette.Accent) { Gap = Gap };
         var rowHeight = GuiTheme.Metrics.ButtonHeight + Gap;
         var rows = new List<Layout.Node>
         {
