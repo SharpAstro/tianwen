@@ -822,4 +822,46 @@ public sealed class WorkbenchE2ETests : IDisposable
         _gate.Release.SetResult();
         await SettleAsync(e2e, ct);
     }
+
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task ANewProjectMadeWhileARunStartsIsNotOpenedAndSaysSoInWordsWithTheWholeTextOnHover(float dpi)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("running-").FullName;
+        var master = WorkbenchFixtures.WriteMaster(folder, "master", WorkbenchFixtures.Master(seed: 1));
+        await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("m", master, WorkbenchFixtures.Edit("add", Amount(1)), WorkbenchFixtures.Edit("gate"))), ct);
+        var capture = CaptureFolder();
+        var made = Path.Combine(_folders.Create("made-").FullName, "project");
+        await using var e2e = WorkbenchE2E.Start(dpi, Runner(), Catalog());
+        await e2e.OpenProjectAsync(folder, ct);
+        await SelectAsync(e2e, 1, ct);
+
+        // The press passes the guard (no run yet) and waits in its first dialog; a run starts meanwhile and holds at its gate.
+        var picked = new TaskCompletionSource<FileDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var asked = 0;
+        e2e.FileDialog.OpenFolderAsync(default!, default).ReturnsForAnyArgs(_ => ++asked == 1
+            ? picked.Task
+            : Task.FromResult(new FileDialogResult { Paths = [capture] }));
+        e2e.Actions.NewProject();
+        e2e.ClickText("Run to here (runs 1 first)");
+        await e2e.PumpFramesUntilAsync(() => _gate.Started.Task.IsCompleted, "the step at its gate", ct);
+
+        picked.SetResult(new FileDialogResult { Paths = [made] });
+        await e2e.PumpFramesUntilAsync(() => e2e.State.NewProjectRefusal is not null, "the refusal", ct);
+
+        File.Exists(WorkbenchProjectFile.PathIn(made)).ShouldBeTrue("the project was made on disk");
+        var refusal = e2e.State.NewProjectRefusal.ShouldNotBeNull();
+        refusal.ShouldStartWith($"The project was made in {made}");
+        refusal.ShouldContain(WorkbenchActions.ChoiceWaitsForTheRun, Case.Sensitive, "the one reason, read once");
+        e2e.State.View!.Folder.ShouldBe(Path.GetFullPath(folder), "the project on show is still the one that was open");
+        e2e.Frame();
+        e2e.Texts().ShouldContain(t => t.Text.StartsWith("The project was made in", StringComparison.Ordinal), "a painted line carries it");
+        e2e.Regions().ShouldContain(r => r.Tooltip == refusal, "the whole text is on hover");
+
+        _gate.Release.SetResult();
+        await SettleAsync(e2e, ct);
+    }
 }

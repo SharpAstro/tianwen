@@ -233,9 +233,12 @@ public sealed class WorkbenchActions(
             }
 
             // The chain's last image is its result (the starless and stars halves come before it); it is the one shown.
+            // A refused open leaves the stack step selected, so its panel (the masters list, the refusal, Cancel) stays on screen.
+            var selected = state.SelectedStep;
             state.SelectedStep = -1;
             if (!OpenProjectNow(folder, added.Added[^1].Name))
             {
+                state.SelectedStep = selected;
                 logger.LogInformation("{Group} was processed but the new image was not opened: {Why}", group, ChoiceWaitsForTheRun);
                 state.MasterRefusal = $"{group} was processed but its image was not opened: {ChoiceWaitsForTheRun}. Choose it from the image box.";
                 state.NeedsRedraw = true;
@@ -318,8 +321,12 @@ public sealed class WorkbenchActions(
             state.NewProjectRefusal = null;
             if (!OpenProject(projectFolder))
             {
-                logger.LogInformation("{Folder} was made but not opened: {Why}", projectFolder, ChoiceWaits);
-                state.NewProjectRefusal = $"The project was made in {projectFolder} but not opened: {ChoiceWaits ?? "another read was on its way"}. Use Open project to show it.";
+                // Read once: the log and the words say the same reason; with none left (the run ended meanwhile) no cause is named.
+                var why = ChoiceWaits;
+                logger.LogInformation("{Folder} was made but not opened: {Why}", projectFolder, why);
+                state.NewProjectRefusal = why is null
+                    ? $"The project was made in {projectFolder}. Use Open project to show it."
+                    : $"The project was made in {projectFolder} but not opened: {why}. Use Open project to show it.";
                 state.NeedsRedraw = true;
             }
         }, appToken, logger, "Make a workbench project from a capture folder",
