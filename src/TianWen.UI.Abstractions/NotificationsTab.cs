@@ -227,7 +227,7 @@ namespace TianWen.UI.Abstractions
             => Layout.Builder.VStack(
                 Layout.Builder.Spacer().HStar(),
                 control.HFixed(HeaderControlHeight),
-                Layout.Builder.Spacer().HStar());
+                Layout.Builder.Spacer().HStar()).HStar();
 
         // Width of the severity-mark slot, in design units: the mark's own square. Reserved for Info rows too (an empty
         // spacer), so the timestamp column never moves with a row's severity.
