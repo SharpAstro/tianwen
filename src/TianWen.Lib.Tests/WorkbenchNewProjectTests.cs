@@ -184,8 +184,7 @@ public sealed class WorkbenchNewProjectTests : IDisposable
         var (catalog, runner, _) = Registered();
         var (command, said) = WorkbenchVerb(catalog, runner);
 
-        (await command.Parse(["new", byVerbFrames]).InvokeAsync(cancellationToken: ct)).ShouldBe(0, string.Join("
-", said));
+        (await command.Parse(["new", byVerbFrames]).InvokeAsync(cancellationToken: ct)).ShouldBe(0, string.Join(Environment.NewLine, said));
         (await WorkbenchProjects.NewAsync(byRoutineFrames, ct)).Refusal.ShouldBeNull();
 
         var byVerb = WorkbenchProjectFile.PathIn(WorkbenchProjects.WorkdirOf(byVerbFrames));
