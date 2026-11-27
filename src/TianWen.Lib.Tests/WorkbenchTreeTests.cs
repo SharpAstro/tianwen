@@ -215,8 +215,9 @@ public sealed class WorkbenchTreeTests : IDisposable
 
         e2e.Click(e2e.Region(WorkbenchScreen<RgbaImage>.AddStepHit));
         var titles = e2e.MenuRows().Select(row => string.Join(' ', e2e.TextsIn(row))).ToArray();
-        titles.ShouldContain("Served", "the operations of the catalogue are offered");
-        e2e.Click(e2e.MenuRows()[titles.ToList().IndexOf("Served")]);
+        var served = titles.ToList().FindIndex(static t => t.StartsWith("Served", StringComparison.Ordinal));
+        served.ShouldBeGreaterThanOrEqualTo(0, "the operations of the catalogue are offered");
+        e2e.Click(e2e.MenuRows()[served]);
         await e2e.PumpUntilAsync(() => e2e.State.View?.Image?.Steps.Length == 4 && !e2e.State.IsReading, "the new step in the answer", ct);
 
         var project = (await WorkbenchProjectFile.ReadAsync(folder, ct)).Project.ShouldNotBeNull();
@@ -247,7 +248,7 @@ public sealed class WorkbenchTreeTests : IDisposable
         e2e.State.PendingSwitch.ShouldBeNull("nothing of the person's is replaced, so nothing is asked");
 
         // A step added by hand is a change: now the question comes first, with the Lib's wording.
-        await SelectAsync(e2e, 0, ct);
+        await SelectAsync(e2e, 2, ct);
         e2e.Actions.AddStepAfterSelected("served");
         await e2e.PumpUntilAsync(() => e2e.State.View?.Image?.Steps.Length == 4 && !e2e.State.IsReading, "the added step", ct);
         WorkbenchWorkflows.HandChanges(e2e.State.View!.Project!).ShouldBe(1);

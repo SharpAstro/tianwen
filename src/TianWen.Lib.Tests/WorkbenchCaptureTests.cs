@@ -484,7 +484,10 @@ public sealed class WorkbenchCaptureTests : IDisposable
         foreach (var r in toolbar)
         {
             (r.Y + (r.Height / 2f)).ShouldBe(toolbar[0].Y + (toolbar[0].Height / 2f), 1f, "one middle in the toolbar");
-            r.Height.ShouldBe(toolbar[0].Height, 1f, "one height in the toolbar");
+            if (!(r.Result is HitResult.ButtonHit view && view.Action.StartsWith("View:", StringComparison.Ordinal)))
+            {
+                r.Height.ShouldBe(toolbar[0].Height, 1f, "one height in the toolbar (the picture choice's segments are the engine's own height, checked among themselves below)");
+            }
         }
 
         topBar.Length.ShouldBeGreaterThan(0, "the top bar holds a control");
