@@ -541,7 +541,7 @@ public static class WorkbenchWorkflows
         JsonNode? value, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(catalog);
-        return ChangeAsync(projectFolder, imageName, (image, _) =>
+        return ChangeAsync(projectFolder, imageName, (image, project) =>
         {
             if (editIndex < 0 || editIndex >= image.Edits.Length)
             {
