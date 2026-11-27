@@ -45,6 +45,16 @@ public sealed partial class WorkbenchActions
             return;
         }
 
+        // A run is writing the store (or a master's chain is being laid out): the pages would hide it, so the project is kept and said so.
+        if (ChoiceWaits is { } why)
+        {
+            var workdir = WorkbenchProjects.WorkdirOf(captureFolder);
+            logger.LogInformation("{Folder} was made but not shown: {Why}", workdir, why);
+            state.NewProjectRefusal = $"The project was made in {workdir} but not opened: {why}. Use Open project to show it.";
+            state.NeedsRedraw = true;
+            return;
+        }
+
         state.NewProjectRefusal = null;
         state.Import = new WorkbenchImport(Path.GetFullPath(captureFolder)) { Detecting = true, MadeProject = true };
         state.Stage = WorkbenchStage.Import;
