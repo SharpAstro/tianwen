@@ -96,6 +96,12 @@ public static class BuiltInWorkflows
     /// <summary>Quick look.</summary>
     public const string QuickLook = "quick-look";
 
+    /// <summary>Mono camera, L R G B filters.</summary>
+    public const string MonoLrgb = "mono-lrgb";
+
+    /// <summary>Mono camera, narrowband filters.</summary>
+    public const string Narrowband = "narrowband";
+
     /// <summary>The empty workflow.</summary>
     public const string Empty = "empty";
 
@@ -120,11 +126,27 @@ public static class BuiltInWorkflows
         },
         new WorkflowTemplate
         {
+            Id = MonoLrgb,
+            Title = "Mono LRGB",
+            Summary = "Stacks each filter of a mono camera; the filters are then combined in the workbench.",
+            Fit = static facts => MonoRefusal(facts, "L, R, G and B", LrgbNames) ?? new(true, $"mono camera, {FilterText(facts)}"),
+            Build = BuildStackOnly,
+        },
+        new WorkflowTemplate
+        {
+            Id = Narrowband,
+            Title = "Narrowband SHO",
+            Summary = "Stacks each narrowband filter of a mono camera; the filters are then combined in the workbench.",
+            Fit = static facts => MonoRefusal(facts, "Ha, OIII and SII", NarrowbandNames) ?? new(true, $"mono camera, {FilterText(facts)}"),
+            Build = BuildStackOnly,
+        },
+        new WorkflowTemplate
+        {
             Id = QuickLook,
             Title = "Quick look",
             Summary = "Stacks and balances the colour, nothing more: to see what the night gave.",
             Fit = static facts => facts.LightCount > 0
-                ? new(true, $"{facts.LightCount} light frame(s): a stack and a white balance, for any camera")
+                ? new(true, $"{facts.LightCount} {(facts.LightCount == 1 ? "light" : "lights")}: a stack and a white balance, for any camera")
                 : NoLights,
             Build = BuildQuickLook,
         },
@@ -167,6 +189,23 @@ public static class BuiltInWorkflows
             : facts.Colour is null ? new WorkflowFit(false, "the files do not say whether the camera is colour")
             : facts.Filters.Length > 1 ? new WorkflowFit(false, $"{facts.Filters.Length} filters ({string.Join(", ", facts.Filters)}): this workflow stacks one filter")
             : null;
+
+    private static readonly string[] LrgbNames = ["l", "lum", "luminance", "r", "red", "g", "green", "b", "blue"];
+    private static readonly string[] NarrowbandNames = ["ha", "h-alpha", "oiii", "o3", "sii", "s2"];
+
+    // The conditions of the two mono workflows: a mono camera, and filters of the kind the workflow combines; null when they hold.
+    private static WorkflowFit? MonoRefusal(WorkflowFacts facts, string wanted, string[] names)
+        => facts.LightCount == 0 ? NoLights
+            : facts.Colour == true ? new WorkflowFit(false, "the camera is colour: this workflow is for a mono camera's frames, one filter at a time")
+            : facts.Filters.Length < 2 ? new WorkflowFit(false, facts.Filters.Length == 0
+                ? $"no filter is named in the frames, and this workflow combines {wanted}"
+                : $"one filter ({facts.Filters[0]}): this workflow combines {wanted}")
+            : !facts.Filters.Any(filter => names.Any(name => filter.Contains(name, StringComparison.OrdinalIgnoreCase)))
+                ? new WorkflowFit(false, $"the filters ({string.Join(", ", facts.Filters)}) are not {wanted}")
+                : null;
+
+    private static ImmutableArray<ProjectImage> BuildStackOnly(WorkflowFacts facts)
+        => [new ProjectImage { Name = BaseName(facts), Path = facts.FramesFolder, Edits = [Edit(StackOperation.Id)] }];
 
     private static WorkflowFit CometFit(WorkflowFacts facts)
         => ColourRefusal(facts) ?? (facts.CometTrack is null

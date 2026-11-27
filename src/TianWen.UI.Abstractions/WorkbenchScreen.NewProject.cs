@@ -156,6 +156,15 @@ public sealed partial class WorkbenchScreen<TSurface>
         };
     }
 
+    // A group the Lib gave no detail line is still given one, so every row is as tall as the others.
+    private static string DetailOf(DetectedGroup group) => group.Kind switch
+    {
+        DetectedGroupKind.CometTrack => group.Files.Length > 0 ? System.IO.Path.GetFileName(group.Files[0].FullPath) : "the comet's track",
+        DetectedGroupKind.NeedsALook => "frames to check before stacking",
+        DetectedGroupKind.NotStacked => "left out of the stack",
+        _ => string.Empty,
+    };
+
     // The groups found, one row each (mark, name, detail, count), and what needs a look said once under them.
     private Layout.Node Groups(WorkbenchImport import, WorkbenchActions actions)
     {
@@ -173,14 +182,19 @@ public sealed partial class WorkbenchScreen<TSurface>
             var dim = selected ? palette.SelectionText : palette.DimText;
             var fill = selected ? palette.Selection : palette.PanelBg;
             var at = i;
-            rows.Add(Layout.Builder.HStack(
-                    Layout.Builder.Text(MarkOf(group.Kind), BaseFontSize, MarkInk(group.Kind, selected), TextAlign.Center).WFixed(18f).HStar(),
-                    Layout.Builder.VStack(
+            // Mark, name and count share one row (one middle); the detail is a line of its own under the name, always there.
+            var detail = group.Detail.Length > 0 ? group.Detail : DetailOf(group);
+            rows.Add(Layout.Builder.VStack(
+                    Layout.Builder.HStack(
+                            Layout.Builder.Text(MarkOf(group.Kind), BaseFontSize, MarkInk(group.Kind, selected), TextAlign.Center).WFixed(18f),
                             Layout.Builder.Text(group.Title, BaseFontSize, ink, trim: TextTrim.End).WStar(),
-                            Layout.Builder.Text(group.Detail, BaseFontSize * 0.85f, dim, trim: TextTrim.End).WStar())
-                        .WStar(),
-                    Layout.Builder.Text(group.Files.Length.ToString(CultureInfo.InvariantCulture), BaseFontSize, dim, TextAlign.Far).WAuto())
-                .WithGap(Gap).CrossCenter().Pad(Gap, Gap / 2).Bg(fill).BgHover(GuiTheme.Hover(fill)).Radius(4f)
+                            Layout.Builder.Text(group.Files.Length.ToString(CultureInfo.InvariantCulture), BaseFontSize, dim, TextAlign.Far).WAuto())
+                        .WithGap(Gap).CrossCenter().WStar(),
+                    Layout.Builder.HStack(
+                            Layout.Builder.Spacer().WFixed(18f),
+                            Layout.Builder.Text(detail, BaseFontSize * 0.85f, dim, trim: TextTrim.End).WStar().WithTooltip(detail))
+                        .WithGap(Gap).WStar())
+                .Pad(Gap, Gap / 2).Bg(fill).BgHover(GuiTheme.Hover(fill)).Radius(4f)
                 .WStar()
                 .WithTooltip(group.Heading)
                 .Clickable(new HitResult.ButtonHit($"Group:{i}"), _ => actions.SelectGroup(at), CursorKind.Pointer));
@@ -236,8 +250,8 @@ public sealed partial class WorkbenchScreen<TSurface>
                 Layout.Builder.Text(group.Detail, BaseFontSize, palette.DimText, trim: TextTrim.End).WStar().WithTooltip(group.Detail))
             .WithGap(Gap * 1.5f).CrossCenter().Pad(Gap * 2.5f, 0f).WStar().HFixed(TopBarHeight);
         const string hint = "Detected from the FITS cards first, then the folder names, then the pixels";
-        var hintRow = Layout.Builder.Text(hint, BaseFontSize * 0.85f, palette.DimText, trim: TextTrim.End).WStar().HFixed(BaseFontSize * 1.6f)
-            .Pad(Gap * 2.5f, 0f).WithTooltip(hint);
+        var hintRow = Layout.Builder.HStack(Layout.Builder.Text(hint, BaseFontSize * 0.85f, palette.DimText, trim: TextTrim.End).WStar().HStar().WithTooltip(hint))
+            .Pad(Gap * 2.5f, 0f).WStar().HFixed(BaseFontSize * 1.6f);
 
         var style = new Layout.TableStyle(palette.PanelBg, palette.DimText, GuiTheme.Hover(palette.PanelBg), palette.Accent) { Gap = Gap };
         var rowHeight = GuiTheme.Metrics.ButtonHeight + Gap;
@@ -272,11 +286,17 @@ public sealed partial class WorkbenchScreen<TSurface>
     private static string Seconds(double seconds)
         => seconds > 0 ? $"{seconds.ToString("0.###", CultureInfo.InvariantCulture)} s" : "—";
 
+    // The grade is the Lib's verdict in a word, never a share: good, or the cause that holds it down (LightGrading.Verdict). A frame
+    // the Lib could not grade is said not to be graded.
     private static string GradeWords(DetectedGrade grade)
-    {
-        var percent = $"{Math.Round(grade.Share * 100d):0} %";
-        return grade.Causes == GradeCause.None ? percent : $"{percent} {grade.Causes.ToString().ToLowerInvariant()}";
-    }
+        => grade.Causes != GradeCause.None
+            ? string.Join(", ", new[]
+            {
+                (grade.Causes & GradeCause.Cloud) != 0 ? "maybe cloud" : null,
+                (grade.Causes & GradeCause.Sunrise) != 0 ? "sunrise" : null,
+                (grade.Causes & GradeCause.Sunset) != 0 ? "sunset" : null,
+            }.OfType<string>())
+            : grade.Share > 0f ? "good" : "not graded";
 
     private Dictionary<string, Layout.Node> FileCells(DetectedFile file, WorkbenchActions actions)
     {
@@ -286,7 +306,7 @@ public sealed partial class WorkbenchScreen<TSurface>
 
         var why = file.Note is { } note ? $"{file.Why} · {note}" : file.Why;
         var grade = file.Grade is { } g ? GradeWords(g) : "—";
-        var gradeInk = file.Grade is { Causes: GradeCause.None, Share: >= 0.5f } ? palette.Success : file.Grade is { Causes: not GradeCause.None } ? palette.Warn : palette.DimText;
+        var gradeInk = file.Grade is { Causes: GradeCause.None, Share: > 0f } ? palette.Success : file.Grade is { Causes: not GradeCause.None } ? palette.Warn : palette.DimText;
         return new Dictionary<string, Layout.Node>
         {
             ["file"] = Layout.Builder.Text(file.Place, BaseFontSize, palette.BodyText, trim: TextTrim.Start).WithTooltip(file.FullPath),
@@ -324,8 +344,18 @@ public sealed partial class WorkbenchScreen<TSurface>
         };
         var label = WorkbenchActions.KindLabel(file.Kind) + (file.Unsure ? "?" : string.Empty) + (file.Reassigned ? " ✎" : string.Empty);
         var tooltip = file.Reassigned ? $"{file.Why}. Press to change it, or to take your answer back." : $"{file.Why}. Press to change it.";
-        return Layout.Builder.DropdownBox(label, menu, GuiTheme.Theme, new HitResult.ButtonHit(KindHitPrefix + place),
-            textColor: file.NeedsALook ? palette.Warn : null, tooltip: tooltip);
+        // The box is as tall as a control with the row's breathing room above and below, and ends in the small chevron at the text's
+        // size (the engine's own box ends in a filled caret); a press toggles the menu as the engine's box does.
+        var ink = file.NeedsALook ? palette.Warn : palette.BodyText;
+        var box = Layout.Builder.HStack(
+                Layout.Builder.Text(label, BaseFontSize, ink, trim: TextTrim.End).WStar(),
+                Layout.Builder.Text("⌄", BaseFontSize, palette.DimText, TextAlign.Center).WAuto())
+            .WithGap(4f).CrossCenter().Pad(Gap, 0f).Bg(palette.ControlFill).BgHover(GuiTheme.Hover(palette.ControlFill))
+            .Border(palette.Separator, 1f, 4f)
+            .WStar().HFixed(GuiTheme.Metrics.ButtonHeight)
+            .WithTooltip(tooltip)
+            .Clickable(new HitResult.ButtonHit(KindHitPrefix + place), _ => menu.Popover.Toggle(), CursorKind.Pointer);
+        return Layout.Builder.VStack(Layout.Builder.Spacer().HStar(), box, Layout.Builder.Spacer().HStar()).WStar().HStar();
     }
 
     // The menu of the file whose kind box is open, over everything, hung under its box where this frame arranged it. One is open at a
@@ -450,6 +480,7 @@ public sealed partial class WorkbenchScreen<TSurface>
                 Words(choice.Answer.Fit.Why, dim, FlowRoom.Cards))
             .WithGap(4f).Pad(Gap * 1.5f).Bg(fill).BgHover(GuiTheme.Hover(fill)).Radius(6f).WStar()
             .WithTooltip($"{title}: {choice.Answer.Template.Summary}")
+            .Border(selected ? palette.Accent : fill, 2f, 6f)
             .Clickable(new HitResult.ButtonHit($"Workflow:{id}"), _ => actions.ChooseWorkflow(id), CursorKind.Pointer)
             .DoubleClickable(_ => actions.UseWorkflow(id));
     }
