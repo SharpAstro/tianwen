@@ -211,8 +211,8 @@ namespace TianWen.UI.Abstractions
 
             // Narrow: the choice is wider than the room beside the heading and Clear, so it takes a row of its own, at the right.
             return Layout.Builder.VStack(
-                Row(heading, clearNode is null ? null : Gap(), clearNode).HFixed(HeaderRowHeight),
-                Row(Layout.Builder.Spacer().WStar().HStar(), choiceNode).HFixed(HeaderRowHeight)).Bg(HeaderBg);
+                Row(heading, clearNode is null ? null : Gap(), clearNode).WStar().HFixed(HeaderRowHeight),
+                Row(Layout.Builder.Spacer().WStar().HStar(), choiceNode).WStar().HFixed(HeaderRowHeight)).Bg(HeaderBg);
         }
 
         /// <summary>The header's height in design units: one row, or two when <paramref name="narrow"/> and the choice is drawn.</summary>
