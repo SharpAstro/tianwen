@@ -2850,7 +2850,8 @@ public sealed class StackingPipeline(
             // (a frame of no kind is neither light nor calibration), and it is told apart from a file the scan never met.
             if (kinds.Count > 0 && FrameReassignment.PlaceOf(dataRoot, frame.Path) is { } place && kinds.TryGetValue(place, out var kind))
             {
-                frame = frame with { Meta = frame.Meta with { FrameType = kind } };
+                allFrames.Add(frame with { Meta = frame.Meta with { FrameType = kind } });
+                continue;
             }
             allFrames.Add(frame);
         }
