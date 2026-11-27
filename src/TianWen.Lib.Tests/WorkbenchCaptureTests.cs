@@ -339,6 +339,106 @@ public sealed class WorkbenchCaptureTests : IDisposable
         }
     }
 
+    public static TheoryData<uint, uint, float, UiThemeState, string> MastersCases => new()
+    {
+        { 1280, 800, 1f, UiThemeState.Dark, "one" },
+        { 1280, 800, 1f, UiThemeState.Night, "one" },
+        { 2000, 1100, 1f, UiThemeState.Dark, "one" },
+        { 2000, 1100, 1f, UiThemeState.Night, "one" },
+        { 1280, 800, 1f, UiThemeState.Dark, "several" },
+        { 1280, 800, 1f, UiThemeState.Night, "several" },
+        { 2000, 1100, 1f, UiThemeState.Dark, "several" },
+        { 2000, 1100, 1f, UiThemeState.Night, "several" },
+        { 1280, 800, 1.5f, UiThemeState.Dark, "several" },
+        { 2000, 1100, 1.5f, UiThemeState.Dark, "one" },
+    };
+
+    // After its stack: the stack step's masters, one (a short name) or several with long realistic group names (target, filter and
+    // exposure). Each name carries its whole text on hover where it is cut, every button lies inside the panel on one height, and the
+    // names meet contrast on the panel's fill.
+    [Theory(Timeout = 180_000)]
+    [MemberData(nameof(MastersCases))]
+    public async Task TheMastersListCutsNothingSilentlyMeetsContrastAndKeepsOneHeightAndOneMiddle(
+        uint width, uint height, float dpi, UiThemeState theme, string scenario)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        string[] groups = scenario == "one"
+            ? ["m31_L"]
+            :
+            [
+                "M31 Andromeda Galaxy panel 3 of 4_Hydrogen alpha 7nm_300s",
+                "M31 Andromeda Galaxy panel 3 of 4_Luminance_180s",
+                "M31 Andromeda Galaxy panel 3 of 4_Oxygen III 6.5nm_300s",
+                "M31_R_120s",
+                "NGC 7000 North America Nebula_Sulphur II 6.5nm_600s",
+            ];
+        var capture = Path.Combine(_folders.Create("capture-").FullName, "2026-11-14 M31 Andromeda Galaxy mosaic");
+        Directory.CreateDirectory(capture);
+        foreach (var group in groups)
+        {
+            File.WriteAllBytes(Path.Combine(capture, group + ".fits"), new byte[2880]);
+        }
+
+        var catalog = new OperationCatalog([new FakeStackOperation()]);
+        var runner = new WorkbenchRunner(catalog);
+        var project = Path.Combine(_folders.Create("projects-").FullName, "andromeda");
+        (await WorkbenchProjects.NewAsync(project, capture, ct)).Refusal.ShouldBeNull();
+        (await runner.RunAsync(project, cancellationToken: ct)).Succeeded.ShouldBeTrue();
+        GuiTheme.Apply(theme, desktopIsDark: true);
+        try
+        {
+            await using var e2e = WorkbenchE2E.Start(dpi, runner, catalog, width, height);
+            await e2e.OpenProjectAsync(project, ct);
+            e2e.Actions.Panel().ShouldNotBeNull().Masters.Length.ShouldBe(groups.Length);
+
+            Keep(e2e, $"workbench-masters-{scenario}-{width}x{height}-{theme}-dpi{dpi:0.0}");
+
+            var canvas = e2e.Host.Screen.CanvasRect;
+            var buttons = e2e.Texts().Where(static t => t.Text == "Process this master").OrderBy(static t => t.Bounds.Y).Select(t =>
+            {
+                var (cx, cy) = (t.Bounds.X + (t.Bounds.Width / 2f), t.Bounds.Y + (t.Bounds.Height / 2f));
+                return e2e.Regions().Single(r => r.Result is HitResult.ButtonHit && cx >= r.X && cx <= r.X + r.Width && cy >= r.Y && cy <= r.Y + r.Height);
+            }).ToArray();
+            buttons.Length.ShouldBe(groups.Length, "a button for each master");
+            foreach (var r in buttons)
+            {
+                (r.X + r.Width).ShouldBeLessThanOrEqualTo(canvas.X + 0.5f, "a button lies inside the panel");
+                r.Height.ShouldBe(buttons[0].Height, 1f, "one height");
+            }
+
+            // Where a name is cut, its whole text is on hover.
+            var regions = e2e.Regions();
+            foreach (var (full, shown, bounds) in e2e.Host.Screen.CutTexts())
+            {
+                var (cx, cy) = (bounds.X + (bounds.Width / 2f), bounds.Y + (bounds.Height / 2f));
+                if (cx >= canvas.X)
+                {
+                    continue;
+                }
+
+                regions.Where(r => cx >= r.X && cx <= r.X + r.Width && cy >= r.Y && cy <= r.Y + r.Height && r.Tooltip is not null)
+                    .ShouldContain(r => r.Tooltip!.Contains(full, StringComparison.Ordinal), $"'{full}' is shown as '{shown}' and carries its whole text on hover");
+            }
+
+            // Each master's name against the panel's fill beside it, and on one middle with its button.
+            var floor = theme == UiThemeState.Night ? 3.0 : 4.5;
+            var names = e2e.TextInks().Where(t => groups.Any(g => t.Text.StartsWith(g[..Math.Min(g.Length, 3)], StringComparison.Ordinal)) && t.Bounds.X < canvas.X
+                && t.Bounds.Y > e2e.StepCells()[0].Y + e2e.StepCells()[0].Height).OrderBy(static t => t.Bounds.Y).ToArray();
+            names.Length.ShouldBeGreaterThanOrEqualTo(groups.Length);
+            foreach (var (text, bounds, ink) in names)
+            {
+                var fill = PixelAt(e2e, Math.Max(0, (int)bounds.X - 3), (int)(bounds.Y + (bounds.Height / 2f)));
+                Contrast(ink, fill).ShouldBeGreaterThanOrEqualTo(floor, $"'{text}' against the fill it is drawn on");
+            }
+
+            NothingIsCutAtThePanelsEdge(e2e);
+        }
+        finally
+        {
+            GuiTheme.Apply(UiThemeState.Dark, desktopIsDark: true);
+        }
+    }
+
     // Each step's words and marks against the fill the cell is drawn on, read off the painted pixels beside the text.
     private static void StepWordsAndMarksMeetContrast(WorkbenchE2E e2e, UiThemeState theme)
     {
