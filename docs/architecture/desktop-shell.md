@@ -193,6 +193,12 @@ sink in TianWen.UI.Gui.
   at `ErrorsAndSafety` (the default) only when its kind is a safety kind (`IsSafetyKind`: an aborted run, a mount
   limit, a run the node stopped because no client was watching it, a run that ended on a fault), and always at `AllWarnings`. Nothing alerts while the window is in front, and a host that supplies no
   window probe gets no alerts at all. The level is per computer (`DesktopAlertSettings`).
+- **Where a person sets it.** The Notifications tab's header carries the three levels as a segmented choice beside
+  Clear, on this computer's view and a rig's alike (the setting is this computer's), and only where the sink says
+  alerts are available. A choice posts `SetDesktopAlertLevelSignal`; its handler sets the level and saves it off the
+  render thread. The tooltip names every safety kind (a test holds it to `IsSafetyKind`'s list) and, when Windows
+  refused the last alert, says why. The choice and Clear share the header controls' fill and ring
+  (`HeaderControlFill`, `HeaderControlEdge`), checked at 3:1 and 4.5:1 in the day, dark and night palettes.
 - **Grouping.** An alert has a tag (the note's kind; a note with no kind, from an older node, is tagged by its severity and its wording, so a
   different message is never held back as a repeat) and a group (the rig's NodeId, or
   `this-computer`). A repeat of the same tag and group inside `GroupingWindow` (5 minutes, on this client's
