@@ -182,11 +182,10 @@ public sealed class WorkbenchCaptureTests : IDisposable
     // painted texts may end beyond where the canvas begins, so a long unbroken word is broken, never cut at the edge.
     private static void NothingIsCutAtThePanelsEdge(WorkbenchE2E e2e)
     {
-        var steps = e2e.StepCells();
-        var below = steps[0].Y + steps[0].Height;
-        var edge = e2e.Host.Screen.CanvasRect.X;
+        var canvas = e2e.Host.Screen.CanvasRect;
+        var edge = canvas.X;
         edge.ShouldBeGreaterThan(0f);
-        foreach (var t in e2e.Texts().Where(t => t.Bounds.Y >= below && t.Bounds.X < edge))
+        foreach (var t in e2e.Texts().Where(t => t.Bounds.Y >= canvas.Y && t.Bounds.Y + t.Bounds.Height <= canvas.Y + canvas.Height && t.Bounds.X < edge))
         {
             (t.Bounds.X + t.Bounds.Width).ShouldBeLessThanOrEqualTo(edge + 0.5f, $"'{t.Text}' ends inside the panel");
         }
@@ -425,7 +424,7 @@ public sealed class WorkbenchCaptureTests : IDisposable
             // Each master's name against the panel's fill beside it, and on one middle with its button.
             var floor = theme == UiThemeState.Night ? 3.0 : 4.5;
             var names = e2e.TextInks().Where(t => groups.Any(g => t.Text.StartsWith(g[..Math.Min(g.Length, 3)], StringComparison.Ordinal)) && t.Bounds.X < canvas.X
-                && t.Bounds.Y > e2e.StepCells()[0].Y + e2e.StepCells()[0].Height).OrderBy(static t => t.Bounds.Y).ToArray();
+                && t.Bounds.X >= e2e.Host.Screen.PanelRect.X).OrderBy(static t => t.Bounds.Y).ToArray();
             names.Length.ShouldBeGreaterThanOrEqualTo(groups.Length);
             foreach (var (text, bounds, ink) in names)
             {
@@ -449,9 +448,10 @@ public sealed class WorkbenchCaptureTests : IDisposable
         string? worstText = null;
         foreach (var cell in cells)
         {
-            var fill = PixelAt(e2e, (int)cell.X + 2, (int)cell.Y + 2);
-            foreach (var (text, _, ink) in e2e.TextInks().Where(t => Inside(cell, t.Bounds)))
+            foreach (var (text, bounds, ink) in e2e.TextInks().Where(t => Inside(cell, t.Bounds) && t.Text.Length > 0))
             {
+                // The fill under the text itself: the row's, or the ▶'s own when the pointer or the selection makes it the accent.
+                var fill = PixelAt(e2e, (int)(bounds.X + (bounds.Width / 2f)), (int)bounds.Y + 1);
                 var ratio = Contrast(ink, fill);
                 if (ratio < worst)
                 {
@@ -470,12 +470,22 @@ public sealed class WorkbenchCaptureTests : IDisposable
         var steps = e2e.StepCells();
         foreach (var cell in steps)
         {
-            cell.Y.ShouldBe(steps[0].Y, 0.5f);
-            cell.Height.ShouldBe(steps[0].Height, 0.5f);
+            cell.X.ShouldBe(steps[0].X, 0.5f, "the tree's rows are one column");
+            cell.Height.ShouldBe(steps[0].Height, 0.5f, "of one height");
         }
 
+        var dpi = e2e.Host.Screen.DpiScale;
         var buttons = e2e.Regions().Where(static r => r.Result is HitResult.ButtonHit).ToArray();
-        var topBar = buttons.Where(r => r.Y < steps[0].Y).ToArray();
+        var topBar = buttons.Where(r => r.Y + (r.Height / 2f) < 44f * dpi).ToArray();
+        // The toolbar's controls (Run, Stop, the picture choice, Fit, 1:1, the stretch) share one height and one middle too.
+        var toolbar = buttons.Where(r => r.Y + (r.Height / 2f) > 72f * dpi && r.Y + (r.Height / 2f) < 116f * dpi).ToArray();
+        toolbar.Length.ShouldBeGreaterThan(3, "the toolbar holds its controls");
+        foreach (var r in toolbar)
+        {
+            (r.Y + (r.Height / 2f)).ShouldBe(toolbar[0].Y + (toolbar[0].Height / 2f), 1f, "one middle in the toolbar");
+            r.Height.ShouldBe(toolbar[0].Height, 1f, "one height in the toolbar");
+        }
+
         topBar.Length.ShouldBeGreaterThan(0, "the top bar holds a control");
         foreach (var r in topBar)
         {
@@ -493,7 +503,7 @@ public sealed class WorkbenchCaptureTests : IDisposable
         // Within a cell the mark and its words stand on one middle.
         foreach (var cell in steps)
         {
-            var row = e2e.Texts().Where(t => Inside(cell, t.Bounds) && t.Bounds.Y > cell.Y + (cell.Height / 2f) - 1f).ToArray();
+            var row = e2e.Texts().Where(t => Inside(cell, t.Bounds) && t.Text.Length > 0).ToArray();
             foreach (var t in row)
             {
                 (t.Bounds.Y + (t.Bounds.Height / 2f)).ShouldBe(row[0].Bounds.Y + (row[0].Bounds.Height / 2f), 1.5f, "the state row has one middle");

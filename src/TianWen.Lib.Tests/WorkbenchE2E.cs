@@ -261,6 +261,10 @@ internal sealed class WorkbenchE2E : IAsyncDisposable
         => [.. Regions().Where(r => r.Result is HitResult.ButtonHit hit && hit.Action.StartsWith("Step:", StringComparison.Ordinal))
             .OrderBy(static r => r.Y).Select(static r => new RectF32(r.X, r.Y, r.Width, r.Height))];
 
+    /// <summary>The runner's state words the tree shows for step <paramref name="index"/> of the image on show (the row's hover carries them).</summary>
+    internal string StepWords(int index)
+        => Actions.Tree().First(row => row.Row.EditIndex == index && row.Row.Image == State.View?.ImageName).Words;
+
     /// <summary>Every text leaf the last frame painted, with where it was arranged.</summary>
     internal ImmutableArray<(string Text, RectF32 Bounds)> Texts()
     {

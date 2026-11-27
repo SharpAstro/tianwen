@@ -66,20 +66,22 @@ public sealed class WorkbenchE2ETests : IDisposable
         await e2e.OpenProjectAsync(folder, ct);
 
         var cells = e2e.StepCells();
-        cells.Length.ShouldBe(5, "one cell for each edit of the image");
+        cells.Length.ShouldBe(5, "one row for each edit of the image");
         for (var i = 1; i < cells.Length; i++)
         {
-            cells[i].X.ShouldBeGreaterThan(cells[i - 1].X, "the steps run left to right");
-            cells[i].Y.ShouldBe(cells[0].Y, 0.5f, "on one row");
+            cells[i].Y.ShouldBeGreaterThan(cells[i - 1].Y, "the steps run top to bottom");
+            cells[i].X.ShouldBe(cells[0].X, 0.5f, "in one column");
             cells[i].Height.ShouldBe(cells[0].Height, 0.5f, "of one height");
         }
 
-        // Named by the operation's title, numbered from one; an operation this computer does not know is named by its id.
-        e2e.TextsIn(cells[0]).ShouldContain("1  Add");
-        e2e.TextsIn(cells[1]).ShouldContain("2  Add");
-        e2e.TextsIn(cells[2]).ShouldContain("3  Served");
-        e2e.TextsIn(cells[3]).ShouldContain("4  ghost");
-        e2e.TextsIn(cells[4]).ShouldContain("5  Add");
+        // Numbered from one and named by the operation's title; an operation this computer does not know is named by its id.
+        e2e.TextsIn(cells[0]).ShouldBe(["1", "✓", "Add", "", "▶"], ignoreOrder: true);
+        e2e.TextsIn(cells[1]).ShouldContain("2");
+        e2e.TextsIn(cells[1]).ShouldContain("Add");
+        e2e.TextsIn(cells[2]).ShouldContain("Served");
+        e2e.TextsIn(cells[3]).ShouldContain("ghost");
+        e2e.TextsIn(cells[4]).ShouldContain("Add");
+        e2e.TextsIn(cells[4]).ShouldContain("5");
     }
 
     [Theory(Timeout = 120_000)]
@@ -104,8 +106,8 @@ public sealed class WorkbenchE2ETests : IDisposable
         for (var i = 0; i < expected.Length; i++)
         {
             var texts = e2e.TextsIn(cells[i]).ToArray();
-            texts.ShouldContain(expected[i].Words, $"step {i + 1} says its state in the runner's words");
-            texts.ShouldContain(WorkbenchActions.MarkFor(expected[i].State), $"step {i + 1} wears the mark of its state");
+            e2e.StepWords(i).ShouldBe(expected[i].Words, $"step {i + 1} says its state in the runner's words");
+            texts.ShouldContain(WorkbenchActions.TreeMarkFor(expected[i].State, expected[i].ChangedSinceLastRun), $"step {i + 1} wears the mark of its state");
         }
 
         e2e.TextsIn(cells[0]).ShouldContain("✓", "a kept step has a tick");
@@ -166,8 +168,9 @@ public sealed class WorkbenchE2ETests : IDisposable
         Compact(e2e.PanelText()).ShouldContain(Compact(StepCommandLine.Display(report.Steps[1].CommandLine)), Case.Insensitive,
             "the command line, wrapped into the panel and not cut");
         var panelRect = PanelRect(e2e);
-        e2e.Texts().Where(t => t.Bounds.Y >= panelRect.Y && t.Bounds.X < panelRect.Width)
-            .ShouldAllBe(t => t.Bounds.X + t.Bounds.Width <= panelRect.Width + 0.5f, "no word of the panel runs past its edge");
+        e2e.Texts().Where(t => t.Bounds.Y >= panelRect.Y && t.Bounds.Y < panelRect.Y + panelRect.Height && t.Bounds.X >= panelRect.X)
+            .Where(t => t.Bounds.X < panelRect.X + panelRect.Width)
+            .ShouldAllBe(t => t.Bounds.X + t.Bounds.Width <= panelRect.X + panelRect.Width + 0.5f, "no word of the panel runs past its edge");
 
         // Shown, not edited: no field and nothing to press beside the settings but the Copy button.
         var inputs = new System.Collections.Generic.List<TextInputState>();
@@ -234,6 +237,7 @@ public sealed class WorkbenchE2ETests : IDisposable
         await e2e.OpenProjectAsync(folder, ct);
 
         e2e.State.OriginalNote.ShouldNotBeNull();
+        e2e.Click(e2e.Region("View:Original"));
         Normalise(string.Join(' ', e2e.Texts().Select(static t => t.Text))).ShouldContain("folder of frames", Case.Insensitive);
         e2e.Controller.Document.ShouldBeNull("nothing was given to the viewer");
     }
@@ -248,8 +252,7 @@ public sealed class WorkbenchE2ETests : IDisposable
         await using var e2e = WorkbenchE2E.Start(dpi, Runner(), Catalog());
         await e2e.OpenProjectAsync(folder, ct);
 
-        var cells = e2e.StepCells();
-        var topBar = new RectF32(0, 0, e2e.Renderer.Width, cells[0].Y);
+        var topBar = new RectF32(0, 0, e2e.Renderer.Width, e2e.Region("View:Result").Y);
         var words = string.Join(' ', e2e.TextsIn(topBar));
         words.ShouldContain(Path.GetFileName(folder), Case.Sensitive, "the project folder");
         words.ShouldContain("Open project");
@@ -290,9 +293,9 @@ public sealed class WorkbenchE2ETests : IDisposable
         await SelectAsync(e2e, 2, ct);
 
         var cells = e2e.StepCells();
-        e2e.TextsIn(cells[0]).ShouldContain("kept", "step 1 is in the store");
-        e2e.TextsIn(cells[1]).ShouldContain("will run", "step 2 is not, and step 3 needs it");
-        e2e.TextsIn(cells[2]).ShouldContain("will run");
+        e2e.StepWords(0).ShouldBe("kept", "step 1 is in the store");
+        e2e.StepWords(1).ShouldBe("will run", "step 2 is not, and step 3 needs it");
+        e2e.StepWords(2).ShouldBe("will run");
         Normalise(e2e.PanelText()).ShouldContain("Run to here (runs 2 first)", Case.Sensitive, "the button says what runs before");
         _add.Runs.ShouldBe(runs, "selecting ran nothing");
 
@@ -323,7 +326,7 @@ public sealed class WorkbenchE2ETests : IDisposable
         var answer = Image(await Runner().StatusAsync(folder, "m", ct)).Steps;
         for (var i = 0; i < cells.Length; i++)
         {
-            e2e.TextsIn(cells[i]).ShouldContain(answer[i].Words, $"step {i + 1} shows the runner's state after the run");
+            e2e.StepWords(i).ShouldBe(answer[i].Words, $"step {i + 1} shows the runner's state after the run");
         }
 
         answer[0].State.ShouldBe(StepState.Kept);
@@ -400,7 +403,8 @@ public sealed class WorkbenchE2ETests : IDisposable
 
         var panel = Normalise(e2e.PanelText());
         panel.ShouldContain("Step 2, Gate: 50 percent", Case.Sensitive, "the running step, and its fraction in words");
-        panel.ShouldContain("at the gate", Case.Sensitive, "the run's line");
+        e2e.ClickText("Log ⌄");
+        Normalise(string.Join(' ', e2e.Texts().Select(static t => t.Text))).ShouldContain("at the gate", Case.Sensitive, "the run's line, in the log behind the disclosure");
         e2e.Texts().ShouldContain(t => t.Text == "Cancel");
         e2e.Texts().ShouldNotContain(t => t.Text.StartsWith("Run to here", StringComparison.Ordinal) || t.Text.StartsWith("Run on", StringComparison.Ordinal),
             "no second start is offered while one runs");
@@ -414,7 +418,7 @@ public sealed class WorkbenchE2ETests : IDisposable
         var answer = Image(await Runner().StatusAsync(folder, "m", ct)).Steps;
         answer[0].State.ShouldBe(StepState.Kept, "step 1 finished before the gate");
         var cells = e2e.StepCells();
-        e2e.TextsIn(cells[1]).ShouldContain(answer[1].Words, "the bar shows what the runner says after the cancel");
+        e2e.StepWords(1).ShouldBe(answer[1].Words, "the tree shows what the runner says after the cancel");
     }
 
     [Theory(Timeout = 120_000)]
@@ -443,9 +447,9 @@ public sealed class WorkbenchE2ETests : IDisposable
         e2e.Viewer.HasBeforeImageTextures.ShouldBeTrue();
         e2e.Viewer.Split.PixelsGeneration.ShouldBe(e2e.ViewerState.SourceGeneration, "the before pixels belong to what is on show");
 
-        // Step 1's input is the original file; step 2's is step 1's stored result.
+        // Step 1's input is the original file; step 2's is step 1's stored result, which is what Input shows for step 2.
         e2e.Click(e2e.Region("View:Original"));
-        await e2e.PumpUntilAsync(() => SameFile(e2e.Controller.Document?.FilePath, master) && !e2e.Viewer.Split.IsOn, "the original again", ct);
+        await e2e.PumpUntilAsync(() => SameFile(e2e.Controller.Document?.FilePath, steps[0].Output) && !e2e.Viewer.Split.IsOn, "step 2's input", ct);
         e2e.Viewer.HasBeforeImageTextures.ShouldBeFalse("leaving the comparison frees the retained pixels");
     }
 
@@ -485,9 +489,10 @@ public sealed class WorkbenchE2ETests : IDisposable
         await e2e.OpenProjectAsync(folder, ct);
         await SelectAsync(e2e, 1, ct);
 
-        e2e.Texts().ShouldContain(t => t.Text == "Original");
-        e2e.Texts().ShouldNotContain(t => t.Text == "Result", "step 2 is not made yet");
-        e2e.Texts().ShouldNotContain(t => t.Text == "Comparison");
+        e2e.Texts().ShouldContain(t => t.Text == "Input");
+        e2e.Texts().ShouldContain(t => t.Text == "Output", "the output is always chosen, and says so on the canvas when there is none");
+        e2e.Texts().ShouldNotContain(t => t.Text == "Before and after", "step 2 is not made yet");
+        e2e.Texts().ShouldContain(t => t.Text == "Add has no output yet", "the canvas says so");
         var panel = Normalise(e2e.PanelText());
         panel.ShouldContain("Step 2 has not been made yet.", Case.Sensitive, "said in words");
         panel.ShouldContain("Step 2 has no result to compare", Case.Sensitive);
@@ -497,7 +502,7 @@ public sealed class WorkbenchE2ETests : IDisposable
         await e2e.OpenProjectAsync(refusedFolder, ct);
         await SelectAsync(e2e, 3, ct);
         Normalise(e2e.PanelText()).ShouldContain("Step 4 made nothing: it is refused.", Case.Sensitive);
-        e2e.Texts().ShouldNotContain(t => t.Text == "Result");
+        e2e.Texts().ShouldNotContain(t => t.Text == "Before and after");
     }
 
     [Theory(Timeout = 120_000)]
@@ -621,12 +626,7 @@ public sealed class WorkbenchE2ETests : IDisposable
     private static bool SameFile(string? a, string? b)
         => a is not null && b is not null && string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
 
-    private static RectF32 PanelRect(WorkbenchE2E e2e)
-    {
-        var cells = e2e.StepCells();
-        var top = cells.Max(static c => c.Y + c.Height);
-        return new RectF32(0, top, e2e.Host.Screen.CanvasRect.X, e2e.Renderer.Height - top);
-    }
+    private static RectF32 PanelRect(WorkbenchE2E e2e) => e2e.Host.Screen.PanelRect;
 
     private static string Compact(string text) => string.Concat(text.Where(static c => !char.IsWhiteSpace(c)));
 

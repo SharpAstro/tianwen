@@ -125,7 +125,14 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
 
         if (CanvasRect.Width > 0f && CanvasRect.Height > 0f)
         {
-            if (actions.ShowsEmptyState)
+            if (state.View is null)
+            {
+                RenderLayout(Layout.Builder.VStack(
+                        Layout.Builder.Text("Open a project, or make a new one from a capture folder, to see the steps of an image.", BaseFontSize,
+                            palette.DimText, TextAlign.Center, TextAlign.Center, trim: TextTrim.End).WStar().HStar())
+                    .Pad(Gap * 2).Bg(palette.ContentBg), CanvasRect);
+            }
+            else if (actions.ShowsEmptyState)
             {
                 RenderLayout(EmptyState(actions), CanvasRect);
             }

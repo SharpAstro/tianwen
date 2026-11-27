@@ -199,7 +199,7 @@ public sealed partial class WorkbenchScreen<TSurface>
         rows.Add(SectionLabel("WORKFLOW").Pad(0f, Gap));
         if (items.IsEmpty)
         {
-            rows.Add(Words(state.View is { Refusal: { } refusal } ? refusal : state.View is null ? "Open a project, or make a new one from a capture folder." : "This project has no steps yet.",
+            rows.Add(Words(state.View is { Refusal: { } refusal } ? refusal : state.View is null ? "No project is open." : "This project has no steps yet.",
                 palette.DimText, FlowRoom.Tree).Pad(Gap, 0f));
         }
 
