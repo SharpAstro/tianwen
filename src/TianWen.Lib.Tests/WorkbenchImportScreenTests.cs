@@ -51,7 +51,7 @@ public sealed class WorkbenchImportScreenTests : IDisposable
 
     private static WorkbenchRunner Runner() => new(Catalog());
 
-    private void Write(string folder, string name, FrameType type, double exposure, double level, float temperature = -5f, bool stars = false)
+    private void Write(string folder, string name, FrameType type, double exposure, double level, float temperature = -5f, bool stars = false, short gain = 1600)
     {
         Directory.CreateDirectory(folder);
         var pixels = new float[Size, Size];
@@ -91,7 +91,7 @@ public sealed class WorkbenchImportScreenTests : IDisposable
             CCDTemperature = temperature,
             SensorType = SensorType.RGGB,
             ObjectName = type == FrameType.Light ? "10P/Tempel 2" : string.Empty,
-            Gain = 1600,
+            Gain = gain,
             Offset = 25,
             Latitude = 48f,
             Longitude = 11f,
@@ -101,7 +101,7 @@ public sealed class WorkbenchImportScreenTests : IDisposable
             .WriteToFitsFile(Path.Combine(folder, name));
     }
 
-    // The 10P night: five lights at -5 C and a sixth of 120 s (no dark matches it), three darks at -5 C, three flats, two bias, a file
+    // The 10P night: five lights at -5 C and a sixth of 120 s at another gain (no dark matches it), three darks at -5 C, three flats, two bias, a file
     // with no type (an even field: a flat, guessed), and the comet's track.
     private async Task<string> CaptureAsync(CancellationToken ct)
     {
@@ -112,7 +112,7 @@ public sealed class WorkbenchImportScreenTests : IDisposable
             Write(folder, $"10PTempel2_light_60s_-5C_{i:0000}.fits", FrameType.Light, 60, 300, stars: true);
         }
 
-        Write(folder, "10PTempel2_light_120s_-5C_0006.fits", FrameType.Light, 120, 300, stars: true);
+        Write(folder, "10PTempel2_light_120s_-5C_0006.fits", FrameType.Light, 120, 300, stars: true, gain: 300);
         for (var i = 1; i <= 3; i++)
         {
             Write(folder, $"dark_60s_-5C_{i:0000}.fits", FrameType.Dark, 60, 100);
@@ -172,7 +172,7 @@ public sealed class WorkbenchImportScreenTests : IDisposable
         e2e.State.Stage.ShouldBe(WorkbenchStage.Import);
         var groups = e2e.State.Import!.Capture!.Groups;
         groups.Select(static g => g.Kind).ShouldBe(
-            [DetectedGroupKind.Lights, DetectedGroupKind.Darks, DetectedGroupKind.Flats, DetectedGroupKind.Bias, DetectedGroupKind.CometTrack, DetectedGroupKind.NeedsALook],
+            [DetectedGroupKind.Lights, DetectedGroupKind.Lights, DetectedGroupKind.Darks, DetectedGroupKind.Flats, DetectedGroupKind.Bias, DetectedGroupKind.CometTrack, DetectedGroupKind.NeedsALook],
             "lights first, then the calibration, the track and what needs a look");
         foreach (var title in new[] { "FOUND", "Lights", "Darks", "Flats", "Bias", "Comet track", "Choose a workflow ›", "Cancel" })
         {
@@ -260,7 +260,7 @@ public sealed class WorkbenchImportScreenTests : IDisposable
 
         var import = e2e.State.Import!;
         import.ChosenWorkflow.ShouldBe(BuiltInWorkflows.CometColour, "the best fit is preselected");
-        foreach (var text in new[] { "FITS THESE FRAMES", "DOES NOT FIT", "WHAT IT WILL DO", "Comet, colour camera", "Deep sky, colour camera",
+        foreach (var text in new[] { "FITS THESE FRAMES", "WHAT IT WILL DO", "Comet, colour camera", "Deep sky, colour camera",
             "Start from an empty workflow", "‹ Back", "Use selected workflow ›", "Or double-click a workflow, or press Enter" })
         {
             Shows(e2e, text).ShouldBeTrue($"the page says '{text}'");
@@ -284,6 +284,25 @@ public sealed class WorkbenchImportScreenTests : IDisposable
 
         e2e.ClickText("‹ Back");
         e2e.State.Stage.ShouldBe(WorkbenchStage.Import);
+    }
+
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task AWorkflowThatDoesNotFitSaysWhyAndIsNotChosen(float dpi)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var capture = await CaptureAsync(ct);
+        File.Delete(Path.Combine(capture, "10P.track.json"));
+        await using var e2e = await StartAtImportAsync(dpi, capture, ct);
+        await GoToWorkflowAsync(e2e, ct);
+
+        var comet = e2e.State.Import!.Workflows.Single(static w => w.Id == BuiltInWorkflows.CometColour);
+        comet.Answer.Fit.Fits.ShouldBeFalse("no comet track in the folder");
+        Shows(e2e, "DOES NOT FIT").ShouldBeTrue();
+        Shows(e2e, comet.Answer.Template.Title).ShouldBeTrue("the workflow that does not fit is listed");
+        e2e.Texts().Select(static t => t.Text).ShouldContain(static t => t.Contains("track", StringComparison.OrdinalIgnoreCase), "its reason is on the page");
+        e2e.State.Import.ChosenWorkflow.ShouldBe(BuiltInWorkflows.DeepSkyColour, "the best of those that fit is preselected");
     }
 
     [Theory(Timeout = 120_000)]
@@ -413,7 +432,7 @@ public sealed class WorkbenchImportScreenTests : IDisposable
         {
             var (cx, cy) = (bounds.X + (bounds.Width / 2f), bounds.Y + (bounds.Height / 2f));
             regions.Where(r => cx >= r.X && cx <= r.X + r.Width && cy >= r.Y && cy <= r.Y + r.Height && r.Tooltip is not null)
-                .ShouldContain(r => r.Tooltip!.Contains(full, StringComparison.Ordinal), $"'{full}' is shown as '{shown}' and carries its whole text on hover");
+                .ShouldContain(r => r.Tooltip!.Contains(full, StringComparison.Ordinal), $"'{full}' is shown as '{shown}' in {bounds} and carries its whole text on hover");
         }
     }
 
@@ -454,13 +473,14 @@ public sealed class WorkbenchImportScreenTests : IDisposable
                 await GoToWorkflowAsync(e2e, ct);
             }
 
-            AssertNothingCutSilently(e2e);
             if (Environment.GetEnvironmentVariable("TIANWEN_KEEP_TEST_OUTPUT") == "1")
             {
                 var surface = e2e.Renderer.Surface;
                 File.WriteAllBytes(Path.Combine(AppContext.BaseDirectory, $"workbench-new-{page}-{width}x{height}-{theme}.png"),
                     Helpers.DisplayImageWriter.EncodePng(surface.Pixels, (int)surface.Width, (int)surface.Height));
             }
+
+            AssertNothingCutSilently(e2e);
         }
         finally
         {
