@@ -389,7 +389,7 @@ public sealed partial class WorkbenchScreen<TSurface>
                 .WithTooltip(file.FullPath)
                 .Clickable(new HitResult.ButtonHit("Frame:" + file.Place), _ => actions.ShowFrameFile(full), CursorKind.Pointer);
             var gradeCell = Layout.Builder.Text(gradeWord, BaseFontSize * 0.85f, gradeInk, TextAlign.Far, trim: TextTrim.End)
-                .WFixed(64f).WithTooltip($"Grade: {gradeWord}");
+                .WFixed(80f).WithTooltip($"Grade: {gradeWord}");
             var line = Layout.Builder.HStack(name, gradeCell, KindCell(file, actions.ReassignFrame).WFixed(110f).HStar())
                 .WithGap(Gap / 2).CrossCenter().Pad(Gap / 2, 0f).Bg(fill).BgHover(GuiTheme.Hover(fill)).Radius(4f).WStar().HFixed(TreeRowHeight + 6f);
             rows.Add(line);

@@ -221,6 +221,9 @@ public sealed class WorkbenchCaptureTests : IDisposable
                 var first = e2e.State.Frames!.Groups.First(static g => g.Name == "Lights").Details[0];
                 e2e.Click(e2e.Region("Frame:" + first.Place));
                 await e2e.PumpUntilAsync(() => e2e.Controller.Document is not null, "the file shown", ct);
+                // The picture is painted on the frame after the document arrives, so the capture is of that frame.
+                e2e.Frame();
+                e2e.Frame();
             }
 
             Keep(e2e, $"workbench-panel-{scenario}-{width}x{height}-{theme}");
