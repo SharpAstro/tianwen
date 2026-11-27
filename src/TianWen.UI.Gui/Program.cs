@@ -908,8 +908,9 @@ loop.OnLoopIteration = () =>
     previousLoopIteration?.Invoke();
     // In front: SDL says the window has input focus and it is not minimised or hidden. Read here, on the main thread, for
     // DesktopAlerts to read from any thread.
+    var windowFlags = GetWindowFlags(sdlWindow.Handle);
     Volatile.Write(ref windowInFront,
-        !sdlWindow.IsMinimizedOrHidden && (GetWindowFlags(sdlWindow.Handle) & WindowFlags.InputFocus) != 0 ? 1 : 0);
+        (windowFlags & WindowFlags.InputFocus) != 0 && (windowFlags & (WindowFlags.Minimized | WindowFlags.Hidden)) == 0 ? 1 : 0);
     if (!displayLost)
     {
         signalHandler.BeatNodes();

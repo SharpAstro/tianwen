@@ -18,7 +18,7 @@ internal sealed class AppShellDesktopAlert(string scheme) : IDesktopAlert
         {
             Tag = alert.Tag,
             Group = alert.Group,
-            Urgency = alert.Urgency is DesktopAlertUrgency.Urgent ? DesktopNotificationUrgency.Urgent : DesktopNotificationUrgency.Normal,
+            Urgency = alert.Urgency is DesktopAlertUrgency.Urgent ? ToastUrgency.Urgent : ToastUrgency.Normal,
             LaunchPayload = alert.Link,
             Scheme = scheme
         };
