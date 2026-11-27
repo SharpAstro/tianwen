@@ -195,20 +195,22 @@ public class NotificationsTabAlertSettingTests(ITestOutputHelper output)
     }
 
     // ui-changes.md: a control's edge is 3:1 against what it is drawn on, and its words 4.5:1 on their fill (3.4:1 at night,
-    // GuiThemeTests' floor for that palette), in every palette; at night nothing spends blue.
+    // GuiThemeTests' floor for that palette), in every palette; at night nothing spends blue. Clear is drawn with the body text on
+    // the same rest fill, hover and ring as the choice's unchosen segments, so these pairs are its pairs too.
     [Theory]
     [InlineData(UiThemeState.Light)]
     [InlineData(UiThemeState.Dark)]
     [InlineData(UiThemeState.Night)]
-    public void TheChoiceStandsOffTheHeaderAndItsWordsReadInEveryPalette(UiThemeState state)
+    public void TheHeaderControlsStandOffTheHeaderAndTheirWordsReadInEveryPalette(UiThemeState state)
     {
         try
         {
             GuiTheme.Apply(state, desktopIsDark: state != UiThemeState.Light);
             var header = GuiTheme.Palette.HeaderBg;
-            var edge = NotificationsTab<RgbaImage>.AlertChoiceEdge;
+            var edge = NotificationsTab<RgbaImage>.HeaderControlEdge;
             var style = NotificationsTab<RgbaImage>.AlertChoiceStyle(80f);
             var rest = style.UnselectedFill.ShouldNotBeNull();
+            rest.ShouldBe(NotificationsTab<RgbaImage>.HeaderControlFill);
             var textFloor = state == UiThemeState.Night ? 3.4f : 4.5f;
 
             RGBAColor32.ContrastRatio(edge, header).ShouldBeGreaterThanOrEqualTo(3.0f, $"{state}: the ring on the header");

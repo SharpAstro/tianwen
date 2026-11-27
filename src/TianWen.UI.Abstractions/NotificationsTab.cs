@@ -164,23 +164,30 @@ namespace TianWen.UI.Abstractions
                + (alerts.LastRefusal is { } why ? $" Windows did not show the last alert: {why}. Check that notifications are on for this app." : "");
 
         /// <summary>
-        /// The ring round the alert choice, so its extent reads against the header whichever segment is chosen. A control's edge
-        /// stands 3:1 off what it is drawn on (ui-changes.md) in every palette: <c>DimText</c> does on the header (5.3:1 day,
-        /// 5.1:1 dark, 3.4:1 night, with no blue at night). DIR.Lib's <c>ControlEdge</c> default is tuned to the panel and is
-        /// 2.7:1 on the day header and spends blue at night; the separators are under 2:1.
+        /// The ring round the header's controls (the alert choice and Clear), so each one's extent reads against the header. A
+        /// control's edge stands 3:1 off what it is drawn on (ui-changes.md) in every palette: <c>DimText</c> does on the header
+        /// (5.3:1 day, 5.1:1 dark, 3.4:1 night, with no blue at night). DIR.Lib's <c>ControlEdge</c> default is tuned to the panel
+        /// and is 2.7:1 on the day header and spends blue at night; the separators are under 2:1.
         /// </summary>
-        internal static RGBAColor32 AlertChoiceEdge => DimText;
+        internal static RGBAColor32 HeaderControlEdge => DimText;
+
+        /// <summary>
+        /// The fill of the header's controls at rest (Clear, and the alert choice's unchosen segments): a step off the header,
+        /// with the body text on it. Clear's was a literal slate, which carried its word at about 1.6:1 in the day palette and
+        /// spent blue at night.
+        /// </summary>
+        internal static RGBAColor32 HeaderControlFill => GuiTheme.Mix(HeaderBg, BodyText, 0.14f);
 
         /// <summary>
         /// How the alert choice shows its levels: the chosen segment is the accent, its word in the ink that measures best on it
-        /// (the design language's segmented control), and the others a step off the header with the body text. The chosen
-        /// segment was a mix of the accent into the header, which carried its word at 1.7:1 at night.
+        /// (the design language's segmented control), and the others <see cref="HeaderControlFill"/> with the body text. The
+        /// chosen segment was a mix of the accent into the header, which carried its word at 1.7:1 at night.
         /// </summary>
         /// <param name="segmentWidth">Design units each segment takes (see <c>AlertSegmentWidth</c>).</param>
         internal static Layout.ButtonGroupStyle AlertChoiceStyle(float segmentWidth)
         {
             var chosen = GuiTheme.Palette.Accent;
-            var rest = GuiTheme.Mix(HeaderBg, BodyText, 0.14f);
+            var rest = HeaderControlFill;
             return new Layout.ButtonGroupStyle(chosen, rest, GuiTheme.InkOn(chosen), BodyText, GuiTheme.Hover(rest))
             {
                 Gap = 1f,
@@ -217,18 +224,19 @@ namespace TianWen.UI.Abstractions
                 // The ring is reserved inside the choice's box by the engine, so the box stays the row's height and the segments
                 // sit within it.
                 choice = Layout.Builder.ButtonGroup(options, alerts.Level, onLevel, style, AlertChoiceFontSize)
-                    .Border(AlertChoiceEdge, GuiTheme.Metrics.ControlEdgeWidth, GuiTheme.Metrics.ControlRadius)
+                    .Border(HeaderControlEdge, GuiTheme.Metrics.ControlEdgeWidth, GuiTheme.Metrics.ControlRadius)
                     .WithTooltip(AlertTooltip(alerts)).HStar();
             }
 
-            // Clear: this computer's own notes only, since a rig's are its node's.
+            // Clear: this computer's own notes only, since a rig's are its node's. A standard button: the header controls' fill and
+            // ring, the same as the choice beside it.
             Layout.Node? clear = null;
             if (feed.IsLocal && !feed.Entries.IsEmpty)
             {
-                var clearBg = new RGBAColor32(0x3a, 0x3a, 0x46, 0xff);
                 clear = Layout.Builder.Text("Clear", BaseFontSize * 0.95f, BodyText, TextAlign.Center, TextAlign.Center)
                     .PadX(12f).HStar()
-                    .Bg(clearBg).BgHover(GuiTheme.Hover(clearBg))
+                    .Bg(HeaderControlFill).BgHover(GuiTheme.Hover(HeaderControlFill))
+                    .Border(HeaderControlEdge, GuiTheme.Metrics.ControlEdgeWidth, GuiTheme.Metrics.ControlRadius)
                     .Clickable(new HitResult.ButtonHit("NotificationsClear"), _ =>
                     {
                         appState.ClearNotifications();
