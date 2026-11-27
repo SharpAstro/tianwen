@@ -41,11 +41,11 @@ public class NodeRunNotesTests(ITestOutputHelper output)
         await UntilAsync("the node to note the run's end", _ => ValueTask.FromResult(
             (harness.Node.Notifications.Any(n => n.Message == failed.Message), $"{harness.Node.Notifications.Length} notes")), ct);
 
-        harness.Node.Notifications.Select(n => (n.Severity, n.Message)).ShouldBe(
+        harness.Node.Notifications.Select(n => (n.Severity, n.Kind, n.Message)).ShouldBe(
         [
-            ("Info", SessionNotes.ForRunStart(flatRun: false).Message),
-            ("Info", SessionNotes.ForPhase(SessionPhase.RoughFocus).ShouldNotBeNull().Message),
-            ("Error", failed.Message),
+            ("Info", nameof(NoteKind.RunStarted), SessionNotes.ForRunStart(flatRun: false).Message),
+            ("Info", nameof(NoteKind.Phase), SessionNotes.ForPhase(SessionPhase.RoughFocus).ShouldNotBeNull().Message),
+            ("Error", nameof(NoteKind.SessionFailed), failed.Message),
         ]);
     }
 }

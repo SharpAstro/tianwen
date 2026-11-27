@@ -33,6 +33,9 @@ public sealed record DesktopAppIdentity(string Id, string DisplayName)
     /// the id stays whatever the name becomes.</remarks>
     public static DesktopAppIdentity Workbench { get; } = new("com.sharpastro.tianwen.edit", "Tianwen Edit");
 
+    /// <summary>The URL scheme of the GUI's toast clicks (<c>LaunchScheme.Register</c>): lower case, and none the shell owns.</summary>
+    public const string GuiLaunchScheme = "tianwen-gui";
+
     /// <summary>The same identity for SDL, which applies it before <c>SDL_Init</c>; the version stays the entry
     /// assembly's. Inside an app package (<paramref name="packaged"/>) the identifier is left to SDL, because the
     /// package's manifest names the app there and an id of ours would split an SDL toast from the package's windows.</summary>

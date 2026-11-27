@@ -25,6 +25,18 @@ clients), subscribes to `PhaseChanged` / `FrameWritten` / `PlateSolveCompleted` 
 node's **notification recorder** (it already watches every session event, so it writes what it
 broadcasts into the ring).
 
+**A note says what kind of event it is.** Each notification carries a `Kind` beside its `Severity`: the name of
+`TianWen.Lib.Sequencing.NoteKind` (run started, phase, session failed, guide star lost, plate solve failed, mount
+limit and so on), set by `SessionNotes` and by every note the node words itself (`EventBroadcaster`'s literals, and `NodeRunWatch`,
+`NodeRuns.NoteFault` and `NodeProfiles`, whose kinds are `RunStoppedUnwatched`, `RunFaulted` and `ProfilesReconciled`;
+the first two are safety kinds), so a consumer keys on the
+kind and never on a message's wording. A client's desktop alert is the reason: its allowlist and its grouping read
+`NotificationEntry.Kind`. It travels as a nullable string (`NotificationDto.Kind`, `set`, never `required`), on the
+`NOTIFICATION` push and in the ring alike; an older node sends none and a name this build does not know is not an
+error, both reading as `NoteKind.None`. `RemoteSessionMirror.NoteReceived` fires once for each note new to the feed,
+pushed or brought by a ring read after the first (the read after a socket reconnect, which holds what was pushed
+while the socket was down); the first ring read is history from before the client attached and raises nothing.
+
 **A broadcast never waits for a socket.** Every client has a bounded queue drained by one sender of its
 own: a broadcast serialises the event once per pool and queues it, so one stalled client costs nobody
 else anything, and order holds per client. A client whose queue fills, or whose send outlasts the send

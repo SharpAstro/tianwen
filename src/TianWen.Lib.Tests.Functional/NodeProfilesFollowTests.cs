@@ -35,7 +35,9 @@ public class NodeProfilesFollowTests(ITestOutputHelper outputHelper)
 
         var reread = (await Profile.TryReadStoredAsync(node.External, stored.Profile.ProfileId, ct)).ShouldNotBeNull();
         reread.Profile.Data.ShouldNotBeNull().OTAs[0].Focuser.ShouldNotBeNull().DeviceKey.ShouldBe(GeminiFocuser("COM4").DeviceKey);
-        node.Node.Notifications.ShouldContain(n => n.Message == "Bench: Gemini Focuser Pro: followed to COM4 (was COM3)",
+        // A reconcile note carries its kind, and is Info, which is why it is not a safety kind and never alerts.
+        node.Node.Notifications.ShouldContain(n => n.Message == "Bench: Gemini Focuser Pro: followed to COM4 (was COM3)"
+            && n.Kind == "ProfilesReconciled" && n.Severity == "Info",
             string.Join(" | ", node.Node.Notifications.Select(n => n.Message)));
     }
 

@@ -86,14 +86,24 @@ namespace TianWen.UI.Abstractions
                 if (_mirror is { } old)
                 {
                     old.Changed -= OnMirrorChanged;
+                    old.NoteReceived -= OnNoteReceived;
                 }
                 _mirror = value;
                 if (value is not null)
                 {
                     value.Changed += OnMirrorChanged;
+                    value.NoteReceived += OnNoteReceived;
                 }
             }
         }
+
+        /// <summary>The app this context belongs to, whose <see cref="GuiAppState.DesktopAlerts"/> a note from this context's node is offered to.</summary>
+        internal GuiAppState? App { get; set; }
+
+        // On the mirror's socket thread: it only decides and queues (DesktopAlerts.Offer), never calls the OS. This computer's
+        // own node's notes are this computer's (null node id); a rig's carry its id and name.
+        private void OnNoteReceived(object? sender, TianWen.Hosting.Dto.NotificationDto note)
+            => App?.DesktopAlerts?.Offer(NotificationEntry.FromNode(note), IsLocal ? null : NodeId, DisplayName);
 
         private RemoteSessionMirror? _mirror;
 
@@ -289,6 +299,7 @@ namespace TianWen.UI.Abstractions
             _appState = appState;
             foreach (var context in _all)
             {
+                context.App = appState;
                 context.LiveSession.AttachAppState(appState);
             }
         }
@@ -314,6 +325,7 @@ namespace TianWen.UI.Abstractions
             var context = ViewContext.CreateRemote(nodeId, displayName);
             if (_appState is { } appState)
             {
+                context.App = appState;
                 context.LiveSession.AttachAppState(appState);
             }
             _all = _all.Add(context);

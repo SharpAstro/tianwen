@@ -40,7 +40,7 @@ public class BroadcastEventSerializationTests
         [BroadcastEvents.GuiderStateChanged(new GuiderStateChangedEventArgs("Calibrating", "Guiding"))],
         [BroadcastEvents.PromptRequested(new SessionPromptEventArgs("Panel", "Switch the panel on", "Continue", "Cancel",
             new TaskCompletionSource<bool>(), defaultIfUnanswerable: false, raisedUtc: Now))],
-        [BroadcastEvents.Notification(new NotificationDto { Severity = "Info", Message = "Cooling -> RoughFocus", TimestampUtc = Now })],
+        [BroadcastEvents.Notification(new NotificationDto { Severity = "Info", Kind = "Phase", Message = "Cooling -> RoughFocus", TimestampUtc = Now })],
         [BroadcastEvents.JobProgress(new JobDto { Id = "7f3c", Kind = "discover", State = JobState.Failed, Step = "Discovering devices", Error = "the serial sweep failed", StartedUtc = Now, EndedUtc = Now })],
         [BroadcastEvents.DeviceState(new DeviceStateDto
         {
@@ -82,5 +82,14 @@ public class BroadcastEventSerializationTests
         var envelope = new ResponseEnvelope<WebSocketEventDto>(dto, "", 200, true, "Socket");
 
         Should.NotThrow(() => JsonSerializer.Serialize(envelope, NinaApiJsonContext.Default.ResponseEnvelopeWebSocketEventDto));
+    }
+
+    [Fact]
+    public void TheNotificationPayloadCarriesTheKindBesideTheSeverity()
+    {
+        var dto = BroadcastEvents.Notification(new NotificationDto { Severity = "Error", Kind = "SessionFailed", Message = "Session failed", TimestampUtc = Now });
+
+        dto.Data.ShouldNotBeNull()["Kind"].ShouldBe("SessionFailed");
+        dto.Data["Severity"].ShouldBe("Error");
     }
 }
