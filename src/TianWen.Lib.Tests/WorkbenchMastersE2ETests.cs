@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using DIR.Lib;
 using Shouldly;
 using TianWen.Lib.Imaging.Enhancement;
+using TianWen.Lib.IO;
 using TianWen.Lib.Imaging.Workbench;
 using TianWen.UI.Abstractions;
 using Xunit;
@@ -256,20 +257,30 @@ public sealed class WorkbenchMastersE2ETests : IDisposable
         await e2e.OpenProjectAsync(project, ct, "night-1");
         var button = Buttons(e2e).ShouldHaveSingleItem();
 
-        // The press is let through (no run yet) and its routine goes off the render thread; the run starts at once, before the
-        // routine can finish its file work, and holds at its gate, so the chain's own open meets a run that is going.
+        // The test holds the project file's lock (the routine appends its chain under it), so the press, once let through, stands
+        // at that lock with its chain laid out. A run starts meanwhile and holds at its gate; then the lock is let go, the chain
+        // is written and its own open meets a run that is going. No timing decides the order.
+        var holding = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var letGo = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var lockHeld = SharedFile.UpdateJsonIfAsync(
+            WorkbenchProjectFile.PathIn(project),
+            WorkbenchJsonContext.Default.WorkbenchProject,
+            current =>
+            {
+                holding.SetResult();
+                letGo.Task.Wait(ct);
+                return null;
+            },
+            cancellationToken: ct);
+        await holding.Task.WaitAsync(ct);
+
         e2e.Click(button);
         e2e.Actions.Jobs.TryStart(e2e.State.View!.Folder, "other", 0).ShouldBeTrue();
-        using var diag = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        diag.CancelAfter(20_000);
-        try
-        {
-            await e2e.PumpFramesUntilAsync(() => e2e.State.MasterRefusal is not null && !e2e.State.IsProcessingMaster, "the refusal", diag.Token);
-        }
-        catch (TimeoutException)
-        {
-            throw new InvalidOperationException($"DIAG image={e2e.State.View!.ImageName} processing={e2e.State.IsProcessingMaster} running={e2e.Actions.Jobs.IsRunning} refusal={e2e.State.MasterRefusal} pending={string.Join('|', e2e.Tracker.PendingDescriptions)} images={(await WorkbenchProjectFile.ReadAsync(project, ct)).Project?.Images.Length}");
-        }
+        await e2e.PumpFramesUntilAsync(() => _gate.Started.Task.IsCompleted, "the step at its gate", ct);
+        e2e.State.IsProcessingMaster.ShouldBeTrue("the press is still waiting for the project file");
+        letGo.SetResult();
+        await lockHeld;
+        await e2e.PumpFramesUntilAsync(() => e2e.State.MasterRefusal is not null && !e2e.State.IsProcessingMaster, "the refusal", ct);
 
         var refusal = e2e.State.MasterRefusal.ShouldNotBeNull();
         refusal.ShouldStartWith("m31_L was processed but its image was not opened: ");
