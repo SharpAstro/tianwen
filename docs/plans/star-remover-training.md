@@ -11537,13 +11537,13 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     extra is what it takes beyond the median plate, and the extra's compact part what a 9 px grey opening removes
     from it. ON bright nebula (`nebula_rows.py`'s: the large-scale map 20 pixel sigmas over its 5th percentile, the
     edge blended over about 16 px; the sky level and the pixel sigma are taken over the master's live blocks and pixels
-    only, never over its zero absent ring, which would read the frame as nebula) the output is the median plate less the compact extra of either of O or of both
-    of L. OFF it, one of three: `--off med`, the median plate less the largest compact extra of any member; `--off
-    med2`, less the second largest (two members must take a star); `--off low`, the lowest of the ten plates (a
-    lump any member took goes too). Every output pixel lies between the lowest member's plate and the median
-    plate, so nothing is over-subtracted; the knot above comes out as the median plate has it, taken smoothly, as
-    R4h's line takes it (StarXTerminator keeps it: a fault the rule inherits from eight of its ten members, and
-    the standing-peaks guard still holds).
+    only, never over its zero absent ring, which would read the frame as nebula) the output is the median plate less
+    the compact extra of either of O or of both of L. OFF it, one of three: `--off med`, the median plate less the
+    largest compact extra of any member; `--off med2`, less the second largest (two members must take a star);
+    `--off low`, the lowest of the ten plates (a lump any member took goes too). Every output pixel lies between the
+    lowest member's plate and the median plate, so nothing is over-subtracted; the knot above comes out as the median
+    plate has it, taken smoothly, as R4h's line takes it (StarXTerminator keeps it: a fault the rule inherits from
+    eight of its ten members, and the standing-peaks guard still holds).
   - **The combination's own scorecard** (the rule's three forms on the held-out masters, through the chain unless
     the row says as trained; R4h's two seeds and StarXTerminator beside them):
 
@@ -11567,6 +11567,19 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
 
     On every form no light is added on a master's nebula as trained (0.0 %), M31's nucleus stands through the
     chain (0.0 % taken), and of the judge's 132 standing peaks 33 to 34 are taken (R4h's seeds 28 and 34).
+
+    **These figures are the corrected rule's.** The review of this registration found that the bright-nebula map
+    took its sky level over a master's zero absent ring as well, so a master with a wide ring read as bright nebula
+    nearly everywhere (the review counted 24 of the 113 training masters with a ring of 5 % of the frame or more).
+    The rule was corrected as described above, and `test_teacher_combine.py` holds a ring case that the first rule
+    fails, reading 0.99 of the live frame as nebula. The first scoring had used the first rule, so all three forms
+    were built again with the corrected one and scored again, each step of the scorer from the plates on. The
+    Tarantula's plates are the first scoring's bit for bit. Andromeda's differ in about a million values (the
+    largest by 2e-4 to 4e-4 in the plates' units, over the three forms; its bright nebula goes from 5.5 to 4.9 % of the
+    frame) and Sagittarius's in 23 to 32 thousand, and no figure of the table moved in the digits printed. The 1:1
+    sheets below were cut from the first scoring's plates and were not cut again. The teacher plates of the
+    training masters are made with the corrected rule only: the eight written before it were set aside and made
+    again.
 
     **The form the arm below uses is `--off med2`.** It holds every registered guard, purity among them; off the
     nebula it takes only what two members agree on, so one member's mistake on a master nobody looked at is not
@@ -11622,7 +11635,8 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     plates are deleted once its teacher plate is written.
   - **The data.** R4k's sessions and cells exactly: the 113 three-channel session ids that remain once every id
     of an object a scorecard row is read on (the Lagoon, the Tarantula, the Sagittarius Star Cloud) is taken out of
-    R4h's train and validation lists (113 is the count AFTER that), 105 for training and 8 held out, 40 cells a session, one draw. The export is R4k's
+    R4h's train and validation lists (113 is the count AFTER that), 105 for training and 8 held out, 40 cells a
+    session, one draw. The export is R4k's
     line (`tianwen dataset degrade --mode stars --background real --cells 40 --draws 1 --seed 1`, build `bh-bin15`)
     with one change: `--plates` names the teacher's plates, each beside the plate builder's own side files of that
     session (its catalogue, field profile and subtracted footprint, which the exporter reads for the mask it
