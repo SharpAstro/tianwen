@@ -134,6 +134,9 @@ var requestedProfile = args.Length >= 2 && args[0] is "--active" or "-a" ? args[
 // ignored rather than silently dropped. Acting on it is deferred.
 const string GuiGateScope = "tianwen-gui";
 const string GuiSingleInstanceEnvVar = "TIANWEN_GUI_SINGLE_INSTANCE";
+// A click on a desktop alert starts this executable with a launch link as its one argument (LaunchScheme). Only a link of
+// the GUI's own scheme is one; the payload inside is untrusted and is only ever looked up (DesktopAlertLink.Resolve).
+string? startupLaunchLink = args.Length > 0 && LaunchScheme.TryRead(args[0], DesktopAppIdentity.GuiLaunchScheme, out _) ? args[0] : null;
 
 // A window that replaces one whose GPU could not draw again (P7, #937) waits for that one to go first: the gate would
 // otherwise hand this start to the process that is dying. The night is the node's, so the wait costs it nothing.
@@ -167,7 +170,7 @@ if (!string.Equals(Environment.GetEnvironmentVariable(GuiSingleInstanceEnvVar), 
                 + "because switching profiles is refused while a session is connected or running.", args[1]);
         }
 
-        if (InstanceGate.TryHandOff(gateChannel, string.Empty, TimeSpan.FromSeconds(5), logger))
+        if (InstanceGate.TryHandOff(gateChannel, startupLaunchLink ?? string.Empty, TimeSpan.FromSeconds(5), logger))
         {
             logger.LogInformation("Activated the running TianWen GUI instead of starting a second one");
             return 0;
@@ -191,6 +194,19 @@ else
 {
     logger.LogDebug("App identity {Id}: Start menu shortcut {Shortcut}", appIdentity.Id, startMenuShortcut);
 }
+
+// The click on a desktop alert: the shell starts this executable with the scheme's link (a running window gets it through
+// the gate above). Registered after the identity, whose id marks the scheme as ours.
+var launchScheme = LaunchScheme.Register(DesktopAppIdentity.GuiLaunchScheme, appIdentity.Id, appIdentity.DisplayName);
+if (launchScheme is LaunchSchemeRegistration.Foreign or LaunchSchemeRegistration.Failed)
+{
+    logger.LogWarning("Launch scheme {Scheme}: {Registration}; a click on a desktop alert will not reach this app", DesktopAppIdentity.GuiLaunchScheme, launchScheme);
+}
+else
+{
+    logger.LogDebug("Launch scheme {Scheme}: {Registration}", DesktopAppIdentity.GuiLaunchScheme, launchScheme);
+}
+DesktopNotification.LogOnce(logger);
 
 // SDL3 + Vulkan init. Install the native-library resolver before the first
 // P/Invoke into SDL3 so a failed DLL load lands in the file logger instead of
@@ -304,6 +320,16 @@ var signalHandler = handlers.SignalHandler;
 var appQuit = new AppQuit(appState, guiRenderer.ViewContexts, rigShutdown, tracker, backgroundCts, timeProvider, logger,
     () => signalHandler.FlushRigLastSeenAsync(System.Threading.CancellationToken.None));
 bus.Subscribe<AnswerQuitSignal>(sig => appQuit.Answer(sig.Action));
+
+// Desktop alerts (#2507): DesktopAlerts is the one place an alert is decided; the sink is AppShell's toast. Whether the
+// window is in front is written on the main thread by the loop (below) and only read here, never asked of SDL from another
+// thread. Its consumer runs on the background token, so quit ends it.
+var windowInFront = 0;
+var desktopAlerts = new DesktopAlerts(new AppShellDesktopAlert(DesktopAppIdentity.GuiLaunchScheme), timeProvider,
+    () => Volatile.Read(ref windowInFront) != 0, logger);
+appState.DesktopAlerts = desktopAlerts;
+tracker.Run(async () => desktopAlerts.Level = await DesktopAlertSettings.LoadAsync(external, backgroundCts.Token), "Load the desktop alert level");
+tracker.Run(() => desktopAlerts.RunAsync(backgroundCts.Token), "Desktop alerts");
 // This computer's node, found or started (P6): it holds the rig, and the local view reads it as it reads a rig. In the
 // background, since a node can take seconds to come up and the window says so meanwhile; the profile, the planner's start
 // and the session setup follow once it answers. A node it starts is in this window's mode (local-only or not).
@@ -880,6 +906,10 @@ var previousLoopIteration = loop.OnLoopIteration;
 loop.OnLoopIteration = () =>
 {
     previousLoopIteration?.Invoke();
+    // In front: SDL says the window has input focus and it is not minimised or hidden. Read here, on the main thread, for
+    // DesktopAlerts to read from any thread.
+    Volatile.Write(ref windowInFront,
+        !sdlWindow.IsMinimizedOrHidden && (GetWindowFlags(sdlWindow.Handle) & WindowFlags.InputFocus) != 0 ? 1 : 0);
     if (!displayLost)
     {
         signalHandler.BeatNodes();
@@ -1219,17 +1249,25 @@ lanDiscovery?.Dispose();
 // The GPU trio (guiRenderer, renderer and the Vulkan context) is disposed by `using var gpu` at
 // scope end, top-down, still ahead of sdlWindow's own using.
 
-// Raises the window when another launch asks for it. The payload is empty for this app
-// (there is no document to open), so activation is the whole of the work.
+// Raises the window when another launch asks for it. An empty payload is the plain activation; a launch link of the
+// GUI's scheme (a click on a desktop alert) also opens the Notifications tab of the view it names.
 void PumpInstanceGate()
 {
+    if (startupLaunchLink is { } first)
+    {
+        // A first window started by a click: routed once, now that the window and its views exist.
+        startupLaunchLink = null;
+        OpenLaunchLink(first);
+    }
+
     if (instanceGate is null)
     {
         return;
     }
 
-    while (instanceGate.TryDequeue(out _))
+    while (instanceGate.TryDequeue(out var request))
     {
+        OpenLaunchLink(request.Payload);
         // Restores only if minimised, then raises. SdlVulkanWindow implements
         // IActivatableWindow, so this is AppShell's own rule, not a local copy of it; the
         // reason it is not simply "restore, then raise" is on WindowActivation.
@@ -1239,6 +1277,26 @@ void PumpInstanceGate()
 }
 
 return 0;
+
+// Selects the view a launch link names, the way the rig picker does (its signal), with the Notifications tab open.
+// The payload is untrusted: DesktopAlertLink.Resolve only matches it against the NodeIds this window knows.
+void OpenLaunchLink(string? link)
+{
+    if (string.IsNullOrEmpty(link) || !LaunchScheme.TryRead(link, DesktopAppIdentity.GuiLaunchScheme, out var payload))
+    {
+        return;
+    }
+
+    var view = DesktopAlertLink.Resolve(payload, guiRenderer.ViewContexts);
+    if (view.IsLocal)
+    {
+        bus.Post(new SelectLocalContextSignal(GuiTab.Notifications));
+    }
+    else
+    {
+        bus.Post(new SelectRemoteRigSignal(view.DisplayName, GuiTab.Notifications));
+    }
+}
 
 // The paint time below which the given share of the paints since the last line came in (sorted in place: the list is
 // emptied once read).
