@@ -151,16 +151,16 @@ public class DesktopAlertsTests(ITestOutputHelper output)
         var rig = new Rig();
         rig.Alerts.Decide(new NotificationEntry(Now, NotificationSeverity.Error, "a"), "n", "N").ShouldNotBeNull();
         // The node's clock is an hour ahead; this client's has not moved: still a repeat.
-        rig.Alerts.Decide(new NotificationEntry(Now.AddHours(1), NotificationSeverity.Error, "b"), "n", "N").ShouldBeNull();
+        rig.Alerts.Decide(new NotificationEntry(Now.AddHours(1), NotificationSeverity.Error, "a"), "n", "N").ShouldBeNull();
     }
 
     [Fact]
-    public void AnErrorIsUrgentAndAWarningNormalAndATagIsTheKindOrTheSeverity()
+    public void AnErrorIsUrgentAndAWarningNormalAndATagIsTheKindOrTheSeverityAndWording()
     {
         var rig = new Rig();
         rig.Alerts.Decide(Note(NotificationSeverity.Error), null, null).ShouldNotBeNull().ShouldSatisfyAllConditions(
             a => a.Urgency.ShouldBe(DesktopAlertUrgency.Urgent),
-            a => a.Tag.ShouldBe("Error"));
+            a => a.Tag.ShouldBe("Error:something happened"));
         rig.Alerts.Decide(Note(NotificationSeverity.Warning, NoteKind.MountLimit), null, null).ShouldNotBeNull().ShouldSatisfyAllConditions(
             a => a.Urgency.ShouldBe(DesktopAlertUrgency.Normal),
             a => a.Tag.ShouldBe("MountLimit"));
