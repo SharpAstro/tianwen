@@ -180,14 +180,6 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
                 Layout.Builder.Fill(key: CanvasKey).WStar().HStar())
             .WStar().HStar();
         var rows = new List<Layout.Node> { TopBar(state, actions).WStar().HFixed(TopBarHeight) };
-        // A refused New project is said in words under the bar, whole text on hover. The row is always there, empty while there is
-        // no refusal, so its appearing moves nothing under the pointer.
-        var refusal = state.NewProjectRefusal;
-        // An empty row carries no hover text: an empty one would still be shown, as an empty bubble.
-        var refusalText = Layout.Builder.Text(refusal ?? string.Empty, BaseFontSize, palette.Error, trim: TextTrim.End).WStar().HStar();
-        rows.Add(Layout.Builder.HStack(refusal is not null ? refusalText.WithTooltip(refusal) : refusalText)
-            .CrossCenter().Pad(Gap, 0f).Bg(palette.PanelBg).WStar().HFixed(RefusalHeight));
-
         rows.Add(Toolbar(state, actions).WStar().HFixed(ToolbarHeight));
         rows.Add(body);
         rows.Add(StatusStrip(state, actions).WStar());
@@ -202,8 +194,17 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
         var parts = new List<Layout.Node>();
         var folder = view?.Folder ?? "No project open";
         var waits = actions.ChoiceWaits;
-        parts.Add(Layout.Builder.Text(folder, BaseFontSize, view is null ? palette.DimText : palette.BodyText, trim: TextTrim.Start)
-            .WStar().HStar().WithTooltip(folder));
+        // A refused New project is said in words in this row, in the place of the folder, whole text on hover: no band of its own, so
+        // nothing is reserved for it and nothing moves when it comes.
+        if (state.NewProjectRefusal is { } refusal)
+        {
+            parts.Add(Layout.Builder.Text(refusal, BaseFontSize, palette.Error, trim: TextTrim.End).WStar().HStar().WithTooltip(refusal));
+        }
+        else
+        {
+            parts.Add(Layout.Builder.Text(folder, BaseFontSize, view is null ? palette.DimText : palette.BodyText, trim: TextTrim.Start)
+                .WStar().HStar().WithTooltip(folder));
+        }
         if (view is { ImageName: { } name } && view.ImageNames.Length > 1)
         {
             parts.Add(ImageChoice(view, actions, waits));

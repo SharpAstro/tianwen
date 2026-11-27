@@ -231,7 +231,7 @@ public sealed class WorkbenchSettingsEditTests : IDisposable
         (await WorkbenchProjects.ReassignmentsAsync(capture, ct)).Single().Kind.ShouldBe(FrameType.Dark);
     }
 
-    private static void WriteFrame(string folder, string name, FrameType type, double exposure)
+    internal static void WriteFrame(string folder, string name, FrameType type, double exposure)
     {
         Directory.CreateDirectory(folder);
         var pixels = new float[32, 32];

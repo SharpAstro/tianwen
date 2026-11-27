@@ -160,6 +160,88 @@ public sealed class WorkbenchCaptureTests : IDisposable
         }
     }
 
+    public static TheoryData<uint, uint, UiThemeState, string> PanelCases => new()
+    {
+        { 1280, 800, UiThemeState.Light, "settings" },
+        { 1280, 800, UiThemeState.Dark, "settings" },
+        { 2000, 1100, UiThemeState.Night, "settings" },
+        { 1280, 800, UiThemeState.Light, "frames" },
+        { 1280, 800, UiThemeState.Dark, "frames" },
+        { 2000, 1100, UiThemeState.Night, "frames" },
+    };
+
+    // The panel beside the tree as controls (#2553 section 3): a step with a checkbox, a dropdown and fields of every kind, and a frame group's
+    // file list with its kind dropdowns, with the capture's groups read. The PNGs are kept for a look; the checks are that nothing is cut
+    // silently (the whole text is on hover) and that no word of the panel runs past its edge.
+    [Theory(Timeout = 180_000)]
+    [MemberData(nameof(PanelCases))]
+    public async Task ThePanelsControlsAndFileListCutNothingSilently(uint width, uint height, UiThemeState theme, string scenario)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        GuiTheme.Apply(theme, desktopIsDark: true);
+        try
+        {
+            var catalog = new OperationCatalog([new KnobOperation(), new StackOperation()]);
+            string folder;
+            if (scenario == "settings")
+            {
+                folder = _folders.Create("workbench-settings-capture-").FullName;
+                var master = WorkbenchFixtures.WriteMaster(folder, "master", WorkbenchFixtures.Master(seed: 1));
+                await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(WorkbenchFixtures.Picture("m", master,
+                    WorkbenchFixtures.Edit(KnobOperation.Id, new JsonObject { ["flag"] = true, ["mode"] = "Thorough", ["count"] = 12, ["extra"] = 0.25 }),
+                    WorkbenchFixtures.Edit(KnobOperation.Id))), ct);
+            }
+            else
+            {
+                var capture = Path.Combine(_folders.Create("capture-").FullName, "10p_tempel_night_with_a_long_folder_name");
+                for (var i = 1; i <= 6; i++)
+                {
+                    WorkbenchSettingsEditTests.WriteFrame(capture, $"10PTempel2_ASI2600MC_IDAS-LPS-D3_light_60s_gain1600_-5C_000{i}.fits", FrameType.Light, 60);
+                }
+
+                WorkbenchSettingsEditTests.WriteFrame(capture, "dark_60s_-5C_0001.fits", FrameType.Dark, 60);
+                WorkbenchSettingsEditTests.WriteFrame(capture, "dark_60s_-5C_0002.fits", FrameType.Dark, 60);
+                (await WorkbenchProjects.NewAsync(capture, ct)).Refusal.ShouldBeNull();
+                folder = WorkbenchProjects.WorkdirOf(capture);
+            }
+
+            await using var e2e = WorkbenchE2E.Start(1f, new WorkbenchRunner(catalog), catalog, width, height);
+            await e2e.OpenProjectAsync(folder, ct);
+            if (scenario == "settings")
+            {
+                e2e.Click(e2e.StepCells()[0]);
+                await e2e.PumpUntilAsync(() => e2e.State.Plan is { Index: 0 }, "step 1 selected", ct);
+            }
+            else
+            {
+                await e2e.PumpUntilAsync(() => e2e.State.Frames is { Groups.IsEmpty: false }, "the capture folder read", ct);
+                e2e.Click(e2e.Region("Frames:Lights"));
+                await e2e.PumpUntilAsync(() => e2e.State.Frames?.Groups.First(static g => g.Name == "Lights").Details.Length == 6, "the lights", ct);
+                e2e.Frame();
+                var first = e2e.State.Frames!.Groups.First(static g => g.Name == "Lights").Details[0];
+                e2e.Click(e2e.Region("Frame:" + first.Place));
+                await e2e.PumpUntilAsync(() => e2e.Controller.Document is not null, "the file shown", ct);
+            }
+
+            Keep(e2e, $"workbench-panel-{scenario}-{width}x{height}-{theme}");
+            NothingIsCutAtThePanelsEdge(e2e);
+            var regions = e2e.Regions();
+            foreach (var (full, shown, bounds) in e2e.Host.Screen.CutTexts())
+            {
+                var (cx, cy) = (bounds.X + (bounds.Width / 2f), bounds.Y + (bounds.Height / 2f));
+                if (cx < e2e.Host.Screen.CanvasRect.X)
+                {
+                    regions.Any(r => cx >= r.X && cx <= r.X + r.Width && cy >= r.Y && cy <= r.Y + r.Height && r.Tooltip is not null
+                        && r.Tooltip.Contains(full, StringComparison.Ordinal)).ShouldBeTrue($"'{full}' is shown as '{shown}' and carries its whole text on hover");
+                }
+            }
+        }
+        finally
+        {
+            GuiTheme.Apply(UiThemeState.Dark, desktopIsDark: true);
+        }
+    }
+
     private static void NothingIsCutSilently(WorkbenchE2E e2e)
     {
         var regions = e2e.Regions();
