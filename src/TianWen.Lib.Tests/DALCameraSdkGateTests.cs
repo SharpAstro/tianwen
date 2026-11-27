@@ -89,7 +89,6 @@ public class DALCameraSdkGateTests(ITestOutputHelper output)
 
         camera.Connected.ShouldBeFalse();
         (await camera.GetCCDTemperatureAsync(ct)).ShouldBe(double.NaN, "a camera never found has no temperature");
-        (await camera.GetCoolerOnAsync(ct)).ShouldBeFalse();
         state.Opens.ShouldBe(0);
         camera.SdkCallsInFlight.ShouldBe(0);
     }
@@ -112,8 +111,8 @@ public class DALCameraSdkGateTests(ITestOutputHelper output)
 
         state.Opens.ShouldBe(1);
         state.Closes.ShouldBe(1, "closed by the connect that opened it, and only by it");
+        // Only the temperature read discriminates on the gate: the cooler flag is set in InitCamera, which never ran here.
         (await camera.GetCCDTemperatureAsync(ct)).ShouldBe(double.NaN);
-        (await camera.GetCoolerOnAsync(ct)).ShouldBeFalse();
         state.CallsWhileClosed.ShouldBe(0);
     }
 
