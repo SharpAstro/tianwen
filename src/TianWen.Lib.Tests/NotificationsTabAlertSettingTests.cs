@@ -129,10 +129,11 @@ public class NotificationsTabAlertSettingTests(ITestOutputHelper output)
     }
 
     // The shrink branch, pinned without a font: where the words want more than the surface leaves, the three segments, the
-    // two gaps, the ring, the padding and the row's own gap end exactly at the surface's edge.
+    // two gaps, the ring, the padding and the row's own gap end exactly at the surface's edge (the surfaces here leave
+    // more than the half-size floor of the shrink).
     [Theory]
-    [InlineData(200f)]
-    [InlineData(300f)]
+    [InlineData(450f)]
+    [InlineData(550f)]
     public void WhereTheWordsAreTooWideTheChoiceEndsAtTheSurfaceEdgeAndTheWordsShrink(float surface)
     {
         var (segment, font) = NotificationsTab<RgbaImage>.FitSegments(widestWord: 200f, surface);
