@@ -734,6 +734,8 @@ public sealed class WorkbenchE2ETests : IDisposable
         e2e.Frame();
         var before = e2e.RegionOfLabel("New project");
         var hintTop = e2e.Texts().First(static t => t.Text.Contains("make a new one from a capture folder", StringComparison.Ordinal)).Bounds.Y;
+        // The empty row carries no hover text: an empty one would still be drawn, as an empty bubble over the whole strip.
+        e2e.Regions().ShouldNotContain(static r => r.Tooltip == string.Empty, "no painted region has an empty tooltip");
         e2e.FakeFolderPicks(taken, capture);
 
         e2e.Click(before);
@@ -743,6 +745,9 @@ public sealed class WorkbenchE2ETests : IDisposable
         (after.X, after.Y, after.Width, after.Height).ShouldBe((before.X, before.Y, before.Width, before.Height));
         e2e.Texts().First(static t => t.Text.Contains("make a new one from a capture folder", StringComparison.Ordinal)).Bounds.Y
             .ShouldBe(hintTop, "nothing below the bar moved");
+        var refusal = e2e.State.NewProjectRefusal.ShouldNotBeNull();
+        e2e.Regions().ShouldContain(r => r.Tooltip == refusal, "the refusal's whole text is on hover");
+        e2e.Regions().ShouldNotContain(static r => r.Tooltip == string.Empty, "no painted region has an empty tooltip");
     }
 
     [Theory(Timeout = 120_000)]
@@ -805,10 +810,13 @@ public sealed class WorkbenchE2ETests : IDisposable
         e2e.RegionOfLabel("New project").Tooltip.ShouldNotBeNull().ShouldContain(WorkbenchActions.ChoiceWaitsForTheRun, Case.Sensitive,
             "the dimmed button says why on hover");
         e2e.FakeFolderPicks(null);
+        var pendingBefore = e2e.Tracker.PendingCount;
         e2e.Actions.NewProject();
-        // The run is held at its gate, so the host is busy until it is released: pump the frames that would
-        // carry the press to the dialog, not until the host is idle.
-        await e2e.PumpFramesUntilAsync(() => true, "the frames after the press", ct);
+        // The signal is the tracker itself: RunGuarded registers its work before it returns and the entry stays until a frame
+        // collects it, so a press the guard let through would show here at once, whether or not its dialog was reached yet.
+        // No frame runs between the press and this read.
+        e2e.Tracker.PendingDescriptions.ShouldNotContain("Make a workbench project from a capture folder", "the press started no work");
+        e2e.Tracker.PendingCount.ShouldBe(pendingBefore, "the press started no work");
         _ = e2e.FileDialog.DidNotReceiveWithAnyArgs().OpenFolderAsync(default!, default);
 
         _gate.Release.SetResult();

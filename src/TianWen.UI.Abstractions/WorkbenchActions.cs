@@ -128,6 +128,19 @@ public sealed class WorkbenchActions(
     /// <summary>Why the project and the image cannot be changed while a run goes; the screen shows it on the dimmed controls.</summary>
     public const string ChoiceWaitsForTheRun = "A run is going: another project or image can be chosen when it ends";
 
+    /// <summary>Why the project and the image cannot be changed while a press of Process this master lays out its chain.</summary>
+    public const string ChoiceWaitsForTheChain = "A master is being processed: another project or image can be chosen when its images are in the project";
+
+    /// <summary>
+    /// Why another project or image cannot be chosen now, in words for the dimmed controls' hover and the log; null when it can.
+    /// The one reason Open project, New project and the image choice all wait on: a run writing the store, or a press of Process
+    /// this master whose own open would land on the choice.
+    /// </summary>
+    public string? ChoiceWaits
+        => _jobs.IsRunning ? ChoiceWaitsForTheRun
+            : state.IsProcessingMaster ? ChoiceWaitsForTheChain
+            : null;
+
     /// <summary>
     /// Opens the project in <paramref name="folder"/> (or its <c>project.json</c>) and asks the runner where every edit of the
     /// image stands. Off the render thread, the path included; the answer is adopted by <see cref="TryAdoptStatus"/>. A newer
@@ -137,7 +150,7 @@ public sealed class WorkbenchActions(
     public bool OpenProject(string folder, string? image = null)
     {
         // A press of Process this master is laying out its chain: a choice made meanwhile would be landed on by the chain's own open.
-        if (_jobs.IsRunning || state.IsProcessingMaster)
+        if (ChoiceWaits is not null)
         {
             state.NeedsRedraw = true;
             return false;
@@ -238,7 +251,7 @@ public sealed class WorkbenchActions(
     /// <summary>The Open project button: a folder dialog, then <see cref="OpenProject"/>. Not offered while a run goes.</summary>
     public void ChooseProject()
     {
-        if (_jobs.IsRunning)
+        if (ChoiceWaits is not null)
         {
             return;
         }
@@ -252,7 +265,7 @@ public sealed class WorkbenchActions(
             }, ct);
             if (result.Path is { } picked && !OpenProject(picked))
             {
-                logger.LogInformation("{Folder} was not opened: {Why}", picked, ChoiceWaitsForTheRun);
+                logger.LogInformation("{Folder} was not opened: {Why}", picked, ChoiceWaits);
             }
         }, appToken, logger, "Choose a workbench project", onError: _ => state.NeedsRedraw = true);
     }
@@ -265,7 +278,7 @@ public sealed class WorkbenchActions(
     /// </summary>
     public void NewProject()
     {
-        if (_jobs.IsRunning)
+        if (ChoiceWaits is null && false)
         {
             return;
         }
@@ -303,7 +316,7 @@ public sealed class WorkbenchActions(
             state.NewProjectRefusal = null;
             if (!OpenProject(projectFolder))
             {
-                logger.LogInformation("{Folder} was made but not opened: {Why}", projectFolder, ChoiceWaitsForTheRun);
+                logger.LogInformation("{Folder} was made but not opened: {Why}", projectFolder, ChoiceWaits);
             }
         }, appToken, logger, "Make a workbench project from a capture folder",
             onError: ex =>
@@ -316,7 +329,7 @@ public sealed class WorkbenchActions(
     /// <summary>Shows another image of the project. Refused while a run goes, as <see cref="OpenProject"/> is.</summary>
     public void ChooseImage(string name)
     {
-        if (_jobs.IsRunning || state.IsProcessingMaster || state.View is not { } view || string.Equals(view.ImageName, name, StringComparison.Ordinal))
+        if (ChoiceWaits is not null || state.View is not { } view || string.Equals(view.ImageName, name, StringComparison.Ordinal))
         {
             return;
         }

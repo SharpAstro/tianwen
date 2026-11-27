@@ -146,9 +146,9 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
         // A refused New project is said in words under the bar, whole text on hover. The row is always there, empty while there is
         // no refusal, so its appearing moves nothing under the pointer.
         var refusal = state.NewProjectRefusal;
-        rows.Add(Layout.Builder.HStack(
-                Layout.Builder.Text(refusal ?? string.Empty, BaseFontSize, palette.Error, trim: TextTrim.End).WStar().HStar()
-                    .WithTooltip(refusal ?? string.Empty))
+        // An empty row carries no hover text: an empty one would still be shown, as an empty bubble.
+        var refusalText = Layout.Builder.Text(refusal ?? string.Empty, BaseFontSize, palette.Error, trim: TextTrim.End).WStar().HStar();
+        rows.Add(Layout.Builder.HStack(refusal is not null ? refusalText.WithTooltip(refusal) : refusalText)
             .CrossCenter().Pad(Gap, 0f).Bg(palette.PanelBg).WStar().HFixed(TopBarHeight));
 
         rows.Add(StepBar(state, actions, steps).WStar().HFixed(StepBarHeight));
@@ -163,12 +163,12 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
         var view = state.View;
         var parts = new List<Layout.Node>();
         var folder = view?.Folder ?? "No project open";
-        var running = actions.Jobs.IsRunning;
+        var waits = actions.ChoiceWaits;
         parts.Add(Layout.Builder.Text(folder, BaseFontSize, view is null ? palette.DimText : palette.BodyText, trim: TextTrim.Start)
             .WStar().HStar().WithTooltip(folder));
         if (view is { ImageName: { } name } && view.ImageNames.Length > 1)
         {
-            parts.Add(ImageChoice(view, actions, running));
+            parts.Add(ImageChoice(view, actions, waits));
         }
         else
         {
@@ -181,16 +181,17 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
             }
         }
 
-        // While a run goes it writes the store, so no other project or image is read: the controls stay where they are, dimmed,
-        // and say why on hover (WorkbenchActions refuses them too).
+        // While a run goes it writes the store, and while a press of Process this master lays out its chain that press opens its
+        // own result, so no other project or image is read: the controls stay where they are, dimmed, and say why on hover
+        // (WorkbenchActions.ChoiceWaits; WorkbenchActions refuses them too).
         // With no project open these two are all there is to do, so they take the accent, the colour of an action.
         var kind = view is null ? Layout.ButtonKind.Accent : Layout.ButtonKind.Standard;
         var open = Layout.Builder.Button("Open project", kind, actions.ChooseProject, GuiTheme.Theme,
-            tooltip: running ? WorkbenchActions.ChoiceWaitsForTheRun : "Open a workbench project folder");
+            tooltip: waits ?? "Open a workbench project folder");
         var fresh = Layout.Builder.Button("New project", kind, actions.NewProject, GuiTheme.Theme,
-            tooltip: running ? WorkbenchActions.ChoiceWaitsForTheRun : "Make a project from a folder of captured frames: it holds one step, the stack");
-        parts.Add(running ? fresh.Disabled(WorkbenchActions.ChoiceWaitsForTheRun) : fresh);
-        parts.Add(running ? open.Disabled(WorkbenchActions.ChoiceWaitsForTheRun) : open);
+            tooltip: waits ?? "Make a project from a folder of captured frames: it holds one step, the stack");
+        parts.Add(waits is not null ? fresh.Disabled(waits) : fresh);
+        parts.Add(waits is not null ? open.Disabled(waits) : open);
         return Layout.Builder.HStack([.. parts]).WithGap(Gap).CrossCenter().Pad(Gap, 0f).Bg(palette.HeaderBg);
     }
 
@@ -222,24 +223,24 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
 
     // Image names are the user's own and can be many and long, so the choice is the engine's dropdown: a box that shows the image on
     // show, ellipsised inside its share of the row with the whole name on hover, and a menu of every image to pick from directly.
-    private Layout.Node ImageChoice(WorkbenchView view, WorkbenchActions actions, bool running)
+    private Layout.Node ImageChoice(WorkbenchView view, WorkbenchActions actions, string? waits)
     {
         var names = view.ImageNames;
         var current = view.ImageName ?? string.Empty;
         var at = names.IndexOf(current);
         _imageMenu.Items = [.. names.Select(static name => DropdownItem.Text(name))];
         _imageMenu.OnSelect = item => actions.ChooseImage(item.Value);
-        if (running)
+        if (waits is not null)
         {
             _imageMenu.Close();
         }
 
-        // A node's own hover text wins over its disabled reason, so while a run goes the reason is the hover text, whole name first.
-        var tooltip = running
-            ? $"{current}. {WorkbenchActions.ChoiceWaitsForTheRun}"
+        // A node's own hover text wins over its disabled reason, so while the choice waits the reason is the hover text, whole name first.
+        var tooltip = waits is not null
+            ? $"{current}. {waits}"
             : $"{current}: image {at + 1} of {names.Length}. Press to choose another";
         var box = Layout.Builder.DropdownBox(current, _imageMenu, GuiTheme.Theme, new HitResult.ButtonHit(ImageChoiceHit), tooltip: tooltip).WStar();
-        return running ? box.Disabled(WorkbenchActions.ChoiceWaitsForTheRun) : box;
+        return waits is not null ? box.Disabled(waits) : box;
     }
 
     // The image menu, over everything the frame painted (the viewer included), hung under the box where this frame arranged it.

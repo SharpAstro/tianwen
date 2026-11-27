@@ -219,6 +219,16 @@ public sealed class WorkbenchMastersE2ETests : IDisposable
 
         // The press's flag is held (as it is while the routine runs): a choice made meanwhile is refused, not landed on.
         e2e.State.IsProcessingMaster = true;
+        e2e.Actions.ChoiceWaits.ShouldBe(WorkbenchActions.ChoiceWaitsForTheChain);
+        e2e.Frame();
+        // Open project, New project and the image box are dimmed with the chain's reason on hover, not the run's.
+        e2e.RegionOfLabel("Open project").Tooltip.ShouldBe(WorkbenchActions.ChoiceWaitsForTheChain);
+        e2e.RegionOfLabel("New project").Tooltip.ShouldBe(WorkbenchActions.ChoiceWaitsForTheChain);
+        e2e.Regions().ShouldContain(r => r.Tooltip == $"{shown}. {WorkbenchActions.ChoiceWaitsForTheChain}", "the image box says why, its whole name first");
+        var pendingBefore = e2e.Tracker.PendingCount;
+        e2e.Actions.ChooseProject();
+        e2e.Actions.NewProject();
+        e2e.Tracker.PendingCount.ShouldBe(pendingBefore, "neither press started a dialog");
         e2e.Actions.OpenProject(other).ShouldBeFalse();
         e2e.Actions.ChooseImage("night-1");
         e2e.State.IsReading.ShouldBeFalse("nothing was asked of the runner");
@@ -226,6 +236,7 @@ public sealed class WorkbenchMastersE2ETests : IDisposable
         e2e.State.View.Folder.ShouldBe(Path.GetFullPath(project));
 
         e2e.State.IsProcessingMaster = false;
+        e2e.Actions.ChoiceWaits.ShouldBeNull();
         e2e.Actions.OpenProject(other).ShouldBeTrue("offered again once the press ended");
     }
 
