@@ -31,7 +31,10 @@ takes some of a crowded field's level, less than `--off low` does.
 
 Bright nebula is `nebula_rows.py`'s: the master's large-scale map (8 px block medians, median filtered over 7
 blocks) 20 pixel sigmas or more over the map's 5th percentile. The two regimes are blended over a soft edge of about
-16 px.
+16 px. Unlike `nebula_rows.py`, the sky level and the pixel sigma are taken over the master's live blocks and pixels
+only, never over its zero absent ring (`nebula_weight`'s `valid`), whose zeros would pull the sky to 0 and read the
+whole frame as bright nebula; `nebula_rows.py` still takes its 5th percentile over every block, so the two differ on
+a master with an absent ring.
 
 Why every pixel is built from ONE surface. A first construction took a compact part from some members and a broad
 part from others and added them. Where the members disagree about a broad feature (a bright knot most of them take
