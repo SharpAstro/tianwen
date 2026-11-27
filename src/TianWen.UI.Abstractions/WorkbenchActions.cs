@@ -45,6 +45,15 @@ public sealed record WorkbenchStepPanel(
     string ServedBy,
     ImmutableArray<string> CommandLine)
 {
+    /// <summary>
+    /// For the stack step, the name of each master it gave (one per target and filter group), as the runner answered; empty
+    /// before it ran. Always empty for any other step. <see cref="ShowsMasters"/> says whether the panel has a list at all.
+    /// </summary>
+    public ImmutableArray<string> Masters { get; init; } = [];
+
+    /// <summary>True for the stack step: its panel lists its masters, or says they come once it has run.</summary>
+    public bool ShowsMasters { get; init; }
+
     /// <summary>The command as a person reads and pastes it.</summary>
     public string CommandText => StepCommandLine.Display(CommandLine);
 }
@@ -70,6 +79,12 @@ public sealed class WorkbenchActions(
 {
     private const string StatusSlot = "workbench.status";
     private const string PlanSlot = "workbench.plan";
+
+    /// <summary>Why "Process this master" is not offered while the project is being read.</summary>
+    public const string MasterWaitsForTheRead = "The project is being read: a master can be processed when the answer is in";
+
+    /// <summary>Why "Process this master" is not offered while an earlier press is still laying out its chain.</summary>
+    public const string MasterWaitsForTheChain = "A master is being processed: another can be when its images are in the project";
 
     private readonly WorkbenchJobs _jobs = new(runner, catalog, tracker, logger, appToken,
         () => state.NeedsRedraw = true, settled => Settled(settled, state, runner, tracker, logger, appToken));
@@ -113,6 +128,19 @@ public sealed class WorkbenchActions(
     /// <summary>Why the project and the image cannot be changed while a run goes; the screen shows it on the dimmed controls.</summary>
     public const string ChoiceWaitsForTheRun = "A run is going: another project or image can be chosen when it ends";
 
+    /// <summary>Why the project and the image cannot be changed while a press of Process this master lays out its chain.</summary>
+    public const string ChoiceWaitsForTheChain = "A master is being processed: another project or image can be chosen when its images are in the project";
+
+    /// <summary>
+    /// Why another project or image cannot be chosen now, in words for the dimmed controls' hover and the log; null when it can.
+    /// The one reason Open project, New project and the image choice all wait on: a run writing the store, or a press of Process
+    /// this master whose own open would land on the choice.
+    /// </summary>
+    public string? ChoiceWaits
+        => _jobs.IsRunning ? ChoiceWaitsForTheRun
+            : state.IsProcessingMaster ? ChoiceWaitsForTheChain
+            : null;
+
     /// <summary>
     /// Opens the project in <paramref name="folder"/> (or its <c>project.json</c>) and asks the runner where every edit of the
     /// image stands. Off the render thread, the path included; the answer is adopted by <see cref="TryAdoptStatus"/>. A newer
@@ -121,20 +149,114 @@ public sealed class WorkbenchActions(
     /// </summary>
     public bool OpenProject(string folder, string? image = null)
     {
+        // A press of Process this master is laying out its chain: a choice made meanwhile would be landed on by the chain's own open.
+        if (ChoiceWaits is not null)
+        {
+            state.NeedsRedraw = true;
+            return false;
+        }
+
+        return OpenProjectNow(folder, image);
+    }
+
+    /// <summary>The viewer's driver says whether the comparison on show lost its before pixels; the panel then says so in words.</summary>
+    internal void NoteComparisonDeclined(bool declined)
+    {
+        if (state.ComparisonDeclined != declined)
+        {
+            state.ComparisonDeclined = declined;
+            state.NeedsRedraw = true;
+        }
+    }
+
+    /// <summary>True when the comparison on show lost its before pixels, so the panel says the result is shown alone.</summary>
+    public bool ComparisonDeclined => state.ComparisonDeclined;
+
+    // The open itself, for the press that owns IsProcessingMaster and opens its chain's result.
+    private bool OpenProjectNow(string folder, string? image)
+    {
         if (_jobs.IsRunning)
         {
             state.NeedsRedraw = true;
             return false;
         }
 
+        state.NewProjectRefusal = null;
+        state.MasterRefusal = null;
         StartRead(state, runner, tracker, logger, appToken, folder, image, "Read the workbench project");
         return true;
     }
 
-    /// <summary>The Open project button: a folder dialog, then <see cref="OpenProject"/>. Not offered while a run goes.</summary>
+    /// <summary>
+    /// Why "Process this master" cannot be pressed now, in words for the dimmed button's hover; null when it can. The stack step's
+    /// masters are the runner's answer, so nothing is offered while a run writes the store or another answer is on its way.
+    /// </summary>
+    public string? ProcessMasterWaits
+        => _jobs.IsRunning ? ChoiceWaitsForTheRun
+            : state.IsReading ? MasterWaitsForTheRead
+            : state.IsProcessingMaster ? MasterWaitsForTheChain
+            : null;
+
+    /// <summary>
+    /// "Process this master": adds the image that starts from the master of <paramref name="group"/> that the image on show
+    /// made, its edits the enhance laid out as its chain of single steps (<see cref="WorkbenchProjects.AddMasterChainAsync"/>), then
+    /// opens the project on the chain's result. The routine runs off the render thread. False, and nothing asked, while
+    /// <see cref="ProcessMasterWaits"/> says to wait; a refusal of the routine is kept in <see cref="WorkbenchState.MasterRefusal"/>
+    /// and shown in words beside the list. A second press for a group the project already processed is named uniquely by the routine.
+    /// </summary>
+    public bool ProcessMaster(string group)
+    {
+        if (ProcessMasterWaits is not null || state.View is not { ImageName: { } stackImage } view)
+        {
+            state.NeedsRedraw = true;
+            return false;
+        }
+
+        if (!catalog.TryGet(EnhanceOperation.Id, out var operation) || operation is not EnhanceOperation enhance)
+        {
+            state.MasterRefusal = $"{group} was not processed: this computer has no enhance operation to lay out";
+            state.NeedsRedraw = true;
+            return false;
+        }
+
+        var folder = view.Folder;
+        state.MasterRefusal = null;
+        state.IsProcessingMaster = true;
+        state.NeedsRedraw = true;
+        tracker.RunGuarded(async ct =>
+        {
+            var added = await WorkbenchProjects.AddMasterChainAsync(folder, runner, enhance, stackImage, group, name: null, say: null, ct);
+            if (added.Refusal is { } refusal || added.Added.IsDefaultOrEmpty)
+            {
+                state.MasterRefusal = $"{group} was not processed: {added.Refusal ?? "the chain has no image"}";
+                return;
+            }
+
+            // The chain's last image is its result (the starless and stars halves come before it); it is the one shown.
+            // A refused open leaves the stack step selected, so its panel (the masters list, the refusal, Cancel) stays on screen.
+            var selected = state.SelectedStep;
+            state.SelectedStep = -1;
+            if (!OpenProjectNow(folder, added.Added[^1].Name))
+            {
+                state.SelectedStep = selected;
+                logger.LogInformation("{Group} was processed but the new image was not opened: {Why}", group, ChoiceWaitsForTheRun);
+                state.MasterRefusal = $"{group} was processed but its image was not opened: {ChoiceWaitsForTheRun}. Choose it from the image box.";
+                state.NeedsRedraw = true;
+            }
+        }, appToken, logger, "Process a master of the workbench project",
+            onError: ex => state.MasterRefusal = $"{group} was not processed: {ex.Message}",
+            onFinally: () =>
+            {
+                state.IsProcessingMaster = false;
+                state.NeedsRedraw = true;
+            });
+        return true;
+    }
+
+    /// <summary>The Open project button: a folder dialog, then <see cref="OpenProject"/>. Not offered while <see cref="ChoiceWaits"/> says why not.</summary>
     public void ChooseProject()
     {
-        if (_jobs.IsRunning)
+        if (ChoiceWaits is not null)
         {
             return;
         }
@@ -148,15 +270,77 @@ public sealed class WorkbenchActions(
             }, ct);
             if (result.Path is { } picked && !OpenProject(picked))
             {
-                logger.LogInformation("{Folder} was not opened: {Why}", picked, ChoiceWaitsForTheRun);
+                logger.LogInformation("{Folder} was not opened: {Why}", picked, ChoiceWaits);
             }
         }, appToken, logger, "Choose a workbench project", onError: _ => state.NeedsRedraw = true);
     }
 
-    /// <summary>Shows another image of the project. Refused while a run goes, as <see cref="OpenProject"/> is.</summary>
+    /// <summary>
+    /// The New project button: a folder dialog for the project's folder, one for the capture's folder, then the Lib routine
+    /// (<see cref="WorkbenchProjects.NewAsync"/>) off the render thread and <see cref="OpenProject"/> on the folder it made. A
+    /// cancelled dialog changes nothing; a refusal is kept in <see cref="WorkbenchState.NewProjectRefusal"/> and shown in words.
+    /// Not offered while <see cref="ChoiceWaits"/> says why not.
+    /// </summary>
+    public void NewProject()
+    {
+        if (ChoiceWaits is not null)
+        {
+            return;
+        }
+
+        tracker.RunGuarded(async ct =>
+        {
+            var project = await dialogs.OpenFolderAsync(new FileDialogRequest
+            {
+                Title = "New project: choose the folder for the project",
+                InitialDirectory = state.View?.Folder,
+            }, ct);
+            if (project.Path is not { } projectFolder)
+            {
+                return;
+            }
+
+            var capture = await dialogs.OpenFolderAsync(new FileDialogRequest
+            {
+                Title = "New project: choose the folder of the capture to stack",
+                InitialDirectory = projectFolder,
+            }, ct);
+            if (capture.Path is not { } captureFolder)
+            {
+                return;
+            }
+
+            var made = await WorkbenchProjects.NewAsync(projectFolder, captureFolder, ct);
+            if (made.Refusal is { } refusal)
+            {
+                state.NewProjectRefusal = $"No project was made: {refusal}";
+                state.NeedsRedraw = true;
+                return;
+            }
+
+            state.NewProjectRefusal = null;
+            if (!OpenProject(projectFolder))
+            {
+                // Read once: the log and the words say the same reason; with none left (the run ended meanwhile) no cause is named.
+                var why = ChoiceWaits;
+                logger.LogInformation("{Folder} was made but not opened: {Why}", projectFolder, why);
+                state.NewProjectRefusal = why is null
+                    ? $"The project was made in {projectFolder}. Use Open project to show it."
+                    : $"The project was made in {projectFolder} but not opened: {why}. Use Open project to show it.";
+                state.NeedsRedraw = true;
+            }
+        }, appToken, logger, "Make a workbench project from a capture folder",
+            onError: ex =>
+            {
+                state.NewProjectRefusal = $"No project was made: {ex.Message}";
+                state.NeedsRedraw = true;
+            });
+    }
+
+    /// <summary>Shows another image of the project. Refused while <see cref="ChoiceWaits"/> says why not, as <see cref="OpenProject"/> is.</summary>
     public void ChooseImage(string name)
     {
-        if (_jobs.IsRunning || state.View is not { } view || string.Equals(view.ImageName, name, StringComparison.Ordinal))
+        if (ChoiceWaits is not null || state.View is not { } view || string.Equals(view.ImageName, name, StringComparison.Ordinal))
         {
             return;
         }
@@ -421,7 +605,13 @@ public sealed class WorkbenchActions(
             }
         }
 
-        return new WorkbenchStepPanel(item, description?.Summary ?? string.Empty, settings, settingsRefusal, step.ServedBy, step.CommandLine);
+        var isStack = string.Equals(step.Operation, StackOperation.Id, StringComparison.Ordinal);
+        return new WorkbenchStepPanel(item, description?.Summary ?? string.Empty, settings, settingsRefusal, step.ServedBy, step.CommandLine)
+        {
+            // The names the runner answered with the step (StepReport.Results): never the store, never the disk on a frame.
+            Masters = isStack ? step.Results : [],
+            ShowsMasters = isStack,
+        };
     }
 
     /// <summary>

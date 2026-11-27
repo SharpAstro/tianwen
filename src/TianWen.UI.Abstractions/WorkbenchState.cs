@@ -56,6 +56,45 @@ public sealed class WorkbenchState
         set => Volatile.Write(ref _view, value);
     }
 
+    private string? _newProjectRefusal;
+
+    /// <summary>Why the New project button made no project, in words (<see cref="WorkbenchProjects.NewAsync"/>'s refusal); null
+    /// when the last one was made or none was asked. The next successful open clears it.</summary>
+    public string? NewProjectRefusal
+    {
+        get => Volatile.Read(ref _newProjectRefusal);
+        set => Volatile.Write(ref _newProjectRefusal, value);
+    }
+
+    private string? _masterRefusal;
+
+    /// <summary>Why "Process this master" added nothing, in words (the routine's refusal); null when the last press worked or none
+    /// was made. The next open of a project clears it.</summary>
+    public string? MasterRefusal
+    {
+        get => Volatile.Read(ref _masterRefusal);
+        set => Volatile.Write(ref _masterRefusal, value);
+    }
+
+    private int _comparisonDeclined;
+
+    /// <summary>True when the viewer declined to keep the before pixels (memory pressure) so the comparison on show is the result alone;
+    /// the panel says so in words. Cleared when the screen asks for another picture.</summary>
+    public bool ComparisonDeclined
+    {
+        get => Volatile.Read(ref _comparisonDeclined) != 0;
+        set => Volatile.Write(ref _comparisonDeclined, value ? 1 : 0);
+    }
+
+    private int _isProcessingMaster;
+
+    /// <summary>True from a press of "Process this master" until its images are in the project: no second press is taken meanwhile.</summary>
+    public bool IsProcessingMaster
+    {
+        get => Volatile.Read(ref _isProcessingMaster) != 0;
+        set => Volatile.Write(ref _isProcessingMaster, value ? 1 : 0);
+    }
+
     /// <summary>The selected step's place in the edit list, from 0; -1 for none.</summary>
     public int SelectedStep { get; set; } = -1;
 

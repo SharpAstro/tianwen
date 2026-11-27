@@ -392,8 +392,32 @@ each one's name, its file, and the files that belong beside it.
 { "name": "m31-luminance", "from": "night", "result": "M31_L_300s", "edits": [ { "operation": "crop", "settings": { "auto": true } } ] }
 ```
 
+- **A status names them.** A step of this kind that is kept or ran reports the names of its results in
+  `StepReport.Results` (read from the step's list in the store, never by running); every other step reports none.
+  `workbench status` prints them on a `masters:` line under the step, and the app lists them, so a person picks a master by name.
+
 `WorkbenchNamedResultsTests` holds the kind with a stand-in; the `stack` operation of this example is the next
 section.
+
+### A project from a capture, and one master processed
+
+Two routines in `WorkbenchProjects` (Lib) start and extend a project, and the verbs and the processing app's buttons
+call them and print or show what they answer, so the window and the terminal write the same `project.json`.
+
+- **`tianwen workbench new <project> <frames>`** (`WorkbenchProjects.NewAsync`) writes the project folder's
+  `project.json` with one image: named after the capture folder, whose original is that folder, with one edit, the
+  stack at its defaults (its calibration is found by the stack itself). It runs nothing; `workbench run` stacks it.
+  It creates the project folder when it is missing. It refuses, in words and with exit code 1: a folder that already
+  holds a `project.json`, a capture folder that is not there, a capture folder that is the project's folder, one
+  inside the project's step store, and a project folder inside the capture folder.
+- **`tianwen workbench process <project> <image> <group> [--name]`** (`WorkbenchProjects.AddMasterChainAsync`) adds
+  the images of the enhance laid out as its chain of single steps (`EnhanceChain`, the same layout as `workbench
+  chain`), the first of them starting from `<image>` with `result` `<group>`: the master of that group that the stack
+  made. The master is found through the store (`StepKey.OfResult`). The chain is called `<image>-<group>` made safe
+  and unique (`-2`, `-3` when it or its `-starless` or `-stars` image is taken); `--name` names it, and a taken name is
+  refused. It writes the project and runs nothing. It refuses: an image that is not there or has no enabled stack
+  step, a stack that has not been run, and a group the stack did not give (the groups it gave are named).
+- `workbench chain` is the same layout for an image whose one edit is an enhance (`WorkbenchProjects.AddChainAsync`).
 
 ## The stack of a set of frames
 

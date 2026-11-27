@@ -169,6 +169,13 @@ internal sealed class WorkbenchE2E : IAsyncDisposable
 
         public override bool HasBeforeImageTextures => _retained;
 
+        // The default reads the machine-wide GC memory load, so a run of many classes on a loaded machine declines the
+        // retention and the comparison never starts; this surface always keeps, as ViewerSplitTests pins it too.
+        protected override bool ShouldSkipBeforePixelCache(long bytes) => Declines;
+
+        /// <summary>True to play a machine short of memory: the viewer then declines to keep the before pixels.</summary>
+        internal bool Declines { get; set; }
+
         public override bool TryRetainImageTexturesAsBefore()
         {
             _retained = true;
@@ -195,6 +202,9 @@ internal sealed class WorkbenchE2E : IAsyncDisposable
         Frame();
     }
 
+    /// <summary>A left click in the middle of a painted region.</summary>
+    internal void Click(ClickableRegion region) => Click(new RectF32(region.X, region.Y, region.Width, region.Height));
+
     /// <summary>Clicks where the last frame painted this text, which a button or a choice declares as its label.</summary>
     internal void ClickText(string text)
     {
@@ -220,6 +230,25 @@ internal sealed class WorkbenchE2E : IAsyncDisposable
         }
 
         return new RectF32(found[0].X, found[0].Y, found[0].Width, found[0].Height);
+    }
+
+    /// <summary>The one button region of the last frame that holds this label, as a click would find it.</summary>
+    internal ClickableRegion RegionOfLabel(string label)
+    {
+        var text = Texts().Single(t => t.Text == label).Bounds;
+        var (cx, cy) = (text.X + (text.Width / 2f), text.Y + (text.Height / 2f));
+        return Regions().Single(r => r.Result is HitResult.ButtonHit && cx >= r.X && cx <= r.X + r.Width && cy >= r.Y && cy <= r.Y + r.Height);
+    }
+
+    /// <summary>Answers the next folder dialogs in order: a path is a pick, null is a cancel. Further asks are cancelled.</summary>
+    internal void FakeFolderPicks(params string?[] picks)
+    {
+        var next = 0;
+        FileDialog.OpenFolderAsync(default!, default).ReturnsForAnyArgs(_ =>
+        {
+            var pick = next < picks.Length ? picks[next++] : null;
+            return Task.FromResult(pick is null ? new FileDialogResult() : new FileDialogResult { Paths = [pick] });
+        });
     }
 
     /// <summary>The rows of the open dropdown menu, in its order, as painted; empty while no menu is open.</summary>

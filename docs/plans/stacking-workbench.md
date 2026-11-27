@@ -607,6 +607,15 @@ is settings editing (W6, W12), gates (W9), the other screens (W4 to W6) and pack
 by the engines' `IProgress`, each step's command line. Built so `StandaloneViewerHost`'s headless test path drives it in CI at DPI 1
 and 1.5.
 
+#1642's follow-up #2547, "New project from a capture folder, stack it, then process each master", **built** (2026-11-27): a
+New project button makes a project from a capture folder (the `new` verb's routine, `WorkbenchProjects.NewAsync`), "Run to
+here" stacks it, and the stack step's panel then lists its masters from `StepReport.Results`, each with a "Process this
+master" button that adds the enhance's chain of single steps through the Lib routine, off the render thread. Left out, as
+the issue says: choosing which master settings the chain takes (it is the enhance's defaults; the settings are then edited
+as for any step, W6 and W12), processing every master in one press, and a stack's own image view (a stack with results named
+by its run has no single file to show). How it works: [workbench-app.md](../architecture/workbench-app.md), "New project"
+and "The stack's masters and Process this master".
+
 ### W3 The planetary steps
 
 Tracked as #1643. Import to Export for planetary, at parity with the viewer's Full view (the same master to the bit for the same capture and options),

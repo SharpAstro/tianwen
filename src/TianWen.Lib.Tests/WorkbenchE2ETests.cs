@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using DIR.Lib;
+using NSubstitute;
 using Shouldly;
 using TianWen.Lib.Imaging.Workbench;
 using TianWen.UI.Abstractions;
@@ -451,6 +452,31 @@ public sealed class WorkbenchE2ETests : IDisposable
     [Theory(Timeout = 120_000)]
     [InlineData(1f)]
     [InlineData(1.5f)]
+    public async Task AComparisonTheViewerDeclinedToKeepSaysSoInWordsAndShowsTheResultAlone(float dpi)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (folder, _) = await ProjectAsync("declined", refusedStep: false);
+        (await Runner().RunAsync(folder, new WorkbenchRunOptions { Image = "m", Through = 1 }, ct)).Refusal.ShouldBeNull();
+        var steps = Image(await Runner().StatusAsync(folder, "m", ct)).Steps;
+        await using var e2e = WorkbenchE2E.Start(dpi, Runner(), Catalog());
+        e2e.Viewer.Declines = true;
+        await e2e.OpenProjectAsync(folder, ct);
+        await e2e.PumpUntilAsync(() => e2e.Controller.Document is not null, "the original", ct);
+        await SelectAsync(e2e, 1, ct);
+
+        e2e.Click(e2e.Region("View:Comparison"));
+        await e2e.PumpUntilAsync(() => e2e.Actions.ComparisonDeclined && SameFile(e2e.Controller.Document?.FilePath, steps[1].Output), "the decline", ct);
+
+        e2e.Viewer.Split.IsOn.ShouldBeFalse("no before pixels, so no split");
+        Normalise(e2e.PanelText()).ShouldContain("not kept for want of memory", Case.Sensitive, "said in words");
+
+        e2e.Click(e2e.Region("View:Original"));
+        await e2e.PumpUntilAsync(() => !e2e.Actions.ComparisonDeclined, "the note to clear with another picture", ct);
+    }
+
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
     public async Task AStepWithNoFileOfItsOwnSaysSoInWordsAndTheChoiceIsNotOffered(float dpi)
     {
         var ct = TestContext.Current.CancellationToken;
@@ -606,4 +632,236 @@ public sealed class WorkbenchE2ETests : IDisposable
 
     // Words painted one leaf at a time are joined by single spaces; a message's own line breaks and doubled spaces are not what is checked.
     private static string Normalise(string text) => string.Join(' ', text.Split([' ', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries));
+
+    // A capture folder with one frame, for the stack step's input; the stack itself is never run in these tests.
+    private string CaptureFolder()
+    {
+        var folder = Path.Combine(_folders.Create("capture-").FullName, "night-1");
+        Directory.CreateDirectory(folder);
+        File.WriteAllBytes(Path.Combine(folder, "frame.fits"), new byte[2880]);
+        return folder;
+    }
+
+    private static OperationCatalog StackCatalog() => new([new StackOperation()]);
+
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task NewProjectStandsBesideOpenProjectOnOneRowOfOneHeightAndOneMiddle(float dpi)
+    {
+        await using var e2e = WorkbenchE2E.Start(dpi, new WorkbenchRunner(StackCatalog()), StackCatalog());
+
+        var (fresh, open) = (e2e.RegionOfLabel("New project"), e2e.RegionOfLabel("Open project"));
+        fresh.Height.ShouldBe(open.Height, 0.5f, "one height");
+        (fresh.Y + (fresh.Height / 2f)).ShouldBe(open.Y + (open.Height / 2f), 0.5f, "one middle");
+        (fresh.X + fresh.Width).ShouldBeLessThanOrEqualTo(open.X + 0.5f, "beside it, not over it");
+        e2e.Texts().Select(static t => t.Text).ShouldContain(t => t.Contains("make a new one from a capture folder", StringComparison.Ordinal),
+            "the empty window says what the two buttons are for");
+    }
+
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task PressingNewProjectWithTwoFolderPicksWritesTheLibRoutinesProjectAndShowsTheStackStepSelected(float dpi)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var capture = CaptureFolder();
+        var made = Path.Combine(_folders.Create("made-").FullName, "project");
+        var reference = Path.Combine(_folders.Create("reference-").FullName, "project");
+        (await WorkbenchProjects.NewAsync(reference, capture, ct)).Refusal.ShouldBeNull();
+        await using var e2e = WorkbenchE2E.Start(dpi, new WorkbenchRunner(StackCatalog()), StackCatalog());
+        e2e.FakeFolderPicks(made, capture);
+
+        e2e.Click(e2e.RegionOfLabel("New project"));
+        await e2e.PumpUntilAsync(() => e2e.State.View is { Image: not null } && !e2e.State.IsReading, "the new project's status", ct);
+
+        File.ReadAllText(WorkbenchProjectFile.PathIn(made)).ShouldBe(File.ReadAllText(WorkbenchProjectFile.PathIn(reference)),
+            "the window writes what the Lib routine writes");
+        e2e.State.View!.Folder.ShouldBe(Path.GetFullPath(made));
+        var cells = e2e.StepCells();
+        cells.Length.ShouldBe(1, "the capture's one step");
+        e2e.TextsIn(cells[0]).ShouldContain("1  Stack");
+        e2e.State.SelectedStep.ShouldBe(0, "selected");
+        var answer = e2e.State.View.Image!.Steps[0];
+        e2e.TextsIn(cells[0]).ShouldContain(answer.Words, "its state is the runner's answer");
+        e2e.State.NewProjectRefusal.ShouldBeNull();
+
+        // Run to here is W2's: here only that the offer for the stack step is to run it.
+        await e2e.PumpUntilAsync(() => e2e.Actions.RunToHereOffer().CanRun, "the offer to run the stack step", ct);
+        e2e.Actions.Jobs.IsRunning.ShouldBeFalse("a press of New project starts no run");
+    }
+
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task ARefusedNewProjectSaysWhyInWordsAndOpensNothing(float dpi)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var capture = CaptureFolder();
+        var taken = _folders.Create("taken-").FullName;
+        (await WorkbenchProjects.NewAsync(taken, capture, ct)).Refusal.ShouldBeNull();
+        await using var e2e = WorkbenchE2E.Start(dpi, new WorkbenchRunner(StackCatalog()), StackCatalog());
+        e2e.FakeFolderPicks(taken, capture);
+
+        e2e.Click(e2e.RegionOfLabel("New project"));
+        await e2e.PumpUntilAsync(() => e2e.State.NewProjectRefusal is not null, "the refusal", ct);
+
+        e2e.State.View.ShouldBeNull("nothing was opened");
+        var refusal = e2e.State.NewProjectRefusal!;
+        refusal.ShouldContain("already holds");
+        var shown = e2e.Texts().Single(static t => t.Text.StartsWith("No project was made", StringComparison.Ordinal));
+        var (cx, cy) = (shown.Bounds.X + (shown.Bounds.Width / 2f), shown.Bounds.Y + (shown.Bounds.Height / 2f));
+        e2e.Regions().Where(r => cx >= r.X && cx <= r.X + r.Width && cy >= r.Y && cy <= r.Y + r.Height && r.Tooltip is not null)
+            .ShouldContain(r => r.Tooltip == refusal, "the whole refusal is on hover where the line is cut");
+
+        // The next successful open clears it.
+        var (folder, _) = await ProjectAsync();
+        e2e.Actions.OpenProject(folder).ShouldBeTrue();
+        await e2e.PumpUntilAsync(() => e2e.State.View is not null && !e2e.State.IsReading, "the project's status", ct);
+        e2e.State.NewProjectRefusal.ShouldBeNull();
+    }
+
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task TheRefusalRowIsReservedSoItsAppearingMovesNothing(float dpi)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var capture = CaptureFolder();
+        var taken = _folders.Create("taken-").FullName;
+        (await WorkbenchProjects.NewAsync(taken, capture, ct)).Refusal.ShouldBeNull();
+        await using var e2e = WorkbenchE2E.Start(dpi, new WorkbenchRunner(StackCatalog()), StackCatalog());
+        e2e.Frame();
+        var before = e2e.RegionOfLabel("New project");
+        var hintTop = e2e.Texts().First(static t => t.Text.Contains("make a new one from a capture folder", StringComparison.Ordinal)).Bounds.Y;
+        // The empty row carries no hover text: an empty one would still be drawn, as an empty bubble over the whole strip.
+        e2e.Regions().ShouldNotContain(static r => r.Tooltip == string.Empty, "no painted region has an empty tooltip");
+        e2e.FakeFolderPicks(taken, capture);
+
+        e2e.Click(before);
+        await e2e.PumpUntilAsync(() => e2e.State.NewProjectRefusal is not null, "the refusal", ct);
+
+        var after = e2e.RegionOfLabel("New project");
+        (after.X, after.Y, after.Width, after.Height).ShouldBe((before.X, before.Y, before.Width, before.Height));
+        e2e.Texts().First(static t => t.Text.Contains("make a new one from a capture folder", StringComparison.Ordinal)).Bounds.Y
+            .ShouldBe(hintTop, "nothing below the bar moved");
+        var refusal = e2e.State.NewProjectRefusal.ShouldNotBeNull();
+        e2e.Regions().ShouldContain(r => r.Tooltip == refusal, "the refusal's whole text is on hover");
+        e2e.Regions().ShouldNotContain(static r => r.Tooltip == string.Empty, "no painted region has an empty tooltip");
+    }
+
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task ANewProjectThatCannotBeWrittenSaysWhyInsteadOfDoingNothing(float dpi)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var capture = CaptureFolder();
+        // A project folder that is an existing file: the routine throws when it makes the folder.
+        var aFile = Path.Combine(_folders.Create("file-").FullName, "not-a-folder");
+        File.WriteAllText(aFile, "x");
+        await using var e2e = WorkbenchE2E.Start(dpi, new WorkbenchRunner(StackCatalog()), StackCatalog());
+        e2e.FakeFolderPicks(aFile, capture);
+
+        e2e.Click(e2e.RegionOfLabel("New project"));
+        await e2e.PumpUntilAsync(() => e2e.State.NewProjectRefusal is not null, "the refusal", ct);
+
+        e2e.State.View.ShouldBeNull("nothing was opened");
+        e2e.State.NewProjectRefusal.ShouldNotBeNull().ShouldStartWith("No project was made: ");
+    }
+
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f, 0)]
+    [InlineData(1.5f, 0)]
+    [InlineData(1f, 1)]
+    [InlineData(1.5f, 1)]
+    public async Task CancellingEitherFolderDialogChangesNothing(float dpi, int cancelAt)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var made = Path.Combine(_folders.Create("cancelled-").FullName, "project");
+        await using var e2e = WorkbenchE2E.Start(dpi, new WorkbenchRunner(StackCatalog()), StackCatalog());
+        e2e.FakeFolderPicks(cancelAt == 0 ? null : made, null);
+
+        e2e.Click(e2e.RegionOfLabel("New project"));
+        await e2e.PumpUntilAsync(() => true, "the dialogs to end", ct);
+
+        e2e.State.View.ShouldBeNull();
+        e2e.State.NewProjectRefusal.ShouldBeNull();
+        File.Exists(WorkbenchProjectFile.PathIn(made)).ShouldBeFalse("no project was written");
+        Directory.Exists(made).ShouldBeFalse("no folder was made");
+    }
+
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task NewProjectIsDimmedWithItsReasonWhileARunGoes(float dpi)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("dimmed-").FullName;
+        var master = WorkbenchFixtures.WriteMaster(folder, "master", WorkbenchFixtures.Master(seed: 1));
+        await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("m", master, WorkbenchFixtures.Edit("add", Amount(1)), WorkbenchFixtures.Edit("gate"))), ct);
+        await using var e2e = WorkbenchE2E.Start(dpi, Runner(), Catalog());
+        await e2e.OpenProjectAsync(folder, ct);
+        await SelectAsync(e2e, 1, ct);
+        e2e.ClickText("Run to here (runs 1 first)");
+        await e2e.PumpFramesUntilAsync(() => _gate.Started.Task.IsCompleted, "the step at its gate", ct);
+
+        e2e.RegionOfLabel("New project").Tooltip.ShouldNotBeNull().ShouldContain(WorkbenchActions.ChoiceWaitsForTheRun, Case.Sensitive,
+            "the dimmed button says why on hover");
+        e2e.FakeFolderPicks(null);
+        var pendingBefore = e2e.Tracker.PendingCount;
+        e2e.Actions.NewProject();
+        // The signal is the tracker itself: RunGuarded registers its work before it returns and the entry stays until a frame
+        // collects it, so a press the guard let through would show here at once, whether or not its dialog was reached yet.
+        // No frame runs between the press and this read.
+        e2e.Tracker.PendingDescriptions.ShouldNotContain("Make a workbench project from a capture folder", "the press started no work");
+        e2e.Tracker.PendingCount.ShouldBe(pendingBefore, "the press started no work");
+        _ = e2e.FileDialog.DidNotReceiveWithAnyArgs().OpenFolderAsync(default!, default);
+
+        _gate.Release.SetResult();
+        await SettleAsync(e2e, ct);
+    }
+
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task ANewProjectMadeWhileARunStartsIsNotOpenedAndSaysSoInWordsWithTheWholeTextOnHover(float dpi)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("running-").FullName;
+        var master = WorkbenchFixtures.WriteMaster(folder, "master", WorkbenchFixtures.Master(seed: 1));
+        await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("m", master, WorkbenchFixtures.Edit("add", Amount(1)), WorkbenchFixtures.Edit("gate"))), ct);
+        var capture = CaptureFolder();
+        var made = Path.Combine(_folders.Create("made-").FullName, "project");
+        await using var e2e = WorkbenchE2E.Start(dpi, Runner(), Catalog());
+        await e2e.OpenProjectAsync(folder, ct);
+        await SelectAsync(e2e, 1, ct);
+
+        // The press passes the guard (no run yet) and waits in its first dialog; a run starts meanwhile and holds at its gate.
+        var picked = new TaskCompletionSource<FileDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var asked = 0;
+        e2e.FileDialog.OpenFolderAsync(default!, default).ReturnsForAnyArgs(_ => ++asked == 1
+            ? picked.Task
+            : Task.FromResult(new FileDialogResult { Paths = [capture] }));
+        e2e.Actions.NewProject();
+        e2e.ClickText("Run to here (runs 1 first)");
+        await e2e.PumpFramesUntilAsync(() => _gate.Started.Task.IsCompleted, "the step at its gate", ct);
+
+        picked.SetResult(new FileDialogResult { Paths = [made] });
+        await e2e.PumpFramesUntilAsync(() => e2e.State.NewProjectRefusal is not null, "the refusal", ct);
+
+        File.Exists(WorkbenchProjectFile.PathIn(made)).ShouldBeTrue("the project was made on disk");
+        var refusal = e2e.State.NewProjectRefusal.ShouldNotBeNull();
+        refusal.ShouldStartWith($"The project was made in {made}");
+        refusal.ShouldContain(WorkbenchActions.ChoiceWaitsForTheRun, Case.Sensitive, "the one reason, read once");
+        e2e.State.View!.Folder.ShouldBe(Path.GetFullPath(folder), "the project on show is still the one that was open");
+        e2e.Frame();
+        e2e.Texts().ShouldContain(t => t.Text.StartsWith("The project was made in", StringComparison.Ordinal), "a painted line carries it");
+        e2e.Regions().ShouldContain(r => r.Tooltip == refusal, "the whole text is on hover");
+
+        _gate.Release.SetResult();
+        await SettleAsync(e2e, ct);
+    }
 }

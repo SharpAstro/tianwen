@@ -142,11 +142,18 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
                         Layout.Builder.Fill(key: CanvasKey).WStar().HStar())
                     .WStar().HStar())
             .WStar().HStar();
-        return Layout.Builder.VStack(
-                TopBar(state, actions).WStar().HFixed(TopBarHeight),
-                StepBar(state, actions, steps).WStar().HFixed(StepBarHeight),
-                body)
-            .Stretch().Bg(palette.ContentBg);
+        var rows = new List<Layout.Node> { TopBar(state, actions).WStar().HFixed(TopBarHeight) };
+        // A refused New project is said in words under the bar, whole text on hover. The row is always there, empty while there is
+        // no refusal, so its appearing moves nothing under the pointer.
+        var refusal = state.NewProjectRefusal;
+        // An empty row carries no hover text: an empty one would still be shown, as an empty bubble.
+        var refusalText = Layout.Builder.Text(refusal ?? string.Empty, BaseFontSize, palette.Error, trim: TextTrim.End).WStar().HStar();
+        rows.Add(Layout.Builder.HStack(refusal is not null ? refusalText.WithTooltip(refusal) : refusalText)
+            .CrossCenter().Pad(Gap, 0f).Bg(palette.PanelBg).WStar().HFixed(TopBarHeight));
+
+        rows.Add(StepBar(state, actions, steps).WStar().HFixed(StepBarHeight));
+        rows.Add(body);
+        return Layout.Builder.VStack([.. rows]).Stretch().Bg(palette.ContentBg);
     }
 
     // The project, the image and Open project, on one row of one height and one middle.
@@ -156,27 +163,35 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
         var view = state.View;
         var parts = new List<Layout.Node>();
         var folder = view?.Folder ?? "No project open";
-        var running = actions.Jobs.IsRunning;
+        var waits = actions.ChoiceWaits;
         parts.Add(Layout.Builder.Text(folder, BaseFontSize, view is null ? palette.DimText : palette.BodyText, trim: TextTrim.Start)
             .WStar().HStar().WithTooltip(folder));
         if (view is { ImageName: { } name } && view.ImageNames.Length > 1)
         {
-            parts.Add(ImageChoice(view, actions, running));
+            parts.Add(ImageChoice(view, actions, waits));
         }
         else
         {
             _imageMenu.Close();
             if (view is { ImageName: { } only })
             {
-                parts.Add(Layout.Builder.Text(only, BaseFontSize, palette.BodyText, TextAlign.Far).WAuto().HStar());
+                // A long image name (a capture folder's) ends in an ellipsis with the whole name on hover; it never pushes the buttons off the bar.
+                parts.Add(Layout.Builder.Text(only, BaseFontSize, palette.BodyText, TextAlign.Far, trim: TextTrim.End)
+                    .WStar().HStar().WithTooltip(only));
             }
         }
 
-        // While a run goes it writes the store, so no other project or image is read: the controls stay where they are, dimmed,
-        // and say why on hover (WorkbenchActions refuses them too).
-        var open = Layout.Builder.Button("Open project", Layout.ButtonKind.Standard, actions.ChooseProject, GuiTheme.Theme,
-            tooltip: running ? WorkbenchActions.ChoiceWaitsForTheRun : "Open a workbench project folder");
-        parts.Add(running ? open.Disabled(WorkbenchActions.ChoiceWaitsForTheRun) : open);
+        // While a run goes it writes the store, and while a press of Process this master lays out its chain that press opens its
+        // own result, so no other project or image is read: the controls stay where they are, dimmed, and say why on hover
+        // (WorkbenchActions.ChoiceWaits; WorkbenchActions refuses them too).
+        // With no project open these two are all there is to do, so they take the accent, the colour of an action.
+        var kind = view is null ? Layout.ButtonKind.Accent : Layout.ButtonKind.Standard;
+        var open = Layout.Builder.Button("Open project", kind, actions.ChooseProject, GuiTheme.Theme,
+            tooltip: waits ?? "Open a workbench project folder");
+        var fresh = Layout.Builder.Button("New project", kind, actions.NewProject, GuiTheme.Theme,
+            tooltip: waits ?? "Make a project from a folder of captured frames: it holds one step, the stack");
+        parts.Add(waits is not null ? fresh.Disabled(waits) : fresh);
+        parts.Add(waits is not null ? open.Disabled(waits) : open);
         return Layout.Builder.HStack([.. parts]).WithGap(Gap).CrossCenter().Pad(Gap, 0f).Bg(palette.HeaderBg);
     }
 
@@ -208,24 +223,24 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
 
     // Image names are the user's own and can be many and long, so the choice is the engine's dropdown: a box that shows the image on
     // show, ellipsised inside its share of the row with the whole name on hover, and a menu of every image to pick from directly.
-    private Layout.Node ImageChoice(WorkbenchView view, WorkbenchActions actions, bool running)
+    private Layout.Node ImageChoice(WorkbenchView view, WorkbenchActions actions, string? waits)
     {
         var names = view.ImageNames;
         var current = view.ImageName ?? string.Empty;
         var at = names.IndexOf(current);
         _imageMenu.Items = [.. names.Select(static name => DropdownItem.Text(name))];
         _imageMenu.OnSelect = item => actions.ChooseImage(item.Value);
-        if (running)
+        if (waits is not null)
         {
             _imageMenu.Close();
         }
 
-        // A node's own hover text wins over its disabled reason, so while a run goes the reason is the hover text, whole name first.
-        var tooltip = running
-            ? $"{current}. {WorkbenchActions.ChoiceWaitsForTheRun}"
+        // A node's own hover text wins over its disabled reason, so while the choice waits the reason is the hover text, whole name first.
+        var tooltip = waits is not null
+            ? $"{current}. {waits}"
             : $"{current}: image {at + 1} of {names.Length}. Press to choose another";
         var box = Layout.Builder.DropdownBox(current, _imageMenu, GuiTheme.Theme, new HitResult.ButtonHit(ImageChoiceHit), tooltip: tooltip).WStar();
-        return running ? box.Disabled(WorkbenchActions.ChoiceWaitsForTheRun) : box;
+        return waits is not null ? box.Disabled(waits) : box;
     }
 
     // The image menu, over everything the frame painted (the viewer included), hung under the box where this frame arranged it.
@@ -260,7 +275,7 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
         {
             var message = state.View switch
             {
-                null => "Open a project to see the steps of an image.",
+                null => "Open a project, or make a new one from a capture folder, to see the steps of an image.",
                 { Refusal: { } refusal } => refusal,
                 _ => state.IsReading ? "Reading the project" : "This image has no edits yet.",
             };
@@ -350,6 +365,7 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
 
         AddRun(rows, state, actions);
         AddJob(rows, actions);
+        AddMasters(rows, state, actions, panel);
         AddViews(rows, actions);
 
         rows.Add(Heading("Settings"));
@@ -484,16 +500,60 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
             .WStar().HFixed(JobLinesHeight));
     }
 
+    // The stack step's masters, one row each as the runner answered them: the group's name (ellipsised inside its share of the row with
+    // the whole name on hover) and Process this master, on one height and one middle. While a run goes, a read is in flight or a
+    // press is still laying out its chain, every button is dimmed and says why on hover. A refusal of the last press is said beside.
+    private void AddMasters(List<Layout.Node> rows, WorkbenchState state, WorkbenchActions actions, WorkbenchStepPanel panel)
+    {
+        if (!panel.ShowsMasters)
+        {
+            return;
+        }
+
+        var palette = GuiTheme.Palette;
+        rows.Add(Heading("Masters"));
+        if (panel.Masters.IsEmpty)
+        {
+            rows.Add(Words(panel.Step.State is StepState.Kept or StepState.Ran
+                ? "The stack gave no masters."
+                : "The masters come once the stack has run: one for each target and filter group.", palette.DimText));
+        }
+
+        var waits = actions.ProcessMasterWaits;
+        foreach (var group in panel.Masters)
+        {
+            var name = group;
+            var process = Layout.Builder.Button("Process this master", Layout.ButtonKind.Standard, () => actions.ProcessMaster(name), GuiTheme.Theme,
+                tooltip: waits ?? $"Add {name}'s enhance as its chain of single steps, then open the result");
+            rows.Add(Layout.Builder.HStack(
+                    Layout.Builder.Text(name, BaseFontSize, palette.BodyText, trim: TextTrim.End).WStar().WithTooltip(name),
+                    (waits is null ? process : process.Disabled(waits)).WAuto())
+                .WithGap(Gap).CrossCenter().WStar());
+        }
+
+        if (state.MasterRefusal is { } refusal)
+        {
+            rows.Add(Words(refusal, palette.Error));
+        }
+    }
+
     // Which pictures the step has, and for one it has not, why, in words.
     private void AddViews(List<Layout.Node> rows, WorkbenchActions actions)
     {
         var offer = actions.ViewOffer();
-        if (offer is { ResultOffered: true, ComparisonOffered: true })
+        var declined = actions.ComparisonDeclined;
+        if (offer is { ResultOffered: true, ComparisonOffered: true } && !declined)
         {
             return;
         }
 
         rows.Add(Heading("Views"));
+        if (declined)
+        {
+            rows.Add(Words("The comparison was not kept for want of memory: the result is shown alone. Close other programs, then choose Comparison again.",
+                GuiTheme.Palette.DimText));
+        }
+
         if (!offer.ResultOffered)
         {
             rows.Add(Words(offer.ResultNote ?? string.Empty, GuiTheme.Palette.DimText));
