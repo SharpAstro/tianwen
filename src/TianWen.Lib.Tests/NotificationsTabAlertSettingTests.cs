@@ -107,8 +107,9 @@ public class NotificationsTabAlertSettingTests(ITestOutputHelper output)
         }
         segments[1].Width.ShouldBe(segments[0].Width, 1f);
         segments[2].Width.ShouldBe(segments[0].Width, 1f);
-        (segments[1].X - (segments[0].X + segments[0].Width)).ShouldBeLessThanOrEqualTo(2f * dpiScale);
-        (segments[2].X - (segments[1].X + segments[1].Width)).ShouldBeLessThanOrEqualTo(2f * dpiScale);
+        // The segments are declared with a 1 unit gap: neither apart nor overlapping.
+        (segments[1].X - (segments[0].X + segments[0].Width)).ShouldBe(1f * dpiScale, 1f);
+        (segments[2].X - (segments[1].X + segments[1].Width)).ShouldBe(1f * dpiScale, 1f);
 
         var choiceMiddle = segments[0].Y + segments[0].Height / 2f;
         var clearMiddle = clear.Y + clear.Height / 2f;

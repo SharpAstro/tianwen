@@ -70,8 +70,9 @@ public sealed class DesktopAlerts
     public string? LastRefusal => Volatile.Read(ref _lastRefusal);
 
     /// <summary>
-    /// The warnings that matter at the default level: a run that was aborted, and a mount limit. A weather or roof safety
-    /// kind joins this list when one exists (there is none today).
+    /// The warnings that matter at the default level: a run that was aborted, a mount limit, a run the node stopped because
+    /// no client was watching it, and a run that ended on a fault. A weather or roof safety kind joins this list when one
+    /// exists (there is none today).
     /// </summary>
     public static bool IsSafetyKind(NoteKind kind) => kind is NoteKind.SessionAborted or NoteKind.MountLimit
         or NoteKind.RunStoppedUnwatched or NoteKind.RunFaulted;
@@ -105,7 +106,9 @@ public sealed class DesktopAlerts
         }
 
         var local = string.IsNullOrEmpty(nodeId);
-        var tag = note.Kind is NoteKind.None ? note.Severity.ToString() : note.Kind.ToString();
+        // A note with no kind (from a node older than this client) is grouped by its wording as well, so a different
+        // error is never held back as a repeat of another.
+        var tag = note.Kind is NoteKind.None ? $"{note.Severity}:{note.Message}" : note.Kind.ToString();
         var group = local ? ThisComputerGroup : nodeId ?? ThisComputerGroup;
         var held = Claim((tag, group));
         if (held < 0)

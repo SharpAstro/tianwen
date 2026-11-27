@@ -82,8 +82,6 @@ public class NodeRunWatchTests
         rig.Node.Received(1).TryAbort(polar);
         rig.Node.Received(1).AddNotification(Arg.Is<NotificationDto>(n => n.Message.Contains("Polar alignment stopped")
             && n.Kind == "RunStoppedUnwatched"));
-        // A run the node ends is an abort: it alerts at the default level.
-        TianWen.UI.Abstractions.DesktopAlerts.IsSafetyKind(TianWen.Lib.Sequencing.NoteKind.RunStoppedUnwatched).ShouldBeTrue();
 
         // It restores the mount for a while yet, still the run going on: the next looks leave it to end.
         rig.After(Grace);

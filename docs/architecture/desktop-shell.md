@@ -191,9 +191,10 @@ sink in TianWen.UI.Gui.
 
 - **What alerts, and when.** Info never alerts. An Error always does (at any level but Off). A Warning alerts
   at `ErrorsAndSafety` (the default) only when its kind is a safety kind (`IsSafetyKind`: an aborted run, a mount
-  limit), and always at `AllWarnings`. Nothing alerts while the window is in front, and a host that supplies no
+  limit, a run the node stopped because no client was watching it, a run that ended on a fault), and always at `AllWarnings`. Nothing alerts while the window is in front, and a host that supplies no
   window probe gets no alerts at all. The level is per computer (`DesktopAlertSettings`).
-- **Grouping.** An alert has a tag (the note's kind, else its severity) and a group (the rig's NodeId, or
+- **Grouping.** An alert has a tag (the note's kind; a note with no kind, from an older node, is tagged by its severity and its wording, so a
+  different message is never held back as a repeat) and a group (the rig's NodeId, or
   `this-computer`). A repeat of the same tag and group inside `GroupingWindow` (5 minutes, on this client's
   clock, never the note's stamp, because another node's clock may be skewed) is held back and counted; the next
   alert of that tag says how many were held back. The tag and group are also the toast's own, so Windows

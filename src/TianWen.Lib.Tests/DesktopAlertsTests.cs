@@ -84,6 +84,8 @@ public class DesktopAlertsTests(ITestOutputHelper output)
     [Theory]
     [InlineData(NoteKind.SessionAborted)]
     [InlineData(NoteKind.MountLimit)]
+    [InlineData(NoteKind.RunStoppedUnwatched)]
+    [InlineData(NoteKind.RunFaulted)]
     public void AnAllowlistedWarningAlertsAtTheDefaultLevel(NoteKind kind)
         => new Rig().Alerts.Decide(Note(NotificationSeverity.Warning, kind), null, null).ShouldNotBeNull();
 
@@ -127,6 +129,20 @@ public class DesktopAlertsTests(ITestOutputHelper output)
 
         rig.Clock.Advance(DesktopAlerts.GroupingWindow);
         rig.Alerts.Decide(Note(NotificationSeverity.Error, NoteKind.SessionFailed, "third"), "rig-1", "Roof rig").ShouldNotBeNull().Body.ShouldBe("third");
+    }
+
+    [Fact]
+    public void NotesWithNoKindGroupByTheirWording()
+    {
+        var rig = new Rig();
+        rig.Alerts.Decide(Note(NotificationSeverity.Error, NoteKind.None, "camera lost"), "old-node", "Old rig").ShouldNotBeNull();
+        rig.Clock.Advance(TimeSpan.FromMinutes(1));
+
+        // A different error from the same older node inside the window is not a repeat.
+        rig.Alerts.Decide(Note(NotificationSeverity.Error, NoteKind.None, "mount lost"), "old-node", "Old rig").ShouldNotBeNull();
+
+        // The same wording again is.
+        rig.Alerts.Decide(Note(NotificationSeverity.Error, NoteKind.None, "camera lost"), "old-node", "Old rig").ShouldBeNull();
     }
 
     [Fact]
