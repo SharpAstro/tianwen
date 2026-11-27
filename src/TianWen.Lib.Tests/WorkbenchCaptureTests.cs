@@ -318,6 +318,11 @@ public sealed class WorkbenchCaptureTests : IDisposable
             var floor = theme == UiThemeState.Night ? 3.0 : 4.5;
             foreach (var (text, bounds, ink) in e2e.TextInks().Where(t => t.Bounds.Y < e2e.Renderer.Height / 2f && t.Bounds.X < canvas.X + canvas.Width && t.Bounds.Width > 0))
             {
+                if (Inside(canvas, bounds))
+                {
+                    continue; // the viewer's own marks sit on the picture, not on the chrome's fill
+                }
+
                 if (regions.Any(r => r.Result is HitResult.ButtonHit && Inside(new RectF32(r.X, r.Y, r.Width, r.Height), bounds)))
                 {
                     continue; // a button's own label is the theme's pair for its fill, checked by the theme's tests
