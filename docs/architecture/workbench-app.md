@@ -27,7 +27,7 @@ The pieces it holds:
 ## The screen and the layout
 
 One `Layout` tree, built each frame from the state: the top bar (the project's folder, the image choice where the project
-has several, and Open project), the step bar, a
+has several, New project and Open project), the step bar, a
 340-wide panel on the left and, beside it, the view row with the viewer's own renderer in a keyed canvas. The viewer's
 toolbar is cut to the controls that are about looking (`ViewerOffer`): no Open file, Enhance, crop or solve, because
 those are operations here, and no file list.
@@ -106,6 +106,34 @@ original with the words saying why: a step that is not made yet, one that is ref
 and a first step, which has no input to compare. An original the viewer cannot draw (a folder of frames, a SER capture)
 is described in words. Which pictures a step offers is worked out once with the runner's answer, off the render thread, and
 every part of a frame reads that one value.
+
+## New project
+
+A "New project" button stands beside "Open project" in the top bar, on one row of one height and one middle. It makes a
+project from a folder of captured frames: the project holds one step, the stack, and "Run to here" stacks the capture with
+the run's progress and cancel, as for any step.
+
+- **Two folder dialogs, in this order**, both through `IFileDialogs.OpenFolderAsync`: "New project: choose the folder for
+  the project" (it opens where the current project is), then "New project: choose the folder of the capture to stack" (it
+  opens at the project folder just chosen). Cancelling either one changes nothing: no file is written, no message is shown.
+- **The work is the Lib routine's**, `WorkbenchProjects.NewAsync`, the one the `new` verb calls. `WorkbenchActions.NewProject`
+  runs both dialogs and the routine through the background tracker, never on the render thread, and then opens the new
+  project through `OpenProject`, so the step bar shows the stack step selected and the status comes from the runner.
+- **A refusal is said in words.** The routine refuses a folder that already holds a `project.json`, a missing capture folder,
+  a capture folder equal to the project folder and one inside the step store. The words are kept in
+  `WorkbenchState.NewProjectRefusal` and shown in a strip under the top bar ("No project was made: ..."), ellipsised with the
+  whole text on hover. The strip is there only while there is a refusal; the next successful open clears it.
+- **While a run goes the button is dimmed** with the same reason as Open project (`WorkbenchActions.ChoiceWaitsForTheRun`),
+  and `NewProject` refuses too, so no dialog opens: a run writes the store and no other project is read meanwhile.
+- **With no project open the two buttons take the accent**, the colour of an action, since they are all there is to do; with
+  a project open both are standard buttons. The empty step bar says "Open a project, or make a new one from a capture
+  folder, to see the steps of an image."
+- **A long name never pushes the buttons off the bar.** The project's folder (cut at its start) and a single image name
+  (cut at its end) share the width the buttons leave, each with its whole text on hover.
+- Tests: `WorkbenchE2ETests` presses the button with two faked folder picks at DPI 1 and 1.5 (the project is the Lib
+  routine's, byte for byte, with one selected stack step; a refusal is said; a cancelled dialog changes nothing; a run
+  dims it). No stack is run. `WorkbenchCaptureTests` renders the empty window, a new project, a long capture path and a
+  refusal at 1280x800 and 2000x1100 in Dark and Night, and at DPI 1.5.
 
 ## What W2 leaves out
 

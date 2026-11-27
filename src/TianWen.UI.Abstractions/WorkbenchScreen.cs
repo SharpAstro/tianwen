@@ -146,8 +146,9 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
         // A refused New project is said in words under the bar, whole text on hover; it is there only while there is one.
         if (state.NewProjectRefusal is { } refusal)
         {
-            rows.Add(Layout.Builder.Text(refusal, BaseFontSize, palette.Error, trim: TextTrim.End).WStar().HStar().WithTooltip(refusal)
-                .Pad(Gap, 0f).Bg(palette.PanelBg).WStar().HFixed(TopBarHeight));
+            rows.Add(Layout.Builder.HStack(
+                    Layout.Builder.Text(refusal, BaseFontSize, palette.Error, trim: TextTrim.End).WStar().HStar().WithTooltip(refusal))
+                .CrossCenter().Pad(Gap, 0f).Bg(palette.PanelBg).WStar().HFixed(TopBarHeight));
         }
 
         rows.Add(StepBar(state, actions, steps).WStar().HFixed(StepBarHeight));
