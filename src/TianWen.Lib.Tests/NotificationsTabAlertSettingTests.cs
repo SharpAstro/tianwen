@@ -89,7 +89,7 @@ public class NotificationsTabAlertSettingTests(ITestOutputHelper output)
 
         var segments = ChoiceRegions(tab).OrderBy(r => r.X).ToArray();
         var clear = tab.GetRegisteredRegions().Single(r => r.Result is HitResult.ButtonHit { Action: "NotificationsClear" });
-        var oneRow = 28f * dpiScale;
+        var oneRow = GuiTheme.Metrics.HeaderHeight * dpiScale;
         var wraps = segments[0].Y + segments[0].Height / 2f > clear.Y + clear.Height / 2f + oneRow / 2f;
         if (mustWrap is { } expected)
         {

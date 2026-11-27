@@ -131,7 +131,8 @@ namespace TianWen.UI.Abstractions
         /// <summary>
         /// The width, in design units, of one segment of the alert choice: the widest of the three labels as the engine measures
         /// it, plus slack. A segmented control has no intrinsic width of its own, so it is measured here and never written as a
-        /// number; an edited label or another face changes it.
+        /// number; an edited label or another face changes it. The pinned DIR.Lib's ButtonGroup has no width sample (only
+        /// <c>Text</c> does), so the equal width is stated through <c>ButtonGroupStyle.SegmentWidth</c>.
         /// </summary>
         private float AlertSegmentWidth(PixelMeasureContext<TSurface> ctx, float dpiScale)
         {
