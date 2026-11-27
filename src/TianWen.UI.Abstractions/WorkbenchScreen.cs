@@ -275,7 +275,7 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
         var step = panel.Step;
         // The title wraps in the room it has: a sentence is never cut mid-word. Beside it the step's switch.
         // A checkbox stands in for the mockup's switch until DIR.Lib#156 (switch control) and DIR.Lib#330 (slider with a numeric field) land.
-        var onStyle = CheckboxStyleOf(palette);
+        var onStyle = CheckboxStyleNow();
         var waits = actions.Jobs.IsRunning ? "A run is going: the step can be switched when it ends" : null;
         var on = Layout.Builder.Checkbox("On", step.State is not StepState.Off, actions.SetStepEnabled, onStyle, BaseFontSize,
                 new HitResult.ButtonHit("Step:On"))
@@ -283,7 +283,7 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
         rows.Add(Layout.Builder.HStack(
                 Words(step.Label, palette.BodyText, FlowRoom.Panel, BaseFontSize * 1.15f).WStar(),
                 waits is null ? on : on.Disabled(waits))
-            .WithGap(Gap).CrossStart().WStar());
+            .WithGap(Gap).CrossCenter().WStar());
         if (panel.Summary.Length > 0)
         {
             rows.Add(Words(panel.Summary, palette.DimText));
@@ -293,7 +293,7 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
         rows.Add(Layout.Builder.HStack(
                 Layout.Builder.Text(step.Mark, BaseFontSize, stateInk).WAuto(),
                 Words(step.Words, stateInk).WStar())
-            .WithGap(4f).CrossStart().WStar());
+            .WithGap(4f).CrossCenter().WStar());
         if (actions.FixWords(step) is { Length: > 0 } fix)
         {
             rows.Add(Words(fix, palette.DimText));
