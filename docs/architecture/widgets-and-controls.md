@@ -434,6 +434,13 @@ without an ellipsis. The sizes are scales 1 and 1.5, heights 520 and 900 and wid
 from both ends draws over itself only at the width where the two meet. A tab, a chrome state or a popover that passes at
 one size can fail at the next, and nothing else in the suite looks.
 
+**The face it measures in.** Every text is measured in the face the apps draw, the bundled DejaVu Sans
+(`TestFonts/DejaVuSans.ttf`, from the one helper `AppFace.Text`), never the platform's monospace default. Consolas on Windows
+and DejaVu Sans Mono on Linux CI answer differently, so a Windows run could not see the Linux overflow that turned TIA2507's
+CI red four times (#2560). `SweepMeasuresInTheAppFaceTests` (Category Invariant) guards it: the sweep sources name no
+`ResolveSystemFont`, the face file sits beside the test binary (a missing face measures every text as nothing and the sweep
+passes), and its name is the one `BundledFonts.BundledTextRelativePath` names.
+
 **What it judges.** Each tab as a scenario (`Scenarios`), the window chrome in its states (`ChromeStates`: a long status
 message, everything connected, a session running, a pinned date with a verdict, the night calendar open under the top bar),
 the Notifications tab, and the FITS viewer's chrome with its popovers open in turn. The states that stress a layout are

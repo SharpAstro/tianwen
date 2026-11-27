@@ -21,7 +21,7 @@ internal sealed class SweepViewer : ImageRendererBase<RgbaImage>
         Width = renderer.Width;
         Height = renderer.Height;
         DpiScale = dpiScale;
-        FontPath = FontResolver.ResolveSystemFont();
+        FontPath = AppFace.Text;
     }
 
     protected override void RenderImageQuad(IPreviewSource? source, ViewerState state,

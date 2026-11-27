@@ -142,7 +142,7 @@ public class InfoPanelPlanetaryStackTests
             TelescopeFrom = "the viewer's last telescope, since the capture's header names none and none was set on it",
         };
         using var renderer = new RgbaImageRenderer((uint)(1600 * dpi), (uint)(1000 * dpi));
-        var viewer = new ViewerE2E.Surface(renderer, new SignalBus()) { DpiScale = dpi, FontPath = OrreryTests.AppFace };
+        var viewer = new ViewerE2E.Surface(renderer, new SignalBus()) { DpiScale = dpi, FontPath = AppFace.Text };
         var state = AutoState(identity, (12, 40));
         state.InfoPanelStatisticsPinned = true;
 
