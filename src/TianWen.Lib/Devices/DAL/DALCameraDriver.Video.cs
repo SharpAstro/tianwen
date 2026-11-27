@@ -581,14 +581,18 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
         }
         finally
         {
-            if (_deviceInfo.TryGetControlRange(CMOSControlType.HighSpeedMode, out _, out _))
+            // A camera left in Error is closed, or open on a handle its SDK refused to initialise (#1759): nothing is set on it.
+            if (_camState is not CameraState.Error)
             {
-                // Back to what the camera's settings ask of a single exposure.
-                _ = _deviceInfo.SetControlValue(CMOSControlType.HighSpeedMode, Convert.ToInt32(_cameraSettings.FastReadout));
-            }
-            if (stream.BandwidthFound is { } bandwidth)
-            {
-                _ = _deviceInfo.SetControlValue(CMOSControlType.BandwidthOverload, bandwidth);
+                if (_deviceInfo.TryGetControlRange(CMOSControlType.HighSpeedMode, out _, out _))
+                {
+                    // Back to what the camera's settings ask of a single exposure.
+                    _ = _deviceInfo.SetControlValue(CMOSControlType.HighSpeedMode, Convert.ToInt32(_cameraSettings.FastReadout));
+                }
+                if (stream.BandwidthFound is { } bandwidth)
+                {
+                    _ = _deviceInfo.SetControlValue(CMOSControlType.BandwidthOverload, bandwidth);
+                }
             }
             Volatile.Write(ref _videoWindow, null);
             Volatile.Write(ref _videoWindowSettle, null);

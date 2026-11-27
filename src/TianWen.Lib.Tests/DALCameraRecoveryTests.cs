@@ -196,6 +196,7 @@ public class DALCameraRecoveryTests(ITestOutputHelper output)
         // QHY or ZWO body was asked and exposed on a handle never initialised.
         var (camera, state, time) = await NewConnectedCameraAsync(canReset: true);
         camera.SdkInits.ShouldBe(1, "the connect ran it once");
+        state.CallsBeforeSdkStep.ShouldBe(0, "the connect set the camera up only after the step");
         state.LoseNext = 2;
         await LoseOneExposureAsync(camera, time);
         await LoseOneExposureAsync(camera, time);
@@ -204,6 +205,7 @@ public class DALCameraRecoveryTests(ITestOutputHelper output)
 
         state.ResetCount.ShouldBe(1);
         camera.SdkInits.ShouldBe(2, "the handle found after the reset was initialised by the vendor's step");
+        state.CallsBeforeSdkStep.ShouldBe(0, "nothing was read or set on the new handle until the step had run");
         state.StartCount.ShouldBe(3);
     }
 
@@ -222,7 +224,14 @@ public class DALCameraRecoveryTests(ITestOutputHelper output)
         refused.Message.ShouldContain("refused to initialise");
         state.ResetCount.ShouldBe(1);
         state.StartCount.ShouldBe(2, "no exposure is started on a handle its SDK refused");
+        state.CallsBeforeSdkStep.ShouldBe(0, "nothing is read or set on a handle its SDK refused");
         (await camera.GetCameraStateAsync(TestContext.Current.CancellationToken)).ShouldBe(CameraState.Error);
+
+        // The refused handle stays open for the disconnect to close, as a camera that does not come back leaves none.
+        state.Opens.ShouldBe(2);
+        state.Closes.ShouldBe(1, "the reset's close; the refused handle is still open");
+        await camera.DisconnectAsync(TestContext.Current.CancellationToken);
+        state.Closes.ShouldBe(state.Opens, "the disconnect closes the handle the refusal left open");
     }
 
     [Fact]
@@ -341,13 +350,14 @@ internal sealed class TestDalCameraDriver(FakeDevice device, IServiceProvider sp
     /// <summary>The gain range the camera had read when the vendor's SDK step ran: unread, if that step came first.</summary>
     public short? GainMaxAtSdkInit { get; private set; }
 
-    /// <summary>A vendor's own step, overridden as every vendor camera driver overrides it.</summary>
     /// <summary>How often the vendor's SDK step ran: once per connect, and again for every handle found after a reset or a reopen.</summary>
     public int SdkInits { get; private set; }
 
+    /// <summary>A vendor's own step, overridden as every vendor camera driver overrides it.</summary>
     protected override ValueTask<bool> InitSdkAsync(CancellationToken cancellationToken)
     {
         SdkInits++;
+        state.SdkStepRan();
         GainMaxAtSdkInit = GainMax;
         return ValueTask.FromResult(!state.RefuseSdkInit);
     }
@@ -564,7 +574,31 @@ internal sealed class FakeCmosState(string serial)
 
     public int Closes => Volatile.Read(ref _closes);
 
-    public void Opened() => Interlocked.Increment(ref _opens);
+    public void Opened()
+    {
+        Interlocked.Increment(ref _opens);
+        Volatile.Write(ref _stepRanSinceOpen, false);
+    }
+
+    private bool _stepRanSinceOpen;
+    private int _callsBeforeSdkStep;
+
+    /// <summary>The vendor's SDK step ran on the handle opened last.</summary>
+    public void SdkStepRan() => Volatile.Write(ref _stepRanSinceOpen, true);
+
+    /// <summary>
+    /// Control and format calls that reached a handle its vendor's SDK step had not run on: on a QHY or ZWO body each is a call
+    /// on a handle opened and never initialised (#1759).
+    /// </summary>
+    public int CallsBeforeSdkStep => Volatile.Read(ref _callsBeforeSdkStep);
+
+    public void NoteUse()
+    {
+        if (!Volatile.Read(ref _stepRanSinceOpen))
+        {
+            Interlocked.Increment(ref _callsBeforeSdkStep);
+        }
+    }
 
     public void Closed() => Interlocked.Increment(ref _closes);
 
@@ -880,6 +914,7 @@ internal readonly struct FakeCmosCamera(FakeCmosState state) : ICMOSNativeInterf
     public CMOSErrorCode GetControlValue(CMOSControlType controlType, out int value, out bool isAuto)
     {
         state.NoteCall();
+        state.NoteUse();
         state.OnGetControl?.Invoke(controlType);
         isAuto = false;
         return state.Controls.TryGetValue(controlType, out value) ? CMOSErrorCode.Success : CMOSErrorCode.InvalidControlType;
@@ -887,6 +922,7 @@ internal readonly struct FakeCmosCamera(FakeCmosState state) : ICMOSNativeInterf
 
     public CMOSErrorCode SetControlValue(CMOSControlType controlType, int value, bool isAuto = false)
     {
+        state.NoteUse();
         state.OnSetControl?.Invoke(controlType);
         state.Controls[controlType] = value;
         return CMOSErrorCode.Success;
@@ -961,6 +997,7 @@ internal readonly struct FakeCmosCamera(FakeCmosState state) : ICMOSNativeInterf
 
     public CMOSErrorCode SetROIFormat(int width, int height, int bin, PixelDataFormat pixelDataFormat)
     {
+        state.NoteUse();
         if (state.Streaming)
         {
             // As ASISetROIFormat: the stream must be stopped before its size changes.

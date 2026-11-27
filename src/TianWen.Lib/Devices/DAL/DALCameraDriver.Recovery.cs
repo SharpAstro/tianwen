@@ -236,8 +236,9 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo>
     /// <summary>
     /// Finds the camera again after <paramref name="after"/> (a reset or a close), waiting up to
     /// <see cref="ResetReappearTimeout"/> for it to come back on the bus, and restores <paramref name="settings"/> and
-    /// <paramref name="restore"/>. A camera that does not come back leaves the driver in <see cref="CameraState.Error"/>
-    /// and throws.
+    /// <paramref name="restore"/>, after the vendor's own SDK step has run on the handle found. A camera that does not come back,
+    /// or whose SDK refuses to initialise the handle found (left open for the disconnect to close), leaves the driver in
+    /// <see cref="CameraState.Error"/> and throws.
     /// </summary>
     private async ValueTask FindAgainAndRestoreAsync(CameraSettings settings, List<(CMOSControlType Control, int Value)> restore, string after,
         CancellationToken cancellationToken)

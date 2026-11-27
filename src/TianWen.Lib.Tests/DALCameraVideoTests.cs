@@ -704,6 +704,52 @@ public class DALCameraVideoTests(ITestOutputHelper output)
     }
 
     [Fact(Timeout = 30_000)]
+    public async Task AReopenedBodyRunsItsVendorsSdkStepBeforeAnythingIsSetOnIt()
+    {
+        // #1759: the reopen is the rung where a QHY or ZWO body needs the vendor's step.
+        var ct = TestContext.Current.CancellationToken;
+        var (camera, state, _) = await ScriptedDalCamera.ConnectAsync(output, canStream: true);
+        camera.NumX = 64;
+        camera.NumY = 32;
+        await using var frames = camera.CaptureVideoAsync(OneMillisecond, ct).GetAsyncEnumerator(ct);
+        (await NextAsync(frames)).Release();
+        camera.SdkInits.ShouldBe(1);
+        state.Stall(FakeCmosState.Cure.Reopen);
+
+        await ReadUntilRecoveredAsync(camera, frames, 1);
+
+        camera.VideoRecoveryLog.Single().Rung.ShouldBe(TestDalCameraDriver.VideoRecoveryRung.Reopen);
+        camera.SdkInits.ShouldBe(2, "the handle opened again was initialised by the vendor's step");
+        state.CallsBeforeSdkStep.ShouldBe(0, "and nothing was read or set on it before that");
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task AReopenedBodyWhoseSdkRefusesItsInitEndsTheStreamAndIsLeftAloneUntilDisconnected()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (camera, state, _) = await ScriptedDalCamera.ConnectAsync(output, canStream: true, hasHighSpeed: true);
+        camera.NumX = 64;
+        camera.NumY = 32;
+        await using var frames = camera.CaptureVideoAsync(OneMillisecond, ct).GetAsyncEnumerator(ct);
+        (await NextAsync(frames)).Release();
+        state.RefuseSdkInit = true;
+        state.Stall(FakeCmosState.Cure.Reopen);
+
+        var failed = await Should.ThrowAsync<InvalidOperationException>(async () =>
+        {
+            while (await frames.MoveNextAsync())
+            {
+                frames.Current.Release();
+            }
+        });
+
+        failed.Message.ShouldContain("refused to initialise");
+        state.CallsBeforeSdkStep.ShouldBe(0, "the stream's clean-up does not touch a handle its SDK refused");
+        await camera.DisconnectAsync(ct);
+        state.Closes.ShouldBe(state.Opens, "the disconnect closes the handle the refusal left open");
+    }
+
+    [Fact(Timeout = 30_000)]
     public async Task ABodyThatRefusesItsResetGivesUpAndSaysTheResetWasRefused()
     {
         var ct = TestContext.Current.CancellationToken;
