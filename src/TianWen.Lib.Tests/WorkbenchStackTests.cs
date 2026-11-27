@@ -127,6 +127,7 @@ public sealed class WorkbenchStackTests(ITestOutputHelper output) : IDisposable
             HotPixelSigma = 0,
             DrizzlePixfrac = 0.7f,
             DrizzleMinFrames = 12,
+            Reassign = [new FrameReassignment { Path = "Lights/a b.fits", Kind = FrameType.Dark }, new FrameReassignment { Path = "x.fits", Kind = FrameType.None }],
         };
         // A stated strategy that is no drizzle, and the choice of a drizzle switched off.
         var noDrizzle = new StackSettings { Strategy = IntegrationStrategyKind.InRamAllFrames, BayerDrizzle = false, QualityRejectSigma = 2.5f };

@@ -616,6 +616,14 @@ as for any step, W6 and W12), processing every master in one press, and a stack'
 by its run has no single file to show). How it works: [workbench-app.md](../architecture/workbench-app.md), "New project"
 and "The stack's masters and Process this master".
 
+**Redesign, #2553, headless half built (2026-11-27):** the owner's mockup is kept in `docs/designs/workbench/` (Import,
+Workflow, Main). New project now takes the capture folder alone and keeps the project and every result in `<folder>\workdir`
+(the stack never reads it); `CaptureDetection` says what the folder holds (groups, each file's kind and why, an unsure mark,
+Needs a look) over the stack's own scan and matching; a per-file reassignment is a stack-step setting (`reassign`, `tianwen
+stack --reassign`) that changes the step's key and is taken by the stack. Verbs: `workbench new <folder>`, `workbench
+detected`, `workbench reassign`. The screens (import, workflow choice, the tree) are the next legs. See
+[workbench-app.md](../architecture/workbench-app.md), "What is in the folder".
+
 ### W3 The planetary steps
 
 Tracked as #1643. Import to Export for planetary, at parity with the viewer's Full view (the same master to the bit for the same capture and options),

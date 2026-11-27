@@ -274,14 +274,14 @@ public sealed class WorkbenchCaptureTests : IDisposable
             await using var e2e = WorkbenchE2E.Start(dpi, new WorkbenchRunner(catalog), catalog, width, height);
             if (scenario == "refused")
             {
-                (await WorkbenchProjects.NewAsync(project, capture, ct)).Refusal.ShouldBeNull();
-                e2e.FakeFolderPicks(project, capture);
+                (await WorkbenchProjects.NewAsync(capture, ct)).Refusal.ShouldBeNull();
+                e2e.FakeFolderPicks(capture);
                 e2e.Click(e2e.RegionOfLabel("New project"));
                 await e2e.PumpUntilAsync(() => e2e.State.NewProjectRefusal is not null, "the refusal", ct);
             }
             else if (scenario != "empty")
             {
-                e2e.FakeFolderPicks(project, capture);
+                e2e.FakeFolderPicks(capture);
                 e2e.Click(e2e.RegionOfLabel("New project"));
                 await e2e.PumpUntilAsync(() => e2e.State.View is { Image: not null } && !e2e.State.IsReading, "the new project", ct);
                 await e2e.PumpUntilAsync(() => e2e.Actions.RunToHereOffer().CanRun, "the offer to run the stack", ct);
