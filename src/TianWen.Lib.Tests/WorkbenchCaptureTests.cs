@@ -572,7 +572,7 @@ public sealed class WorkbenchCaptureTests : IDisposable
         var topBar = buttons.Where(r => r.Y + (r.Height / 2f) < 44f * dpi).ToArray();
         // The toolbar's controls (Run, Stop, the picture choice, Fit, 1:1, the stretch) share one height and one middle too.
         var toolbar = buttons.Where(r => !(r.Result is HitResult.ButtonHit h && (h.Action.StartsWith("Play:", StringComparison.Ordinal) || h.Action.StartsWith("Step:", StringComparison.Ordinal)))
-            && r.Y + (r.Height / 2f) > 72f * dpi && r.Y + (r.Height / 2f) < 116f * dpi).ToArray();
+            && r.Y + (r.Height / 2f) > 44f * dpi && r.Y + (r.Height / 2f) < 88f * dpi).ToArray();
         toolbar.Length.ShouldBeGreaterThan(3, "the toolbar holds its controls");
         foreach (var r in toolbar)
         {
