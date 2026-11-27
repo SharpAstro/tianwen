@@ -151,7 +151,7 @@ public class NotificationsTabAlertSettingTests(ITestOutputHelper output)
         ChoiceRegions(Paint(renderer, new GuiAppState(), new ViewContexts().Local).Tab).ShouldBeEmpty();
     }
 
-    // Kept output only (TIANWEN_KEEP_TEST_OUTPUT=1): the tab beside the test binary, narrow and wide, at both scales and in every
+    // Kept output only (TIANWEN_KEEP_TEST_OUTPUT=1): the tab in the test's own dated output folder under the original temp, narrow and wide, at both scales and in every
     // palette, to be looked at.
     [Theory]
     [InlineData(560, 1f, UiThemeState.Dark)]
