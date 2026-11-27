@@ -11099,8 +11099,8 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
 
       In the field cells R4l's seeds and R4m's seed 0 leave a little less than R4h, R4m's seed 1 more. In the cores
       no arm leaves less on all four: R4l's seed 1 does on three, and seed 11's core without the nebula reads worse
-      for both R4l seeds. R4m's seed 0 leaves less than R4h on three cores and 27.8 on the fourth, nearly all of it
-      above the truth (light left, not dug). The oracle reads 0.05 in the field and 0.10 to 0.11 in the core against
+      for both R4l seeds. R4m's seed 0 leaves less than R4h on two cores (seed 11, with and without the nebula) and
+      more on both of seed 7's (27.8 and 6.4). The oracle reads 0.05 in the field and 0.10 to 0.11 in the core against
       the old truth, as in route A. So on these scenes, too, neither arm takes a crowded core much closer to its
       truth.
     - **The best step's weights, through the chain:** seed 0 (step 170,500) 91.5 and 93.5 on the question's rows,
@@ -11126,7 +11126,10 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
       3.89 against 1.91 and 1.70), the bright Hourglass flatter on the sheets, and the Tarantula's field light a
       point over its bar. Whether a wider net can keep the stars it gains and give the nebula back is not measured.
   - **Next, the owner's.** Route B's free check (below, "Depth pairs: the free check") and the crowding weight are
-    the go's remaining routes; the field-light guard's role is the owner's question from R4m's read.
+    the go's remaining routes; the field-light guard's role is the owner's question, asked here: the guard reads the field's level, not its
+    stars, and sits at R4d's 81 and 82 plus two points. R4l's 85 on a whole-percent figure is a one-point miss
+    against R4h's 84, so this kill stands on the Lagoon's broad-light guard alone (4.52 and 3.89 against 2.67).
+    Should a level guard of that kind gate an arm at all?
   - **Nothing is adopted;** adoption is the owner's.
 - **How crowded the training data stand against the fields the crowded rows are scored on, 2026-11-26 (a measurement:
   no training, no arm).** The same count on both sides: the star layer's local maxima (3 x 3) at 3 sigma or more in the
@@ -11344,7 +11347,11 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     noise and nebula. The stars counted are the ones the whole stack's builder took (its star list; the Gaia
     database stops at magnitude 17.1 in these Milky Way fields, all far over the row's range at this depth), read
     by `nebula_stars_row.py` on the quarter stack (its sky noise, its nebula level, no magnitude check), against the
-    quarter's own plate (what a real pair at that depth would teach) and against the depth pair's answer.
+    quarter's own plate (what a real pair at that depth would teach) and against the depth pair's answer. **The
+    last column is near-tautological and is not a measurement of the answer's quality:** the answer is the quarter
+    stack less the whole stack's own star layer, and the counted stars are the ones that builder took, so it has them
+    removed by construction. It says nothing about the answer's own artefacts (scale-fit residue, registration
+    error, PSF mismatch); only the quarter-plate column is measured.
 
     | session | stars, light in the quarter's sky sigma | quarter's own plate leaves | depth answer leaves |
     |---|---|---|---|
@@ -11356,11 +11363,15 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     | | 5-20, on dark sky (3,212) | 53.5 % | 0.7 % |
 
   - **What it says.** On bright nebula the quarter-depth plate already takes nearly every faint star the whole
-    stack's builder takes (87 and 98.5 % at 20 to 150 sky sigma), and at 5 to 20 sky sigma such stars are few (15
-    and none). The whole stack's builder finds 30 and 12 % more stars than the quarter's, but almost none of them on
-    bright nebula. So the depth pair would mostly teach the very faint stars on dark sky, where our models are not
-    behind (205 dark plants: R4h leaves 6.8 and 7.3 %). The limit looks like the builder finding stars on bright
-    nebula at all, and four times the exposure barely lifts it.
+    stack's builder takes (87 and 98.5 % at 20 to 150 sky sigma). At 5 to 20 sky sigma on bright nebula there is one
+    session with any such stars, and there the case is not small in effect: 15 stars, of which the quarter's own
+    plate leaves 10 (66.7 %) against 2 for the depth answer (13.3 %, by construction, see above). That is the one
+    place a depth pair would differ on bright nebula, on 15 stars in one session, too few to call. The whole stack's
+    builder finds 30 and 12 % more stars than the quarter's, almost all of them on dark sky, so the depth pair would
+    mostly teach very faint dark-sky stars. Whether our models are behind there is not shown by this check: the
+    205 dark plants (R4h leaves 6.8 and 7.3 %) are planted stars, which the injector teaches by construction, not
+    real faint dark-sky stars. The limit looks like the builder finding stars on bright nebula at all, and four
+    times the exposure barely lifts it.
   - **What it does not.** A star neither builder finds is invisible to this check, and those are the case at issue
     (on the held-out Lagoon master the builder takes about a third of the planted faint stars on the faintest
     nebula, a tenth at 40 to 80 sky sigma of nebula and a fiftieth above that, and about a third of the 84 real
