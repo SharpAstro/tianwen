@@ -36,6 +36,12 @@ public enum NoteKind
     PromptAnsweredUnattended,
     MountLimit,
     MountLimitCleared,
+    /// <summary>The node stopped a run because no client had watched it for the grace period (a node-worded note).</summary>
+    RunStoppedUnwatched,
+    /// <summary>A run ended on a fault (a node-worded note).</summary>
+    RunFaulted,
+    /// <summary>The node reconciled the profiles on disk with what it held (a node-worded note).</summary>
+    ProfilesReconciled,
 }
 
 /// <summary>A note about a run, as a person reads it, and the kind of event it is about.</summary>

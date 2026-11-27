@@ -213,7 +213,8 @@ sink in TianWen.UI.Gui.
 - **The click's route.** Windows starts `tianwen-gui <link>`. `Program.cs` reads args[0] with
   `LaunchScheme.TryRead`; with an instance already running it hands the link through `InstanceGate` instead of the
   empty payload, and `PumpInstanceGate` in the running instance resolves each payload with `DesktopAlertLink`.
-  With no running instance the link is kept and routed once the window and its views exist. A payload is untrusted
+  With no running instance the link is kept and routed once the window and its views exist (once: a rig the link
+  names that has no view context yet falls back to this computer's feed). A payload is untrusted
   input: it is an id to look up, never a command or a path. `DesktopAlertLink.Resolve` matches only a known
   NodeId and otherwise opens this computer's view. The view is selected the way the rig picker selects it
   (`SelectRemoteRigSignal` with `GuiTab.Notifications`, or `SelectLocalContextSignal` for this computer), then

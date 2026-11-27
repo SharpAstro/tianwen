@@ -18,8 +18,8 @@ public static class DesktopAlertSettings
 
     public static string PathFor(IExternal external) => Path.Combine(external.AppDataFolder.FullName, "Notifications", "desktop-alerts.json");
 
-    public static async Task<DesktopAlertLevel> LoadAsync(IExternal external, CancellationToken cancellationToken)
-        => await external.TryReadJsonAsync(PathFor(external), DesktopAlertSettingsJsonContext.Default.DesktopAlertSettingsDto, logger: null, cancellationToken) is { } saved
+    public static async Task<DesktopAlertLevel> LoadAsync(IExternal external, CancellationToken cancellationToken, Microsoft.Extensions.Logging.ILogger? logger = null)
+        => await external.TryReadJsonAsync(PathFor(external), DesktopAlertSettingsJsonContext.Default.DesktopAlertSettingsDto, logger, cancellationToken) is { } saved
             && System.Enum.IsDefined(saved.Level)
             ? saved.Level
             : Default;

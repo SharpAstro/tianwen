@@ -29,6 +29,9 @@ public class NodeRunsTests
         node.Received(1).AddNotification(Arg.Is<NotificationDto>(n =>
             n.Severity == "Warning"
             && n.Message == "The live view stopped: Canon EDS error InternalError (0x00000002): Failed to start Canon Live View"
+            && n.Kind == "RunFaulted"
             && n.TimestampUtc == clock.GetUtcNow()));
+        // A run that stopped on a fault alerts at the default level.
+        TianWen.UI.Abstractions.DesktopAlerts.IsSafetyKind(TianWen.Lib.Sequencing.NoteKind.RunFaulted).ShouldBeTrue();
     }
 }

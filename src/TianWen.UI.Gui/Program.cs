@@ -328,7 +328,7 @@ var windowInFront = 0;
 var desktopAlerts = new DesktopAlerts(new AppShellDesktopAlert(DesktopAppIdentity.GuiLaunchScheme), timeProvider,
     () => Volatile.Read(ref windowInFront) != 0, logger);
 appState.DesktopAlerts = desktopAlerts;
-tracker.Run(async () => desktopAlerts.Level = await DesktopAlertSettings.LoadAsync(external, backgroundCts.Token), "Load the desktop alert level");
+tracker.Run(async () => desktopAlerts.Level = await DesktopAlertSettings.LoadAsync(external, backgroundCts.Token, logger), "Load the desktop alert level");
 tracker.Run(() => desktopAlerts.RunAsync(backgroundCts.Token), "Desktop alerts");
 // This computer's node, found or started (P6): it holds the rig, and the local view reads it as it reads a rig. In the
 // background, since a node can take seconds to come up and the window says so meanwhile; the profile, the planner's start

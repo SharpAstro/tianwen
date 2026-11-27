@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using DIR.Lib;
 using TianWen.Lib.Sequencing;
@@ -57,17 +58,17 @@ namespace TianWen.UI.Abstractions
             var fontPath = FontPath;
             var rowH = BaseRowHeight * dpiScale;
             var fontSize = BaseFontSize * dpiScale;
-            var pad = BasePadding * dpiScale;
-            var narrow = IsNarrow(contentRect.Width, dpiScale);
-            var headerH = HeaderHeight(appState, narrow) * dpiScale;
 
             RenderLayout(Layout.Builder.Spacer().Bg(ContentBg), contentRect);
 
-            // Header: one declared row (heading | alert choice | Clear), or two when narrow, so the engine places them.
+            // Header: one declared tree (heading | alert choice | Clear, or two rows where that does not fit). Its height is the
+            // engine's measurement of it at this width, never a count of rows.
             var feed = NotificationFeed.Of(view, appState);
             var entries = feed.Entries;
-            RenderLayout(BuildHeader(feed, appState, level => PostSignal(new SetDesktopAlertLevelSignal(level)), narrow),
-                new RectF32(contentRect.X, contentRect.Y, contentRect.Width, headerH));
+            var ctx = MeasureContext();
+            var header = BuildHeader(feed, appState, level => PostSignal(new SetDesktopAlertLevelSignal(level)), AlertSegmentWidth(ctx, dpiScale));
+            var headerH = Layout.Engine.Measure(header, new Layout.Size<float>(contentRect.Width, contentRect.Height), ctx).Height;
+            RenderLayout(header, new RectF32(contentRect.X, contentRect.Y, contentRect.Width, headerH));
 
             // List area
             _listRect = new RectF32(
@@ -117,16 +118,32 @@ namespace TianWen.UI.Abstractions
             _scroll.DrawScrollBar(FillRect);
         }
 
-        // Header control height, design units: the header's own 28 less its 3-unit margins, one height for the choice and Clear.
-        private const float HeaderControlHeight = 22f;
+        // One header row's height, design units. The controls on it fill what its vertical padding leaves, so they share one
+        // height and one middle; a header that wraps (narrow) is two of these.
+        private static float HeaderRowHeight => GuiTheme.Metrics.HeaderHeight;
 
-        // The alert choice's width, design units: 3 segments of 118 (the longest label, 103, plus its inset) and 2 gaps of 1.
-        private const float AlertChoiceWidth = 340f;
+        // Room a segment of the alert choice keeps around its word, design units.
+        private const float AlertSegmentSlack = 16f;
 
-        // One header row, design units, and the width below which the choice moves to a second row: the pad, a long heading
-        // ("Notifications (99)", about 130), the gap, the choice, the gap, Clear (70) and the pad come to about 580.
-        private const float HeaderRowHeight = 28f;
-        private const float NarrowHeaderBelow = 600f;
+        // The alert choice's font, design units: smaller than the heading so it reads as a control.
+        private const float AlertChoiceFontSize = BaseFontSize * 0.85f;
+
+        /// <summary>
+        /// The width, in design units, of one segment of the alert choice: the widest of the three labels as the engine measures
+        /// it, plus slack. A segmented control has no intrinsic width of its own, so it is measured here and never written as a
+        /// number; an edited label or another face changes it.
+        /// </summary>
+        private float AlertSegmentWidth(PixelMeasureContext<TSurface> ctx, float dpiScale)
+        {
+            var widest = 0f;
+            foreach (var level in Enum.GetValues<DesktopAlertLevel>())
+            {
+                var width = Layout.Engine.Measure(Layout.Builder.Text(LevelLabel(level), AlertChoiceFontSize),
+                    new Layout.Size<float>(float.MaxValue, float.MaxValue), ctx).Width;
+                widest = MathF.Max(widest, width / dpiScale);
+            }
+            return widest + AlertSegmentSlack;
+        }
 
         /// <summary>The words of the three alert levels, as the choice shows them.</summary>
         internal static string LevelLabel(DesktopAlertLevel level) => level switch
@@ -142,16 +159,21 @@ namespace TianWen.UI.Abstractions
                + (alerts.LastRefusal is { } why ? $" Windows did not show the last alert: {why}. Check that notifications are on for this app." : "");
 
         /// <summary>
-        /// The header as one row: [heading | alert choice | Clear]. The choice is this computer's setting, so it shows on a rig's
-        /// view too; it is left out where the host has no alerts (no <see cref="GuiAppState.DesktopAlerts"/>, or none on this OS).
-        /// Clear stays on this computer's own feed. Every size is a design unit, the engine measures the rest.
+        /// The header as one declared tree: [heading | spacer | alert choice | Clear], or, where that does not fit the room, the
+        /// same pieces on two rows (<c>OrWhenNarrow</c>, decided by the engine's own measurement). The choice is this computer's
+        /// setting, so it shows on a rig's view too; it is left out where the host has no alerts (no
+        /// <see cref="GuiAppState.DesktopAlerts"/>, or none on this OS). Clear stays on this computer's own feed.
         /// </summary>
-        internal static Layout.Node BuildHeader(NotificationFeed feed, GuiAppState appState, Action<DesktopAlertLevel> onLevel, bool narrow)
+        /// <param name="segmentWidth">Design units each segment of the choice takes (see <c>AlertSegmentWidth</c>).</param>
+        internal static Layout.Node BuildHeader(NotificationFeed feed, GuiAppState appState, Action<DesktopAlertLevel> onLevel, float segmentWidth)
         {
-            var heading = Layout.Builder.Text(feed.Header, BaseFontSize * 1.05f, HeaderText, TextAlign.Near, TextAlign.Center).WStar().HStar();
-            Layout.Node? choiceNode = null;
-            Layout.Node? clearNode = null;
+            static Layout.Node Row(List<Layout.Node> nodes)
+                => Layout.Builder.HStack([.. nodes]).WithGap(8f).PadX(BasePadding).PadY(3f).CrossCenter().WStar().HFixed(HeaderRowHeight).Bg(HeaderBg);
 
+            Layout.Node Heading()
+                => Layout.Builder.Text(feed.Header, BaseFontSize * 1.05f, HeaderText, TextAlign.Near, TextAlign.Center).HStar();
+
+            Layout.Node? choice = null;
             if (appState.DesktopAlerts is { IsAvailable: true } alerts)
             {
                 var segmentActive = GuiTheme.Mix(HeaderBg, GuiTheme.Palette.Accent, 0.55f);
@@ -160,6 +182,7 @@ namespace TianWen.UI.Abstractions
                 {
                     Gap = 1f,
                     InsetFraction = 0.7f,
+                    SegmentWidth = segmentWidth,
                 };
                 ReadOnlySpan<Layout.ButtonGroupOption<DesktopAlertLevel>> options =
                 [
@@ -167,67 +190,49 @@ namespace TianWen.UI.Abstractions
                     new(DesktopAlertLevel.ErrorsAndSafety, LevelLabel(DesktopAlertLevel.ErrorsAndSafety)) { Hit = new HitResult.ButtonHit("DesktopAlertErrors") },
                     new(DesktopAlertLevel.AllWarnings, LevelLabel(DesktopAlertLevel.AllWarnings)) { Hit = new HitResult.ButtonHit("DesktopAlertAll") },
                 ];
-                var choice = Layout.Builder.ButtonGroup(options, alerts.Level, onLevel, style, BaseFontSize * 0.85f)
-                    .WithTooltip(AlertTooltip(alerts));
-                // A segmented control has no intrinsic width, so it states its widest state: three equal segments, each wide
-                // enough for the longest label ("Errors and safety", about 103 units at this font) and its inset.
-                choiceNode = Centred(choice.WFixed(AlertChoiceWidth));
+                choice = Layout.Builder.ButtonGroup(options, alerts.Level, onLevel, style, AlertChoiceFontSize)
+                    .WithTooltip(AlertTooltip(alerts)).HStar();
             }
 
             // Clear: this computer's own notes only, since a rig's are its node's.
+            Layout.Node? clear = null;
             if (feed.IsLocal && !feed.Entries.IsEmpty)
             {
                 var clearBg = new RGBAColor32(0x3a, 0x3a, 0x46, 0xff);
-                var clear = Layout.Builder.Text("Clear", BaseFontSize * 0.95f, BodyText, TextAlign.Center, TextAlign.Center)
+                clear = Layout.Builder.Text("Clear", BaseFontSize * 0.95f, BodyText, TextAlign.Center, TextAlign.Center)
+                    .PadX(12f).HStar()
                     .Bg(clearBg).BgHover(GuiTheme.Hover(clearBg))
                     .Clickable(new HitResult.ButtonHit("NotificationsClear"), _ =>
                     {
                         appState.ClearNotifications();
                         appState.NeedsRedraw = true;
                     });
-                clearNode = Centred(clear.WFixed(70f));
             }
 
-            static Layout.Node Row(params Layout.Node?[] nodes)
+            var oneRow = new List<Layout.Node> { Heading(), Layout.Builder.Spacer().WStar() };
+            if (choice is not null)
             {
-                var items = new System.Collections.Generic.List<Layout.Node> { Layout.Builder.Spacer().WFixed(BasePadding).HStar() };
-                foreach (var node in nodes)
-                {
-                    if (node is not null)
-                    {
-                        items.Add(node);
-                    }
-                }
-                items.Add(Layout.Builder.Spacer().WFixed(BasePadding).HStar());
-                return Layout.Builder.HStack(items.ToArray());
+                oneRow.Add(choice);
             }
-
-            static Layout.Node Gap() => Layout.Builder.Spacer().WFixed(8f).HStar();
-
-            if (!narrow || choiceNode is null)
+            if (clear is not null)
             {
-                return Row(heading, choiceNode is null ? null : Gap(), choiceNode, clearNode is null ? null : Gap(), clearNode).Bg(HeaderBg);
+                oneRow.Add(clear);
+            }
+            var full = Row(oneRow);
+            if (choice is null)
+            {
+                return full;
             }
 
             // Narrow: the choice is wider than the room beside the heading and Clear, so it takes a row of its own, at the right.
-            return Layout.Builder.VStack(
-                Row(heading, clearNode is null ? null : Gap(), clearNode).WStar().HFixed(HeaderRowHeight),
-                Row(Layout.Builder.Spacer().WStar().HStar(), choiceNode).WStar().HFixed(HeaderRowHeight)).Bg(HeaderBg);
+            var top = new List<Layout.Node> { Heading(), Layout.Builder.Spacer().WStar() };
+            if (clear is not null)
+            {
+                top.Add(clear);
+            }
+            var twoRows = Layout.Builder.VStack(Row(top), Row([Layout.Builder.Spacer().WStar(), choice])).WStar();
+            return full.OrWhenNarrow(twoRows);
         }
-
-        /// <summary>The header's height in design units: one row, or two when <paramref name="narrow"/> and the choice is drawn.</summary>
-        internal static float HeaderHeight(GuiAppState appState, bool narrow)
-            => narrow && appState.DesktopAlerts is { IsAvailable: true } ? HeaderRowHeight * 2f : HeaderRowHeight;
-
-        /// <summary>Whether a content width (device pixels) is too narrow for the choice beside the heading and Clear.</summary>
-        internal static bool IsNarrow(float contentWidth, float dpiScale) => contentWidth < NarrowHeaderBelow * dpiScale;
-
-        // One height and one middle for the controls on the header row.
-        private static Layout.Node Centred(Layout.Node control)
-            => Layout.Builder.VStack(
-                Layout.Builder.Spacer().HStar(),
-                control.HFixed(HeaderControlHeight),
-                Layout.Builder.Spacer().HStar()).HStar();
 
         // Width of the severity-mark slot, in design units: the mark's own square. Reserved for Info rows too (an empty
         // spacer), so the timestamp column never moves with a row's severity.

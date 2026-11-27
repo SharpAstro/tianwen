@@ -73,7 +73,8 @@ public sealed class DesktopAlerts
     /// The warnings that matter at the default level: a run that was aborted, and a mount limit. A weather or roof safety
     /// kind joins this list when one exists (there is none today).
     /// </summary>
-    public static bool IsSafetyKind(NoteKind kind) => kind is NoteKind.SessionAborted or NoteKind.MountLimit;
+    public static bool IsSafetyKind(NoteKind kind) => kind is NoteKind.SessionAborted or NoteKind.MountLimit
+        or NoteKind.RunStoppedUnwatched or NoteKind.RunFaulted;
 
     /// <summary>
     /// Decides on a note and, when it alerts, hands it to the consumer; returns at once. Safe from any thread.
