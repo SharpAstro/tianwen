@@ -321,7 +321,7 @@ public sealed partial class WorkbenchScreen<TSurface>
 
     // What the file is taken for, as a dropdown of the kinds a stack takes. The label is the Lib's answer (the kind the detection
     // now gives it, after any reassignment), and a guess carries a question mark, so colour is not the only mark of an unsure kind.
-    private Layout.Node KindCell(DetectedFile file, Action<string, TianWen.Lib.Imaging.Stacking.FrameType?> reassign)
+    private Layout.Node KindCell(DetectedFile file, Action<string, TianWen.Lib.Imaging.FrameType?> reassign)
     {
         var palette = GuiTheme.Palette;
         if (file.IsCometTrack)

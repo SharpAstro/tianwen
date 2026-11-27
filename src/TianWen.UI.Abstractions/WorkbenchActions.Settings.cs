@@ -5,7 +5,7 @@ using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using TianWen.Lib.Imaging.Stacking;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Workbench;
 
 namespace TianWen.UI.Abstractions;
