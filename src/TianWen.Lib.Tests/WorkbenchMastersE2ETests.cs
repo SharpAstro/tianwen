@@ -198,7 +198,7 @@ public sealed class WorkbenchMastersE2ETests : IDisposable
         // With the files gone the runner no longer reports the stack as kept, so the routine says to run it first.
         e2e.State.MasterRefusal.ShouldNotBeNull().ShouldContain("has not been run: run it first");
         e2e.State.View!.ImageName.ShouldBe("night-1", "nothing was opened");
-        e2e.PanelText().ShouldContain("was not processed", Case.Sensitive, "the refusal is shown in words beside the list");
+        string.Join(' ', e2e.PanelText().Split([' ', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries)).ShouldContain("was not processed", Case.Sensitive, "the refusal is shown in words beside the list");
         (await WorkbenchProjectFile.ReadAsync(project, ct)).Project.ShouldNotBeNull().Images.Length.ShouldBe(1, "nothing was added");
     }
 
