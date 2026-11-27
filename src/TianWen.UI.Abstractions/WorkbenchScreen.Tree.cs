@@ -180,7 +180,7 @@ public sealed partial class WorkbenchScreen<TSurface>
         rows.Add(SectionLabel("FRAMES"));
         if (frames is null)
         {
-            rows.Add(Words(state.View is null ? "Open a project to see its frames." : "Reading the capture folder.", palette.DimText, FlowRoom.Tree).Pad(Gap, 0f));
+            rows.Add(Words(state.View is null ? "Open a project to see its frames." : actions.HasCaptureFolder ? "Reading the capture folder." : "This project was not made from a capture folder, so it has no frames to list.", palette.DimText, FlowRoom.Tree).Pad(Gap, 0f));
         }
         else if (frames.Groups.IsEmpty)
         {
@@ -315,8 +315,10 @@ public sealed partial class WorkbenchScreen<TSurface>
         var hit = current ? $"Step:{index}" : $"TreeStep:{image}:{index}";
         var hover = $"{row.Label}: {item.Words}{(note.Length > 0 ? $" ({note})" : string.Empty)}"
             + (row.Detail.Length > 0 ? $". {row.Detail}" : string.Empty);
+        // The mark is drawn on the selected row and, by DrawHoveredPlayMarks, on the row under the pointer: every row showing one was noise.
+        // The slot itself is always there and always lights, so nothing moves when the pointer comes.
         Layout.Node play = item.Runs
-            ? Layout.Builder.Text("▶", BaseFontSize * 0.75f, selected ? GuiTheme.GoButtonInk : palette.DimText, TextAlign.Center, TextAlign.Center)
+            ? Layout.Builder.Text(selected ? "▶" : string.Empty, BaseFontSize * 0.75f, GuiTheme.GoButtonInk, TextAlign.Center, TextAlign.Center)
                 .WFixed(PlaySize).HFixed(PlaySize).Bg(selected ? GuiTheme.GoButtonBg : fill).BgHover(GuiTheme.GoButtonBg).Radius(4f)
                 .WithTooltip($"Run every step up to {row.Label}; steps already made are kept")
                 .Clickable(new HitResult.ButtonHit(PlayHitPrefix + $"{image}:{index}"), _ => actions.RunToRow(image, index), CursorKind.Pointer)
@@ -333,6 +335,27 @@ public sealed partial class WorkbenchScreen<TSurface>
             .WStar().HFixed(TreeRowHeight + 2f)
             .WithTooltip(hover)
             .Clickable(new HitResult.ButtonHit(hit), _ => actions.SelectTreeRow(image, index), CursorKind.Pointer);
+    }
+
+    // The ▶ of the row under the pointer, drawn over its slot (a layout node has no ink of its own for hover). The row is the slot's height
+    // and the tree's width, so the pointer anywhere on the row shows it.
+    private void DrawHoveredPlayMarks(ImmutableArray<Layout.ArrangedNode<float>> arranged)
+    {
+        foreach (var node in arranged)
+        {
+            if (node.Node.Hit is not HitResult.ButtonHit { Action: { } action } || !action.StartsWith(PlayHitPrefix, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var b = node.Bounds;
+            if (b.Width <= 0f || !PointerHovers(new RectF32(0f, b.Y - 1f, TreeWidth * DpiScale, b.Height + 2f)))
+            {
+                continue;
+            }
+
+            DrawText("▶", FontPath, b.X, b.Y, b.Width, b.Height, BaseFontSize * 0.75f * DpiScale, GuiTheme.GoButtonInk, TextAlign.Center, TextAlign.Center);
+        }
     }
 
     // ---- Panel slot: a frame group's files (the selected step's panel is Panel) ----
@@ -400,7 +423,8 @@ public sealed partial class WorkbenchScreen<TSurface>
         var title = actions.SelectedStepTitle ?? "This step";
         var offer = actions.RunToHereOffer();
         var canRun = offer.CanRun && !actions.Jobs.IsRunning;
-        var run = Layout.Builder.Button($"▶ Run to {ShortTitle(title)}", canRun ? Layout.ButtonKind.Accent : Layout.ButtonKind.Standard, actions.RunToHere,
+        // A standard button: the one accent of the view is the toolbar's Run to <step>.
+        var run = Layout.Builder.Button($"▶ Run to {ShortTitle(title)}", Layout.ButtonKind.Standard, actions.RunToHere,
             GuiTheme.Theme, tooltip: offer.CanRun ? $"Make {title}, taking each step before it from the store where it is kept" : offer.Label).WAuto();
         var card = Layout.Builder.VStack(
                 Layout.Builder.Text($"{ShortTitle(title)} has no output yet", BaseFontSize * 1.15f, palette.BodyText, TextAlign.Center, trim: TextTrim.End)

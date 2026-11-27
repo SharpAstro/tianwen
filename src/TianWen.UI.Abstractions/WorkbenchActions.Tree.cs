@@ -178,6 +178,9 @@ public sealed partial class WorkbenchActions
         => state.SelectedFrames is { } name ? state.Frames?.Groups.FirstOrDefault(g => g.Name == name) : null;
 
     /// <summary>The capture the project's frames are in: the folder above the project's <c>workdir</c>; null for a project made elsewhere.</summary>
+    /// <summary>Whether the open project was made from a capture folder (its folder is that folder's workdir), so it has frames to list.</summary>
+    public bool HasCaptureFolder => state.View is { } view && CaptureFolderOf(view) is not null;
+
     private static string? CaptureFolderOf(WorkbenchView view)
     {
         var folder = view.Folder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);

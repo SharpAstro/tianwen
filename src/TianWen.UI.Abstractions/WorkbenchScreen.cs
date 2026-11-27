@@ -113,6 +113,11 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
         // The second build's flows are never looked up (the next frame's build fills the map afresh), so say they are done with.
         _flows.Clear();
         PaintLayout(arranged);
+        if (!onPages)
+        {
+            DrawHoveredPlayMarks(arranged);
+        }
+
         if (onPages)
         {
             // The pages of New project hold no canvas: the viewer is not drawn, and the only overlay is a file's kind menu.
@@ -281,10 +286,9 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
         var on = Layout.Builder.Checkbox("On", step.State is not StepState.Off, actions.SetStepEnabled, onStyle, BaseFontSize,
                 new HitResult.ButtonHit(StepSwitchHit))
             .WithTooltip(waits ?? "Switch this step off; the steps after it take its input").WFixed(BaseFontSize * 4.5f);
-        rows.Add(Layout.Builder.HStack(
-                Words(step.Label, palette.BodyText, FlowRoom.Panel, BaseFontSize * 1.15f).WStar(),
-                waits is null ? on : on.Disabled(waits))
-            .WithGap(Gap).CrossCenter().WStar());
+        // The switch stands under the title, not beside it: a beside-switch takes a share of a narrow panel and was cut by its edge.
+        rows.Add(Words(step.Label, palette.BodyText, FlowRoom.Panel, BaseFontSize * 1.15f));
+        rows.Add(waits is null ? on : on.Disabled(waits));
         if (panel.Summary.Length > 0)
         {
             rows.Add(Words(panel.Summary, palette.DimText));
@@ -305,10 +309,9 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
             rows.Add(Words(message, step.State is StepState.Refused or StepState.Blocked ? palette.Error : palette.DimText));
         }
 
-        AddRun(rows, state, actions);
+        // One accent per view: the run is the toolbar's Run to <step> and the row's ▶, so the panel has no run button of its own.
         AddJob(rows, actions);
         AddMasters(rows, state, actions, panel);
-        AddViews(rows, actions);
 
         rows.Add(Heading("Settings"));
         if (panel.SettingsRefusal is { } settingsRefusal)
@@ -470,45 +473,18 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
             }
 
             default:
+            {
+                // MISSING: a list or record setting has no control yet (a list of entries with add and remove); until one exists it is
+                // said in words, "none" when empty, never as raw JSON. It is edited in the project file.
+                var empty = control.Value is "" or "[]" or "{}" or "null";
+                var said = empty ? "none" : control.Value.Length > 0 && control.Value[0] is '[' or '{' ? "set in the project file" : control.Value;
                 return Said(Layout.Builder.HStack(
                         Layout.Builder.Text(control.Label, BaseFontSize, palette.DimText).WAuto(),
-                        Layout.Builder.Text(control.Value, BaseFontSize, palette.BodyText, TextAlign.Far, trim: TextTrim.End).WStar().WithTooltip(control.Value))
+                        Layout.Builder.Text(said, BaseFontSize, palette.BodyText, TextAlign.Far, trim: TextTrim.End).WStar().WithTooltip(control.Value))
                     .WithGap(Gap).CrossCenter().WStar());
+            }
         }
     }
-
-    // What a run does, said by the buttons themselves: where it starts, what it runs first, or that nothing needs to run. One run at
-    // a time: while one goes, the starts are not offered and Cancel is.
-    private void AddRun(List<Layout.Node> rows, WorkbenchState state, WorkbenchActions actions)
-    {
-        var palette = GuiTheme.Palette;
-        rows.Add(Heading("Run"));
-        if (actions.Jobs.IsRunning)
-        {
-            rows.Add(Layout.Builder.Button("Cancel", Layout.ButtonKind.Standard, actions.CancelRun, GuiTheme.Theme,
-                tooltip: "End the run; the steps then show what the runner says of them").WStar());
-            return;
-        }
-
-        var here = actions.RunToHereOffer();
-        rows.Add(RunButton(here, actions.RunToHere, "Make this step, taking each step before it from the store where it is kept",
-            Layout.ButtonKind.Accent));
-        var next = actions.RunOnOffer();
-        rows.Add(RunButton(next, actions.RunOn, state.RunOn
-            ? "Make every step from the first that is not kept to the end of the list; a refused or blocked step stops the run"
-            : "Make only the next step that is not kept, then stop with it selected", Layout.ButtonKind.Standard));
-        var style = CheckboxStyleNow();
-        rows.Add(Layout.Builder.Checkbox("Run on until a step needs me", state.RunOn, actions.SetRunOn, style, BaseFontSize,
-                new HitResult.ButtonHit("RunOn"))
-            .WithTooltip("On, a run goes to the end of the list and stops at a refused or blocked step. Off, it makes one step and stops.")
-            .WStar());
-    }
-
-    // A start that can run is a button; one that cannot is its reason in words, so there is nothing to press and nothing cut.
-    private Layout.Node RunButton(WorkbenchRunOffer offer, Action start, string tooltip, Layout.ButtonKind kind)
-        => offer.CanRun
-            ? Layout.Builder.Button(offer.Label, kind, start, GuiTheme.Theme, tooltip: tooltip).WStar()
-            : Words(offer.Label, GuiTheme.Palette.DimText);
 
     // The job panel: the running step and how far it is (a bar, and the percentage in words, where the operation reports one), how
     // the last run ended, and every line the run said, newest last, in a scroll of its own.
@@ -570,20 +546,6 @@ public sealed partial class WorkbenchScreen<TSurface> : CompositeWidget<TSurface
         {
             rows.Add(Words(refusal, palette.Error));
         }
-    }
-
-    // Which pictures the step has, and for one it has not, why, in words.
-    private void AddViews(List<Layout.Node> rows, WorkbenchActions actions)
-    {
-        // That a step has no picture of its own is said once, on the canvas (its empty state); only what the canvas cannot say is here.
-        if (!actions.ComparisonDeclined)
-        {
-            return;
-        }
-
-        rows.Add(Heading("Views"));
-        rows.Add(Words("The comparison was not kept for want of memory: the result is shown alone. Close other programs, then choose Comparison again.",
-            GuiTheme.Palette.DimText));
     }
 
     private Layout.Node Column(List<Layout.Node> rows)
