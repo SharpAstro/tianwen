@@ -75,8 +75,10 @@ bars (92.8 and 93.2; 94.0 and 94.1), and took clearly more of the faint stars on
 seeds (the Lagoon's real ones 25.0 and 21.4 % left, the bright plants 57.1 and 54.6 %), but with the nebula: the
 Lagoon's broad light at about twice the parent's (4.52 and 3.89, bar 2.67) and the Tarantula field's light at 85 %
 (bar 84). **Route B's free check (2026-11-27):** on bright nebula a quarter-depth stack's own plate already takes
-nearly every faint star the whole stack's builder takes, so depth pairs would mostly add faint stars on dark sky;
-not registered, the owner's. The free check that came first:
+nearly every faint star the whole stack's builder takes, so depth pairs would mostly add faint stars on dark sky; and
+of the faint stars StarXTerminator takes on eta Carinae's bright nebula, the answer built at four times the
+exposure leaves 56.5 % (the judge 4.7). Not registered; the session reads it as closed by measurement, the owner's
+to decide. The free check that came first:
 on the held-out Tarantula StarXTerminator keeps about a third of a real compact cluster's unresolved glow and R4h
 less at the median (cluster by cluster a lean, not a clear split), so the scenes' rule that a compact cluster is all
 stars is further from the judge than the model already is.
@@ -11126,8 +11128,9 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
       3.89 against 1.91 and 1.70), the bright Hourglass flatter on the sheets, and the Tarantula's field light a
       point over its bar. Whether a wider net can keep the stars it gains and give the nebula back is not measured.
   - **Next, the owner's.** Route B's free check (below, "Depth pairs: the free check") and the crowding weight are
-    the go's remaining routes; the field-light guard's role is the owner's question, asked here: the guard reads the field's level, not its
-    stars, and sits at R4d's 81 and 82 plus two points. R4l's 85 on a whole-percent figure is a one-point miss
+    the go's remaining routes; the field-light guard's role is the owner's question, asked here: the guard reads
+    the field's level, not its stars, and sits at R4d's 81 and 82 plus two points (StarXTerminator reads 98 and
+    106 on it). R4l's 85 on a whole-percent figure is a one-point miss
     against R4h's 84, so this kill stands on the Lagoon's broad-light guard alone (4.52 and 3.89 against 2.67).
     Should a level guard of that kind gate an arm at all?
   - **Nothing is adopted;** adoption is the owner's.
@@ -11370,15 +11373,38 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     builder finds 30 and 12 % more stars than the quarter's, almost all of them on dark sky, so the depth pair would
     mostly teach very faint dark-sky stars. Whether our models are behind there is not shown by this check: the
     205 dark plants (R4h leaves 6.8 and 7.3 %) are planted stars, which the injector teaches by construction, not
-    real faint dark-sky stars. The limit looks like the builder finding stars on bright nebula at all, and four
-    times the exposure barely lifts it.
+    real faint dark-sky stars. The real ones on the held-out Lagoon master (30,215 catalogued stars of 20 to 150 sky
+    sigma on dark sky, `nebula_stars_row.py`) say the gap there is small: R4h leaves 4.4 and 4.6 %,
+    StarXTerminator 0.2 %. The limit looks like the builder finding stars on bright nebula at all, and four times
+    the exposure barely lifts it.
   - **What it does not.** A star neither builder finds is invisible to this check, and those are the case at issue
     (on the held-out Lagoon master the builder takes about a third of the planted faint stars on the faintest
     nebula, a tenth at 40 to 80 sky sigma of nebula and a fiftieth above that, and about a third of the 84 real
-    ones: the status at the head of this plan). Two sessions only.
-  - **Not registered.** Building route B (every session stacked twice, an exporter mode, the plates) waits on the
-    owner. A cheaper measurement would settle it first: on these two whole stacks, how many faint stars on bright
-    nebula StarXTerminator takes that the builder's plate leaves, read as a judge and never as a target.
+    ones: the status at the head of this plan). Two sessions only. The judge's check below reads those stars.
+  - **The judge's check, the same evening** (StarXTerminator run on the two quarter stacks as a JUDGE only: its
+    plate is read here and is never a training target, the owner's rule of 2026-11-26). The stars counted are the
+    judge's: the local maxima (3 x 3) of its star layer (the quarter stack less its plate, the channels' mean,
+    through a 1 px Gaussian) at 3 or more of the quarter's sky sigma (`judge_peaks.py` beside the scoring scripts),
+    read by `nebula_stars_row.py` on the quarter stack as above. Unlike the deep builder's list, this one is not
+    the answer's own, so the depth answer's column is measured here:
+
+    | session | the judge's stars, light in the quarter's sky sigma | judge leaves | quarter's own plate leaves | depth answer leaves |
+    |---|---|---|---|---|
+    | the Running Chicken Nebula | 20-150, on bright nebula (90) | 0.0 % | 15.6 % | 11.1 % |
+    | | 20-150, on dark sky (11,247) | 0.0 % | 2.2 % | 1.4 % |
+    | eta Carinae | 20-150, on bright nebula (170) | 4.7 % | 49.4 % | 56.5 % |
+    | | 5-20, on bright nebula (17) | 5.9 % | 82.4 % | 94.1 % |
+    | | 20-150, on dark sky (25,207) | 0.0 % | 1.4 % | 1.1 % |
+
+    On eta Carinae's bright nebula, the case at issue, the answer built at four times the exposure leaves more than
+    half of the faint stars the judge takes, no fewer than the quarter's own plate does. A depth pair would show the
+    model those stars as kept, as R4k's real pairs did. Some of the judge's points on bright nebula may be small
+    knots of the nebula rather than stars; with no catalogue that deep here they cannot be told apart, and it is the
+    judge's taking, not ours, that the scorecard's rows reward.
+  - **Not registered, and the session's reading is that it should not be:** answers made by the builder, at any
+    depth these sessions allow, do not hold the faint stars on bright nebula that the judge takes, and answers made
+    by StarXTerminator are ruled out. Building route B (every session stacked twice, an exporter mode, the plates)
+    would teach mostly dark-sky stars, where the real gap is small. Whether to close it is the owner's.
   - **Nothing is adopted;** adoption is the owner's.
 
 #### The dig floor inside bright nebula: floor4, and what it leaves (2026-11-20)
