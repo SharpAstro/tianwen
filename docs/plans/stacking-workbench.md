@@ -621,7 +621,10 @@ Workflow, Main). New project now takes the capture folder alone and keeps the pr
 (the stack never reads it); `CaptureDetection` says what the folder holds (groups, each file's kind and why, an unsure mark,
 Needs a look) over the stack's own scan and matching; a per-file reassignment is a stack-step setting (`reassign`, `tianwen
 stack --reassign`) that changes the step's key and is taken by the stack. Verbs: `workbench new <folder>`, `workbench
-detected`, `workbench reassign`. The screens (import, workflow choice, the tree) are the next legs. See
+detected`, `workbench reassign`. Workflows, headless (second leg): four built-in templates (comet colour, deep sky colour, quick
+look, empty) with a fit rule and one line of why each, the best fit chosen by order, apply into `workdir\project.json` with
+hand-change detection, add and remove a step, the tree of splits and joins; verbs `workbench workflows` and `workbench apply`.
+The screens (import, workflow choice, the tree) are the next legs. See
 [workbench-app.md](../architecture/workbench-app.md), "What is in the folder".
 
 ### W3 The planetary steps
@@ -659,6 +662,11 @@ Tracked as #2236. The workflow file (steps, gates, for each), the facts in Lib e
 ([The facts](#the-facts-a-gate-may-test)), the dry run, and `tianwen workbench run <workflow> <inputs>`. The built-in deep-sky
 workflow, with its parity test against `tianwen stack --enhance`. A built-in gate calls the pipeline's own decider
 ([A gate shows a decision](#a-gate-shows-a-decision-it-does-not-replace-one)). No window.
+
+**Brought forward by #2553:** the fixed templates with a fit rule (no gates), applying one to a project, and adding and removing a
+step. **Stays W9:** the workflow file, gates, for each, the facts beyond the scan, the dry run, saving a user's edit list as a
+workflow, and the deep-sky parity test (the template follows the enhance's order, not yet proven bit for bit against `tianwen stack
+--enhance`).
 
 **The enhance as the first built-in workflow: one routine per step (2026-11-26).** Measured on the 10P master on
 2026-11-24, a chain of the single steps (deblur, gradient, remove-stars, denoise, add-stars) was not the one-step enhance:

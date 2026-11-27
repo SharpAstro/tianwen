@@ -178,6 +178,34 @@ types the scan read, the calibration sets are `CalibrationResolver.GroupCalibrat
   (`WorkbenchStackTests` holds line and verb together). The comet track's request does not apply them.
 - Tests: `CaptureDetectionTests` on synthetic FITS folders.
 
+## Choosing a workflow, and editing the steps
+
+`BuiltInWorkflows` (Lib, `WorkbenchWorkflows.cs`) holds four fixed templates, each an edit list and a fit rule, in the order the best
+fit is chosen (the first that fits): **Comet, colour camera** (stack on the comet and on the stars with `comet-stack`, finish each,
+blend the comet onto the stars), **Deep sky, colour camera** (stack, white balance, gradient, remove stars, denoise, SCNR on the stars,
+add stars: the enhance's own order, as `EnhanceChain` lays it out), **Quick look** (stack, white balance) and **Empty** (the capture
+only; it fits everything, so it is the last resort). There are no gates: that is W9.
+
+- **Facts and fit.** `WorkflowFacts.From(detection)` reads the lights (after reassignment), whether the camera is colour
+  (`DetectedFile.Colour`, from the sensor type; unknown is not taken for colour), the distinct filters, a comet track and the main light
+  group's slug (`DetectedGroup.Slug`, `LightGroupKey.Slug`: what an image that starts from a stack's result names). Each rule answers
+  fits or not with one line: colour camera, one filter, a comet track; or the first thing that rules it out.
+- **Apply.** `WorkbenchWorkflows.ApplyAsync` writes the workflow's images and edits and its id (`Workflow`) into `workdir\project.json`,
+  with what it wrote (`WorkflowOrigin`, one line per edit). The step store is not touched: a step with the same settings and inputs
+  finds its result by its key. The person's frame reassignments are carried into the new stack step.
+- **Hand changes.** `HandChanges` compares the steps with `WorkflowOrigin`: a step added, removed or changed counts one (reassignments
+  are the capture's and do not count). The screen asks before a switch only when it is above 0 ("Your 3 changes to the steps are
+  replaced; results already made are kept"); `workbench apply` needs `--replace` for the same case.
+- **Add and remove a step.** `AddStepAsync` inserts an operation of the catalogue at its defaults after a given edit (-1 first),
+  refusing an unknown operation or image, a bad index and missing inputs; `RemoveStepAsync` refuses a step whose result another image
+  starts from (remove the branch first).
+- **The tree.** `WorkbenchWorkflows.Tree` makes rows (`Source`, `Image`, `Step`, `Split`, `Join`, each with a depth) from the images'
+  starts and the edits' inputs: a step that gives an extra result (remove stars) or several results to several images is a split, its
+  branches one level in; a step that takes another image is a join, drawn back out where it takes a sibling branch.
+- **Verbs.** `workbench workflows <folder>` lists each workflow with fits or not, the best marked; `workbench apply <folder>
+  <workflow|best> [--replace]` applies one and prints its tree.
+- Tests: `WorkbenchWorkflowTests`.
+
 ## The stack's masters and "Process this master"
 
 A stack names its results by its run (`IRunNamedOperation`), so the stack step has no image of its own. Its panel therefore
