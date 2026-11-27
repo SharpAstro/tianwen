@@ -38,9 +38,9 @@ public sealed partial class WorkbenchScreen<TSurface>
         new("File", Layout.Sizing.Star(2f), TextAlign.Near),
         new("Is", Layout.Sizing.Fixed(124f), TextAlign.Near),
         new("Because", Layout.Sizing.Star(3f), TextAlign.Near),
-        new("Exposure", Layout.Sizing.Fixed(72f), TextAlign.Far),
+        new("Exposure", Layout.Sizing.Fixed(92f), TextAlign.Far),
         new("Filter", Layout.Sizing.Fixed(84f), TextAlign.Near),
-        new("Sensor", Layout.Sizing.Fixed(72f), TextAlign.Far),
+        new("Sensor", Layout.Sizing.Fixed(80f), TextAlign.Far),
         new("Grade", Layout.Sizing.Fixed(110f), TextAlign.Near),
     ];
 

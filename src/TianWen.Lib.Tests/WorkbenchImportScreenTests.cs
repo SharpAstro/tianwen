@@ -89,7 +89,7 @@ public sealed class WorkbenchImportScreenTests : IDisposable
             BinX = 1,
             BinY = 1,
             CCDTemperature = temperature,
-            SensorType = SensorType.Color,
+            SensorType = SensorType.RGGB,
             ObjectName = type == FrameType.Light ? "10P/Tempel 2" : string.Empty,
             Gain = 1600,
             Offset = 25,
@@ -101,7 +101,7 @@ public sealed class WorkbenchImportScreenTests : IDisposable
             .WriteToFitsFile(Path.Combine(folder, name));
     }
 
-    // The 10P night: five lights at -5 C and a sixth at -2 C (no dark matches it), three darks at -5 C, three flats, two bias, a file
+    // The 10P night: five lights at -5 C and a sixth of 120 s (no dark matches it), three darks at -5 C, three flats, two bias, a file
     // with no type (an even field: a flat, guessed), and the comet's track.
     private async Task<string> CaptureAsync(CancellationToken ct)
     {
@@ -112,7 +112,7 @@ public sealed class WorkbenchImportScreenTests : IDisposable
             Write(folder, $"10PTempel2_light_60s_-5C_{i:0000}.fits", FrameType.Light, 60, 300, stars: true);
         }
 
-        Write(folder, "10PTempel2_light_60s_-2C_0006.fits", FrameType.Light, 60, 300, temperature: -2f, stars: true);
+        Write(folder, "10PTempel2_light_120s_-5C_0006.fits", FrameType.Light, 120, 300, stars: true);
         for (var i = 1; i <= 3; i++)
         {
             Write(folder, $"dark_60s_-5C_{i:0000}.fits", FrameType.Dark, 60, 100);
@@ -204,7 +204,7 @@ public sealed class WorkbenchImportScreenTests : IDisposable
         var look = GroupIndex(e2e, DetectedGroupKind.NeedsALook);
         e2e.Click(e2e.Region($"Group:{look}"));
         Shows(e2e, "IMG_0412.fits").ShouldBeTrue("the file with no IMAGETYP");
-        Shows(e2e, "10PTempel2_light_60s_-2C_0006.fits").ShouldBeTrue("the light no dark matches");
+        Shows(e2e, "10PTempel2_light_120s_-5C_0006.fits").ShouldBeTrue("the light no dark matches");
         e2e.Texts().Select(static t => t.Text).ShouldContain(static t => t.StartsWith("no IMAGETYP", StringComparison.Ordinal), "the guess says why");
         e2e.Texts().Select(static t => t.Text).ShouldContain("Flat?", "an unsure kind carries a question mark, colour is not the only mark");
         e2e.Texts().Select(static t => t.Text).ShouldContain(static t => t.Contains("no dark matches", StringComparison.Ordinal));
