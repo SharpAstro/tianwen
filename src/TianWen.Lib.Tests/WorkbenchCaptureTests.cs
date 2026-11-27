@@ -175,6 +175,13 @@ public sealed class WorkbenchCaptureTests : IDisposable
                 continue;
             }
 
+            // A tree row below the list's own viewport (the legend and the status strip lie there) is reached by scrolling the list: its
+            // hover region is clipped with it, so it is judged when it is scrolled into view.
+            if (cx < canvas.X && cy >= e2e.Renderer.Height - (92f * e2e.Host.Screen.DpiScale))
+            {
+                continue;
+            }
+
             regions.Where(r => cx >= r.X && cx <= r.X + r.Width && cy >= r.Y && cy <= r.Y + r.Height && r.Tooltip is not null)
                 .ShouldContain(r => r.Tooltip!.Contains(full, StringComparison.Ordinal),
                     $"'{full}' is shown as '{shown}' and carries its whole text on hover");
