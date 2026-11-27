@@ -1161,7 +1161,7 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             Image.Name,
             Path.Length > 0 ? Path : Image.Result is { Length: > 0 } result ? $"from {Image.From} ({result})" : $"from {Image.From}",
             Key,
-            [.. Steps.Select(static step => new StepReport(
+            [.. Steps.Select(step => new StepReport(
                 step.Index,
                 step.Edit.Operation,
                 step.State,
