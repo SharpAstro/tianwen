@@ -80,7 +80,7 @@ public class NotificationsTabAlertSettingTests(ITestOutputHelper output)
         var tab = Paint(renderer, app, new ViewContexts().Local).Tab;
 
         ChoiceRegions(tab).Length.ShouldBe(3);
-        tab.GetRegisteredRegions().ShouldContain(r => r.Result is HitResult.ButtonHit { Action: "NotificationsClear" });
+        tab.GetRegisteredRegions().Any(r => r.Result is HitResult.ButtonHit { Action: "NotificationsClear" }).ShouldBeTrue();
     }
 
     [Fact]
