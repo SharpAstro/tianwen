@@ -96,6 +96,7 @@ public sealed class WorkbenchCaptureTests : IDisposable
         try
         {
             await using var e2e = WorkbenchE2E.Start(dpi, Runner(), Catalog(), width, height);
+            e2e.Viewer.PaintsPicture = true;
             await e2e.OpenProjectAsync(folder, ct);
             var cells = e2e.StepCells();
             cells.Length.ShouldBe(14, "the whole edit list is on the bar");
@@ -206,6 +207,7 @@ public sealed class WorkbenchCaptureTests : IDisposable
             }
 
             await using var e2e = WorkbenchE2E.Start(1f, new WorkbenchRunner(catalog), catalog, width, height);
+            e2e.Viewer.PaintsPicture = true;
             await e2e.OpenProjectAsync(folder, ct);
             if (scenario == "settings")
             {
