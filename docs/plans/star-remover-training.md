@@ -11536,7 +11536,8 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     holds the case that failed). The MEDIAN PLATE is the per-pixel median of the ten members' plates. A member's
     extra is what it takes beyond the median plate, and the extra's compact part what a 9 px grey opening removes
     from it. ON bright nebula (`nebula_rows.py`'s: the large-scale map 20 pixel sigmas over its 5th percentile, the
-    edge blended over about 16 px) the output is the median plate less the compact extra of either of O or of both
+    edge blended over about 16 px; the sky level and the pixel sigma are taken over the master's live blocks and pixels
+    only, never over its zero absent ring, which would read the frame as nebula) the output is the median plate less the compact extra of either of O or of both
     of L. OFF it, one of three: `--off med`, the median plate less the largest compact extra of any member; `--off
     med2`, less the second largest (two members must take a star); `--off low`, the lowest of the ten plates (a
     lump any member took goes too). Every output pixel lies between the lowest member's plate and the median
@@ -11619,9 +11620,9 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     the members take. The driver is
     `C:/temp/e2/h4/teacher-plates7.sh` on the development machine (scratch, not in the tree); a session's member
     plates are deleted once its teacher plate is written.
-  - **The data.** R4k's sessions and cells exactly: the 113 three-channel session ids of R4h's train and
-    validation lists LESS every id of an object a scorecard row is read on (the Lagoon, the Tarantula, the
-    Sagittarius Star Cloud), 105 for training and 8 held out, 40 cells a session, one draw. The export is R4k's
+  - **The data.** R4k's sessions and cells exactly: the 113 three-channel session ids that remain once every id
+    of an object a scorecard row is read on (the Lagoon, the Tarantula, the Sagittarius Star Cloud) is taken out of
+    R4h's train and validation lists (113 is the count AFTER that), 105 for training and 8 held out, 40 cells a session, one draw. The export is R4k's
     line (`tianwen dataset degrade --mode stars --background real --cells 40 --draws 1 --seed 1`, build `bh-bin15`)
     with one change: `--plates` names the teacher's plates, each beside the plate builder's own side files of that
     session (its catalogue, field profile and subtracted footprint, which the exporter reads for the mask it

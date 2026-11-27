@@ -107,6 +107,25 @@ def main():
         p[:4, :4] = np.nan
     out, _, _ = combine(master, holed, PAIR, TRUSTED, "med")
     assert np.isnan(out[:4, :4]).all() and np.isfinite(out[4:, 4:]).all(), "an absent pixel did not stay absent"
+    # An absent ring (zero in the master, NaN in the plates, as remove-stars writes them) of 12 percent or more of the
+    # frame must not move the sky: the nebula share stays what it was over the live frame, and S6 is still taken.
+    for ring in (24, 40):
+        padded = np.zeros((SIZE + 2 * ring,) * 2, np.float32)
+        padded[ring:-ring, ring:-ring] = master
+        ring_plates = []
+        for p in plates:
+            q = np.full(padded.shape, np.nan, np.float32)
+            q[ring:-ring, ring:-ring] = p
+            ring_plates.append(q)
+        live_share = (SIZE / (SIZE + 2 * ring)) ** 2
+        assert live_share < 0.88, "the ring is under 12 percent of the frame"
+        for off in ("med", "med2"):
+            out, _, share = combine(padded, ring_plates, PAIR, TRUSTED, off)
+            reading = share / live_share
+            assert abs(reading - 0.128) < 0.03, f"--off {off}, ring {ring} px: the nebula reads {reading:.3f} of the live frame"
+            inner = out[ring:-ring, ring:-ring]
+            s6 = taken(master, inner, feats["S6"][0], 3)
+            assert s6 > 0.9, f"--off {off}, ring {ring} px: S6 taken only {s6:.2f}"
     same = [plates[0]] * 9
     out, _, _ = combine(master, same, PAIR, TRUSTED, "med")
     assert np.abs(out - plates[0]).max() < 1e-7, "nine identical members did not give their own plate"   # the blend's rounding

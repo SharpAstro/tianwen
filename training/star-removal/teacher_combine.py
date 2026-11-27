@@ -51,16 +51,26 @@ OPENING = 9
 EDGE_SIGMA = 8.0
 
 
-def nebula_weight(lum):
-    """0 off the bright nebula, 1 well inside it, a soft edge between (`lum` is the master's luminance, no NaN)."""
+def nebula_weight(lum, valid=None):
+    """0 off the bright nebula, 1 well inside it, a soft edge between (`lum` is the master's luminance, no NaN).
+    `valid` marks the pixels the master has data in: the sky level (5th percentile of the blocks) and the pixel sigma
+    are taken over those only, never over an absent ring, whose zeros would pull the sky to 0 and read the whole
+    frame as bright nebula."""
     h, w = lum.shape
-    sig = 1.4826 * float(np.median(np.abs(np.diff(lum[::4], axis=1)))) / np.sqrt(2)
+    if valid is None:
+        valid = np.ones(lum.shape, bool)
+    rows = lum[::4]
+    both = valid[::4][:, 1:] & valid[::4][:, :-1]
+    diffs = np.abs(np.diff(rows, axis=1))
+    sig = 1.4826 * float(np.median(diffs[both] if both.any() else diffs)) / np.sqrt(2)
     bh, bw = h // BLOCK, w // BLOCK
     blocks = np.median(lum[:bh * BLOCK, :bw * BLOCK].reshape(bh, BLOCK, bw, BLOCK).transpose(0, 2, 1, 3).reshape(bh, bw, -1), axis=2)
+    live = valid[:bh * BLOCK, :bw * BLOCK].reshape(bh, BLOCK, bw, BLOCK).all(axis=(1, 3))
     small = median_filter(blocks, FILTER)
     big = np.zeros_like(lum)
     big[:bh * BLOCK, :bw * BLOCK] = np.repeat(np.repeat(small, BLOCK, 0), BLOCK, 1)
-    neb = (big - float(np.percentile(small, 5)) > NEBULA_SIGMA * sig).astype(np.float32)
+    sky = float(np.percentile(small[live], 5)) if live.any() else float(np.percentile(small, 5))
+    neb = (big - sky > NEBULA_SIGMA * sig).astype(np.float32)
     return np.clip(gaussian_filter(neb, EDGE_SIGMA), 0.0, 1.0), float(neb.mean())
 
 
@@ -95,7 +105,7 @@ def combine(master, plates, pair, trusted, off):
     Returns the combined plate, the nebula weight and the bright nebula's share of the frame."""
     x = np.asarray(master, np.float32)
     lum = np.nan_to_num(x if x.ndim == 2 else x[:3].mean(axis=0))
-    weight, share = nebula_weight(lum)
+    weight, share = nebula_weight(lum, lum != 0.0)     # an absent pixel is NaN or an exact zero (the ring)
     planes = range(1) if x.ndim == 2 else range(x.shape[0])
     out = []
     for c in planes:
