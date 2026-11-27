@@ -289,6 +289,12 @@ internal sealed class StackSubCommand(
         {
             Description = "Keep frames with a non-zero FITS STACK_N header (integrated masters from a previous run) as scan inputs. Default behaviour is to drop them since stale masters in adjacent output-*/ dirs otherwise pollute the next session's grouping. Pass this flag for two-stage mosaic stacking: integrate each panel separately, then re-run with --include-integrations against the panel masters to produce the final mosaic. .rejection.fits sidecars are ALWAYS dropped regardless of this flag.",
         };
+        var reassignOpt = new Option<string[]>("--reassign")
+        {
+            Description = "Take a file for another kind of frame than its cards and its folder say: path=kind, the path inside the frames folder, the kind one of light, dark, flat, bias, darkflat or ignore (leave it out). Repeatable, once for each file. What a project records when a frame is reassigned in the processing app (workbench reassign).",
+            // One value for each use, so a path with a space in it needs no splitting.
+            AllowMultipleArgumentsPerToken = false,
+        };
         var noClearNightReferencesOpt = new Option<bool>("--no-clear-night-references")
         {
             Description = "Judge cloud on each group's own baselines alone, never against the clear nights the FITS viewer recorded on this computer. By default --reject-cloud reads them, so a run cloudy from first light to last is judged against a clear one. With this flag the masters follow from the frames and the options alone, which is what a workbench step runs with.",
@@ -363,7 +369,7 @@ internal sealed class StackSubCommand(
                 referenceFrameHintOpt, manifestOpt, removeStarsOpt,
                 cometOpt, cometRateOpt, cometTrackOpt, noStarLayerOpt, noCompositeOpt, cometMaskArcsecOpt,
                 inheritWbOpt,
-                noBayerDrizzleOpt, noColourAlignOpt, includeIntegrationsOpt, includeMaybeCloudOpt, noClearNightReferencesOpt, nominalHostOpt,
+                noBayerDrizzleOpt, noColourAlignOpt, includeIntegrationsOpt, includeMaybeCloudOpt, reassignOpt, noClearNightReferencesOpt, nominalHostOpt,
                 enhanceOpt, enhanceBlendOpt, splitPlatesOpt,
                 aiBackendOpt, deblurSharpenOpt, denoiseStrengthOpt, denoiseIterationsOpt,
                 saturationOpt, contrastBoostOpt,
@@ -402,8 +408,21 @@ internal sealed class StackSubCommand(
             // The options that choose which frames and groups are stacked, how they are registered and how they are
             // integrated are the stack operation's settings (StackOperation, #2467). A workbench step and this verb
             // build the pipeline's options from them in one place, StackOperation.OptionsOf, so the two cannot differ.
+            var reassigned = new System.Collections.Generic.List<FrameReassignment>();
+            foreach (var text in parseResult.GetValue(reassignOpt) ?? [])
+            {
+                if (!FrameReassignment.TryParse(text, out var each, out var why) || each is null)
+                {
+                    consoleHost.WriteError($"--reassign: {why}");
+                    return 1;
+                }
+
+                reassigned.Add(each);
+            }
+
             var settings = new StackSettings
             {
+                Reassign = FrameReassignment.Sorted(reassigned),
                 GroupFilter = parseResult.GetValue(groupFilterOpt) is { Length: > 0 } groupFilter ? groupFilter : null,
                 GroupExclude = parseResult.GetValue(groupExcludeOpt) is { Length: > 0 } groupExclude ? groupExclude : null,
                 GroupTemperatureTolerance = parseResult.GetValue(groupTempToleranceOpt),

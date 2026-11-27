@@ -276,7 +276,7 @@ public sealed class WorkbenchActions(
     }
 
     /// <summary>
-    /// The New project button: a folder dialog for the project's folder, one for the capture's folder, then the Lib routine
+    /// The New project button: a folder dialog for the capture's folder (the project is made in its workdir), then the Lib routine
     /// (<see cref="WorkbenchProjects.NewAsync"/>) off the render thread and <see cref="OpenProject"/> on the folder it made. A
     /// cancelled dialog changes nothing; a refusal is kept in <see cref="WorkbenchState.NewProjectRefusal"/> and shown in words.
     /// Not offered while <see cref="ChoiceWaits"/> says why not.
@@ -290,27 +290,19 @@ public sealed class WorkbenchActions(
 
         tracker.RunGuarded(async ct =>
         {
-            var project = await dialogs.OpenFolderAsync(new FileDialogRequest
-            {
-                Title = "New project: choose the folder for the project",
-                InitialDirectory = state.View?.Folder,
-            }, ct);
-            if (project.Path is not { } projectFolder)
-            {
-                return;
-            }
-
+            // One folder: the capture. The project and every result are kept in its workdir (#2553).
             var capture = await dialogs.OpenFolderAsync(new FileDialogRequest
             {
                 Title = "New project: choose the folder of the capture to stack",
-                InitialDirectory = projectFolder,
+                InitialDirectory = state.View?.Folder,
             }, ct);
             if (capture.Path is not { } captureFolder)
             {
                 return;
             }
 
-            var made = await WorkbenchProjects.NewAsync(projectFolder, captureFolder, ct);
+            var projectFolder = WorkbenchProjects.WorkdirOf(captureFolder);
+            var made = await WorkbenchProjects.NewAsync(captureFolder, ct);
             if (made.Refusal is { } refusal)
             {
                 state.NewProjectRefusal = $"No project was made: {refusal}";

@@ -332,7 +332,7 @@ public sealed class StackingPipeline(
         // -----------------------------------------------------------------
         progress?.Report(new StackingProgress(StackingPhase.Scanning, "", 0, 0));
         var sw = Stopwatch.StartNew();
-        var scan = await ScanFramesAsync(options.DataRoot, outputDir, options.IncludeIntegrations, options.IncludeSuspectedCloud, ct);
+        var scan = await ScanFramesAsync(options.DataRoot, outputDir, options.IncludeIntegrations, options.IncludeSuspectedCloud, options.Reassigned, ct);
         var allFrames = scan.Frames;
         var (integrationSkipped, rejectionMapSkipped, integrationKept, masterSkipped) =
             (scan.IntegrationsSkipped, scan.RejectionMapsSkipped, scan.IntegrationsKept, scan.MastersSkipped);
@@ -2763,10 +2763,19 @@ public sealed class StackingPipeline(
     /// unless <paramref name="includeIntegrations"/>. The one scan a stack and a comet's track request share
     /// (<see cref="CometTrackFetch.RequestForAsync"/>), so a track is asked for the night the stack registers (#2489).
     /// </summary>
+    /// <summary>The folder of a capture's project: the frames of the capture never include what is under it.</summary>
+    public const string WorkdirName = "workdir";
+
     internal static async Task<FrameScan> ScanFramesAsync(string dataRoot, string? outputDir, bool includeIntegrations,
-        bool includeSuspectedCloud, CancellationToken ct)
+        bool includeSuspectedCloud, ImmutableArray<FrameReassignment> reassigned, CancellationToken ct)
     {
-        var source = new FitsFolderFrameSource(dataRoot, recursive: true) { IncludeSuspectedCloud = includeSuspectedCloud };
+        // The project's own folder is never a frame of the capture it belongs to, whatever the output folder is (#2553).
+        var source = new FitsFolderFrameSource(dataRoot, recursive: true)
+        {
+            IncludeSuspectedCloud = includeSuspectedCloud,
+            ExcludedFolder = Path.Combine(dataRoot, WorkdirName),
+        };
+        var kinds = FrameReassignment.LookupOf(reassigned);
         var allFrames = new List<FrameInfo>();
         var outputDirNormalised = outputDir is null ? null : Path.GetFullPath(outputDir);
         var integrationSkipped = 0;
@@ -2836,6 +2845,12 @@ public sealed class StackingPipeline(
                     integrationSkipped++;
                     continue;
                 }
+            }
+            // A kind the person set stands over what the cards and the folder said; None leaves the file out of the stack
+            // (a frame of no kind is neither light nor calibration), and it is told apart from a file the scan never met.
+            if (kinds.Count > 0 && FrameReassignment.PlaceOf(dataRoot, frame.Path) is { } place && kinds.TryGetValue(place, out var kind))
+            {
+                frame = frame with { Meta = frame.Meta with { FrameType = kind } };
             }
             allFrames.Add(frame);
         }
