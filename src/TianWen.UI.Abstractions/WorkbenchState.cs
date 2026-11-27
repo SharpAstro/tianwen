@@ -56,6 +56,16 @@ public sealed class WorkbenchState
         set => Volatile.Write(ref _view, value);
     }
 
+    private string? _newProjectRefusal;
+
+    /// <summary>Why the New project button made no project, in words (<see cref="WorkbenchProjects.NewAsync"/>'s refusal); null
+    /// when the last one was made or none was asked. The next successful open clears it.</summary>
+    public string? NewProjectRefusal
+    {
+        get => Volatile.Read(ref _newProjectRefusal);
+        set => Volatile.Write(ref _newProjectRefusal, value);
+    }
+
     /// <summary>The selected step's place in the edit list, from 0; -1 for none.</summary>
     public int SelectedStep { get; set; } = -1;
 

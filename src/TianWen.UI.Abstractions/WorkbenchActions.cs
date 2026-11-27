@@ -127,6 +127,7 @@ public sealed class WorkbenchActions(
             return false;
         }
 
+        state.NewProjectRefusal = null;
         StartRead(state, runner, tracker, logger, appToken, folder, image, "Read the workbench project");
         return true;
     }
@@ -151,6 +152,57 @@ public sealed class WorkbenchActions(
                 logger.LogInformation("{Folder} was not opened: {Why}", picked, ChoiceWaitsForTheRun);
             }
         }, appToken, logger, "Choose a workbench project", onError: _ => state.NeedsRedraw = true);
+    }
+
+    /// <summary>
+    /// The New project button: a folder dialog for the project's folder, one for the capture's folder, then the Lib routine
+    /// (<see cref="WorkbenchProjects.NewAsync"/>) off the render thread and <see cref="OpenProject"/> on the folder it made. A
+    /// cancelled dialog changes nothing; a refusal is kept in <see cref="WorkbenchState.NewProjectRefusal"/> and shown in words.
+    /// Not offered while a run goes.
+    /// </summary>
+    public void NewProject()
+    {
+        if (_jobs.IsRunning)
+        {
+            return;
+        }
+
+        tracker.RunGuarded(async ct =>
+        {
+            var project = await dialogs.OpenFolderAsync(new FileDialogRequest
+            {
+                Title = "New project: choose the folder for the project",
+                InitialDirectory = state.View?.Folder,
+            }, ct);
+            if (project.Path is not { } projectFolder)
+            {
+                return;
+            }
+
+            var capture = await dialogs.OpenFolderAsync(new FileDialogRequest
+            {
+                Title = "New project: choose the folder of the capture to stack",
+                InitialDirectory = projectFolder,
+            }, ct);
+            if (capture.Path is not { } captureFolder)
+            {
+                return;
+            }
+
+            var made = await WorkbenchProjects.NewAsync(projectFolder, captureFolder, ct);
+            if (made.Refusal is { } refusal)
+            {
+                state.NewProjectRefusal = $"No project was made: {refusal}";
+                state.NeedsRedraw = true;
+                return;
+            }
+
+            state.NewProjectRefusal = null;
+            if (!OpenProject(projectFolder))
+            {
+                logger.LogInformation("{Folder} was made but not opened: {Why}", projectFolder, ChoiceWaitsForTheRun);
+            }
+        }, appToken, logger, "Make a workbench project from a capture folder", onError: _ => state.NeedsRedraw = true);
     }
 
     /// <summary>Shows another image of the project. Refused while a run goes, as <see cref="OpenProject"/> is.</summary>

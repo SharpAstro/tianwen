@@ -142,11 +142,17 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
                         Layout.Builder.Fill(key: CanvasKey).WStar().HStar())
                     .WStar().HStar())
             .WStar().HStar();
-        return Layout.Builder.VStack(
-                TopBar(state, actions).WStar().HFixed(TopBarHeight),
-                StepBar(state, actions, steps).WStar().HFixed(StepBarHeight),
-                body)
-            .Stretch().Bg(palette.ContentBg);
+        var rows = new List<Layout.Node> { TopBar(state, actions).WStar().HFixed(TopBarHeight) };
+        // A refused New project is said in words under the bar, whole text on hover; it is there only while there is one.
+        if (state.NewProjectRefusal is { } refusal)
+        {
+            rows.Add(Layout.Builder.Text(refusal, BaseFontSize, palette.Error, trim: TextTrim.End).WStar().HStar().WithTooltip(refusal)
+                .Pad(Gap, 0f).Bg(palette.PanelBg).WStar().HFixed(TopBarHeight));
+        }
+
+        rows.Add(StepBar(state, actions, steps).WStar().HFixed(StepBarHeight));
+        rows.Add(body);
+        return Layout.Builder.VStack([.. rows]).Stretch().Bg(palette.ContentBg);
     }
 
     // The project, the image and Open project, on one row of one height and one middle.
@@ -174,8 +180,13 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
 
         // While a run goes it writes the store, so no other project or image is read: the controls stay where they are, dimmed,
         // and say why on hover (WorkbenchActions refuses them too).
-        var open = Layout.Builder.Button("Open project", Layout.ButtonKind.Standard, actions.ChooseProject, GuiTheme.Theme,
+        // With no project open these two are all there is to do, so they take the accent, the colour of an action.
+        var kind = view is null ? Layout.ButtonKind.Accent : Layout.ButtonKind.Standard;
+        var open = Layout.Builder.Button("Open project", kind, actions.ChooseProject, GuiTheme.Theme,
             tooltip: running ? WorkbenchActions.ChoiceWaitsForTheRun : "Open a workbench project folder");
+        var fresh = Layout.Builder.Button("New project", kind, actions.NewProject, GuiTheme.Theme,
+            tooltip: running ? WorkbenchActions.ChoiceWaitsForTheRun : "Make a project from a folder of captured frames: it holds one step, the stack");
+        parts.Add(running ? fresh.Disabled(WorkbenchActions.ChoiceWaitsForTheRun) : fresh);
         parts.Add(running ? open.Disabled(WorkbenchActions.ChoiceWaitsForTheRun) : open);
         return Layout.Builder.HStack([.. parts]).WithGap(Gap).CrossCenter().Pad(Gap, 0f).Bg(palette.HeaderBg);
     }
@@ -260,7 +271,7 @@ public sealed class WorkbenchScreen<TSurface> : CompositeWidget<TSurface>
         {
             var message = state.View switch
             {
-                null => "Open a project to see the steps of an image.",
+                null => "Open a project, or make a new one from a capture folder, to see the steps of an image.",
                 { Refusal: { } refusal } => refusal,
                 _ => state.IsReading ? "Reading the project" : "This image has no edits yet.",
             };

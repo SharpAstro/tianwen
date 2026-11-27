@@ -232,6 +232,107 @@ public sealed class WorkbenchCaptureTests : IDisposable
         Keep(e2e, $"workbench-image-menu-{width}x{height}-Dark-dpi{dpi:0.0}");
     }
 
+    public static TheoryData<uint, uint, float, UiThemeState, string> NewProjectCases => new()
+    {
+        { 1280, 800, 1f, UiThemeState.Dark, "empty" },
+        { 1280, 800, 1f, UiThemeState.Night, "empty" },
+        { 2000, 1100, 1f, UiThemeState.Dark, "empty" },
+        { 2000, 1100, 1f, UiThemeState.Night, "empty" },
+        { 2000, 1100, 1.5f, UiThemeState.Dark, "empty" },
+        { 1280, 800, 1f, UiThemeState.Dark, "new" },
+        { 1280, 800, 1f, UiThemeState.Night, "new" },
+        { 2000, 1100, 1f, UiThemeState.Dark, "new" },
+        { 2000, 1100, 1f, UiThemeState.Night, "new" },
+        { 2000, 1100, 1.5f, UiThemeState.Dark, "new" },
+        { 1280, 800, 1f, UiThemeState.Dark, "long-path" },
+        { 1280, 800, 1f, UiThemeState.Night, "long-path" },
+        { 2000, 1100, 1f, UiThemeState.Dark, "long-path" },
+        { 2000, 1100, 1f, UiThemeState.Night, "long-path" },
+        { 1280, 800, 1.5f, UiThemeState.Dark, "long-path" },
+        { 1280, 800, 1f, UiThemeState.Dark, "refused" },
+        { 2000, 1100, 1f, UiThemeState.Night, "refused" },
+    };
+
+    // No project open, a new capture project before its stack, a capture folder with a long realistic path, and a refused New project:
+    // the New project and Open project buttons stay on one height and one middle inside the window, and no text is cut silently.
+    [Theory(Timeout = 180_000)]
+    [MemberData(nameof(NewProjectCases))]
+    public async Task TheNewProjectScreensCutNothingSilentlyMeetContrastAndKeepOneHeightAndOneMiddle(
+        uint width, uint height, float dpi, UiThemeState theme, string scenario)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var capture = Path.Combine(_folders.Create("capture-").FullName,
+            scenario == "long-path" ? "2026-11-14 M31 Andromeda Galaxy HaLRGB mosaic panel 3 of 4 (SkyWatcher Esprit 100ED, ASI2600MM Pro)" : "night-1");
+        Directory.CreateDirectory(capture);
+        File.WriteAllBytes(Path.Combine(capture, "frame.fits"), new byte[2880]);
+        var projects = _folders.Create(scenario == "long-path" ? "astrophotography-projects-for-the-winter-season-" : "projects-").FullName;
+        var project = Path.Combine(projects, scenario == "long-path" ? "andromeda-galaxy-narrowband-and-broadband-reprocessing-attempt-two" : "project");
+        var catalog = new OperationCatalog([new StackOperation()]);
+        GuiTheme.Apply(theme, desktopIsDark: true);
+        try
+        {
+            await using var e2e = WorkbenchE2E.Start(dpi, new WorkbenchRunner(catalog), catalog, width, height);
+            if (scenario == "refused")
+            {
+                (await WorkbenchProjects.NewAsync(project, capture, ct)).Refusal.ShouldBeNull();
+                e2e.FakeFolderPicks(project, capture);
+                e2e.Click(e2e.RegionOfLabel("New project"));
+                await e2e.PumpUntilAsync(() => e2e.State.NewProjectRefusal is not null, "the refusal", ct);
+            }
+            else if (scenario != "empty")
+            {
+                e2e.FakeFolderPicks(project, capture);
+                e2e.Click(e2e.RegionOfLabel("New project"));
+                await e2e.PumpUntilAsync(() => e2e.State.View is { Image: not null } && !e2e.State.IsReading, "the new project", ct);
+                await e2e.PumpUntilAsync(() => e2e.Actions.RunToHereOffer().CanRun, "the offer to run the stack", ct);
+                e2e.StepCells().Length.ShouldBe(1);
+            }
+
+            Keep(e2e, $"workbench-new-{scenario}-{width}x{height}-{theme}-dpi{dpi:0.0}");
+
+            var (fresh, open) = (e2e.RegionOfLabel("New project"), e2e.RegionOfLabel("Open project"));
+            fresh.Height.ShouldBe(open.Height, 1f, "one height");
+            (fresh.Y + (fresh.Height / 2f)).ShouldBe(open.Y + (open.Height / 2f), 1f, "one middle");
+            foreach (var r in new[] { fresh, open })
+            {
+                r.X.ShouldBeGreaterThanOrEqualTo(0f);
+                (r.X + r.Width).ShouldBeLessThanOrEqualTo(width + 0.5f, "a top bar control lies inside the window");
+            }
+
+            // Every text the screen drew shorter than it is carries its whole text on hover (the viewer's own strips are its own).
+            var regions = e2e.Regions();
+            var canvas = e2e.Host.Screen.CanvasRect;
+            foreach (var (full, shown, bounds) in e2e.Host.Screen.CutTexts())
+            {
+                var (cx, cy) = (bounds.X + (bounds.Width / 2f), bounds.Y + (bounds.Height / 2f));
+                if (cx >= canvas.X && cx <= canvas.X + canvas.Width && cy >= canvas.Y && cy <= canvas.Y + canvas.Height)
+                {
+                    continue;
+                }
+
+                regions.Where(r => cx >= r.X && cx <= r.X + r.Width && cy >= r.Y && cy <= r.Y + r.Height && r.Tooltip is not null)
+                    .ShouldContain(r => r.Tooltip!.Contains(full, StringComparison.Ordinal), $"'{full}' is shown as '{shown}' and carries its whole text on hover");
+            }
+
+            // Contrast of each top bar and message text against the pixel beside it, which is the fill it is drawn on.
+            var floor = theme == UiThemeState.Night ? 3.0 : 4.5;
+            foreach (var (text, bounds, ink) in e2e.TextInks().Where(t => t.Bounds.Y < e2e.Renderer.Height / 2f && t.Bounds.X < canvas.X + canvas.Width && t.Bounds.Width > 0))
+            {
+                if (regions.Any(r => r.Result is HitResult.ButtonHit && Inside(new RectF32(r.X, r.Y, r.Width, r.Height), bounds)))
+                {
+                    continue; // a button's own label is the theme's pair for its fill, checked by the theme's tests
+                }
+
+                var fill = PixelAt(e2e, (int)bounds.X + 1, (int)(bounds.Y + (bounds.Height / 2f)));
+                Contrast(ink, fill).ShouldBeGreaterThanOrEqualTo(floor, $"'{text}' against the fill it is drawn on");
+            }
+        }
+        finally
+        {
+            GuiTheme.Apply(UiThemeState.Dark, desktopIsDark: true);
+        }
+    }
+
     // Each step's words and marks against the fill the cell is drawn on, read off the painted pixels beside the text.
     private static void StepWordsAndMarksMeetContrast(WorkbenchE2E e2e, UiThemeState theme)
     {
