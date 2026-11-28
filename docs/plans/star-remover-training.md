@@ -11631,9 +11631,9 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     session's retained master (`bh-bin14`, `image remove-stars --model ... --views 1 --no-stars --no-protect-cores
     --no-fill-digs --keep-overshoot`), combined by `teacher_combine.py --off med` (the rule above), then `image
     fill-digs` on that plate (the product's dig fill, held at or under the input), so the answer holds no hole
-    under a removed star (almost none: see "Before the launch" below). **No core protection:** tried first and looked at on real tiles, `image protect-cores`
-    put the stars back inside eta Carinae's bright core (that master carries no plate solution, in which case the
-    step keeps a protected core's stars; with one it keeps removed only the stars its catalogue lists), which is
+    under a removed star (almost none: see "Before the launch" below). **No core protection:** tried first and
+    looked at on real tiles, `image protect-cores` put the stars back inside eta Carinae's bright core (that
+    master carries no plate solution, in which case the step keeps a protected core's stars; with one it keeps removed only the stars its catalogue lists), which is
     the opposite of what this arm teaches; the rule's median plate already keeps a core that only a minority of
     the members take. The driver is
     `C:/temp/e2/h4/teacher-plates8.sh` on the development machine (scratch, not in the tree); a session's member
@@ -11784,16 +11784,17 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
         2021-12-31) and one more on the Large Magellanic Cloud of 2021-12-11 show dark spots the input holds as
         well: black discs round bright stars on M42, small dark specks on the Rosette, cold pixels on the
         Large Magellanic Cloud. The other hole cells were not looked at, and whether the model sees the
-        teacher's own few-pixel holes was not tested; the count above is what bounds those.
+        teacher's own few-pixel holes was not tested; the dig count above (12.6 pixels a cell, in 32 % of the
+        cells) is what bounds those.
       - **The mean at removed stars** (`C:/temp/e2/h4/star_residual.py`, scratch): averaged over all 805,531
         stars removed from the targets, the target about a star's centre stands within a tenth of a noise of its
         level, core (r up to 1.5 px) -0.10, ring (2.5 to 5 px) -0.01, halo (5 to 8 px) 0.00, the worst session's
         ring -0.26. R4k's targets, by the same measure, read core +0.20, ring +0.13, halo +0.10. This is a mean,
-        in which holes and residue can cancel; the hole count above bounds single stars.
-      - **A known cost, accepted before the launch:** where the teacher keeps a bright star's diffraction spikes
-        or the specks at a centre, R5 is taught to keep them, with no mask to hide them. StarXTerminator removes
-        spikes, so the scoring may show it; how many training cells hold spikes was not counted. Nothing else
-        here changes the data.
+        in which holes and residue can cancel; the dig count above bounds single stars.
+      - **A known cost, put to the owner and not yet accepted when this was written:** where the teacher keeps a
+        bright star's diffraction spikes or the specks at a centre, R5 is taught to keep them, with no mask to
+        hide them. StarXTerminator removes spikes, so the scoring may show it; how many training cells hold
+        spikes was not counted. Nothing else here changes the data.
     - **The purity guard** stands at 3.1 as registered; the owner had named no other value when this was written.
   - **Nothing is adopted;** adoption is the owner's.
 
