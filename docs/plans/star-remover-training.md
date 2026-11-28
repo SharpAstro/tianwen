@@ -11631,9 +11631,10 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     session's retained master (`bh-bin14`, `image remove-stars --model ... --views 1 --no-stars --no-protect-cores
     --no-fill-digs --keep-overshoot`), combined by `teacher_combine.py --off med` (the rule above), then `image
     fill-digs` on that plate (the product's dig fill, held at or under the input), so the answer holds no hole
-    under a removed star. **No core protection:** tried first and looked at on real tiles, `image protect-cores`
-    put the stars back inside eta Carinae's bright core (that master carries no plate solution, in which case the
-    step keeps a protected core's stars; with one it keeps removed only the stars its catalogue lists), which is
+    under a removed star (a few: see "Before the launch" below). **No core protection:** tried first and
+    looked at on real tiles, `image protect-cores` put the stars back inside eta Carinae's bright core (that
+    master carries no plate solution, in which case the step keeps a protected core's stars; with one it keeps
+    removed only the stars its catalogue lists), which is
     the opposite of what this arm teaches; the rule's median plate already keeps a core that only a minority of
     the members take. The driver is
     `C:/temp/e2/h4/teacher-plates8.sh` on the development machine (scratch, not in the tree); a session's member
@@ -11701,7 +11702,8 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     Gaia's most crowded cell; the two-sided crowded row; the compact clusters' kept share; the Tarantula's peaks
     against the judge, peak by peak (of the 132 the judge leaves standing, how many each seed takes: the teacher
     34, R4h's seeds 28 and 34); Andromeda's dark flat and dug share AS TRAINED (R4h 60.4 with 24.7 % dug and 79.0
-    with 13.0: the teacher's answers hold no dig, so this is where a net that fills its own holes would show); the
+    with 13.0: the teacher's answers hold few digs, about 39 pixels in each of 32 % of the cells by "Before the
+    launch" below, so this is where a net that fills its own holes would show); the
     extra cache's held-out objective beside its training objective at the best step; route A's four scenes; the
     time a whole master takes; which rows of the head's scorecard stand within one scatter of a two-seed mean of
     StarXTerminator's, or better.
@@ -11756,10 +11758,47 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
       cell (`C:/temp/e2/h4/dig_specks.py` on the development machine, scratch: a pixel 4 noise or more under the
       target's own 9 px median, within 2 px of a removed star): 12.6 such
       pixels a cell, in 32 % of the cells, median depth 5.7 noise. R4k's targets, the plate builder's, held 22.5 a
-      cell in 92 % of theirs, median depth 4.8, and its masks counted them. The deepest of both exports are the
+      cell in 92 % of theirs, median depth 4.8, and its masks counted them. Fewer cells hold them here, but where
+      they occur they are more and deeper: about 39 pixels an affected cell against 25, the 90th percentile of
+      depth 12.3 noise against 6.9. With no mask every one of them is in R5's loss, so a net that learns them
+      shows on Andromeda's dug share as trained. The deepest of both exports are the
       same: dark rings that the M42 master of 2022-12-03 itself holds around a few stars, which a target keeps,
       since the fill holds a plate at or under its input. Not changed: the chain's dig fill runs after the net,
       and Andromeda's dark flat and dug share as trained are reported for this.
+    - **A second look at every cell, by a vision model** (`C:/temp/e2/h4/typesafe_all.py` on the development
+      machine, scratch, answers in `ts-all/results.jsonl` beside it; TypeSafe's System One model `jev-1.14.0`,
+      one request a cell). Each target was sent in its own stretch (the 1st to 99.5th percentile), 3x to 768 px,
+      with two yes/no questions: whether a star is still visible ("a small, round, sharp point of light,
+      brighter than the smooth nebula and the grainy noise around it") and whether there is a small dark spot or
+      ring clearly darker than everything around it. Tried first on eight cells of known answer: inputs read
+      0.83 and 0.84, clean targets 0.20 and 0.28, targets with stars put back 0.80 to 0.91, and the M42 target
+      with a dark ring 0.96 for a hole against 0.22 to 0.27. Over all 4,520 targets: a star at over 0.5 in 367
+      cells and over 0.7 (the vendor's suggested yes) in 87; a hole over 0.5 in 599 and over 0.7 in 297. The
+      screen above flagged 123 cells for a star (any peak still standing); of them the model reads 36 over 0.5
+      and 16 over 0.7, so the two mostly find different things.
+      - **Looked at, at 1:1:** the six cells it scores highest for a star, six of Orion's wide field of
+        2022-01-31 (the session it flags most, 18 cells over 0.7), and the six it scores highest for a hole. The
+        star cells hold compact objects that are no star and are kept as meant (a small galaxy on Centaurus A;
+        clusters and knots in the Magellanic Clouds, eta Carinae and the Seagull). On Orion's wide field the
+        target keeps specks of a few pixels at removed stars' centres and the diffraction spikes of its brightest
+        star: those are a star's remains. The hole cells (five on M42 of 2022-12-03, one on the Rosette of
+        2021-12-31) and a seventh, the Large Magellanic Cloud of 2021-12-11 cell that tops its star list and reads
+        0.90 for a hole too, show dark spots the input holds as
+        well: black discs round bright stars on M42, small dark specks on the Rosette, cold pixels on the
+        Large Magellanic Cloud. The other hole cells were not looked at, and whether the model sees the
+        teacher's own few-pixel holes was not tested; the dig count above (12.6 pixels a cell, in 32 % of the
+        cells) is what bounds those holes; it says nothing of a bright residue, which the screen above bounds.
+      - **The mean at removed stars** (`C:/temp/e2/h4/star_residual.py`, scratch): averaged over all 805,531
+        stars removed from the targets, the target about a star's centre stands within a tenth of a noise of its
+        level, core (r up to 1.5 px) -0.10, ring (2.5 to 5 px) -0.01, halo (5 to 8 px) 0.00, the worst session's
+        ring -0.26. R4k's targets, by the same measure, read core +0.20, ring +0.13, halo +0.10. This is a mean,
+        in which holes and residue can cancel; the dig count above bounds single holes (it counts only pixels
+        under the target's median), and the screen above (336 peaks of 933,340 still standing) bounds single
+        residues.
+      - **A known cost, put to the owner and not yet accepted when this was written:** where the teacher keeps a
+        bright star's diffraction spikes or the specks at a centre, R5 is taught to keep them, with no mask to
+        hide them. StarXTerminator removes spikes, so the scoring may show it; how many training cells hold
+        spikes was not counted. Nothing else here changes the data.
     - **The purity guard** stands at 3.1 as registered; the owner had named no other value when this was written.
   - **Nothing is adopted;** adoption is the owner's.
 
