@@ -441,6 +441,10 @@ CI red four times (#2560). `SweepMeasuresInTheAppFaceTests` (Category Invariant)
 `ResolveSystemFont`, the face file sits beside the test binary (a missing face measures every text as nothing and the sweep
 passes), and its name is the one `BundledFonts.BundledTextRelativePath` names.
 
+Only the sweep is on the app face so far. The other tests that assert a fit (no overlap, inside a box or a surface, a width
+bound) still measure with `ResolveSystemFont`, so they answer per OS: DejaVu Sans Mono on Linux CI, Consolas on Windows.
+They are listed, file by file, in #2562; until it closes, a green run of one of them says nothing about the app face.
+
 **What it judges.** Each tab as a scenario (`Scenarios`), the window chrome in its states (`ChromeStates`: a long status
 message, everything connected, a session running, a pinned date with a verdict, the night calendar open under the top bar),
 the Notifications tab, and the FITS viewer's chrome with its popovers open in turn. The states that stress a layout are
