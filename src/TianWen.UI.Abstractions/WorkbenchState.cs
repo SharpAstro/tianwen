@@ -164,6 +164,9 @@ public sealed class WorkbenchState
     /// <summary>True while the runner is asked for a status: the step bar then keeps what it had and says so.</summary>
     public bool IsReading { get; set; }
 
+    // The number of the newest read started; a read's failure is adopted only while its own number is still this one.
+    internal int ReadNumber;
+
     /// <summary>The window needs a frame.</summary>
     public bool NeedsRedraw { get; set; } = true;
 

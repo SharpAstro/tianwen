@@ -141,4 +141,77 @@ public sealed class WorkbenchFrameHandoverTests : IDisposable
             "the run's answer adopted", ct);
         _add.Runs.ShouldBe(3);
     }
+
+    // A project whose status cannot be read: the one edit's operation throws when the runner asks for its command line.
+    private async Task<string> UnreadableProjectAsync()
+    {
+        var folder = _folders.Create("boom-").FullName;
+        var master = WorkbenchFixtures.WriteMaster(folder, "master", WorkbenchFixtures.Master(seed: 1));
+        var project = WorkbenchFixtures.Project(WorkbenchFixtures.Picture("m", master, WorkbenchFixtures.Edit("boom", Amount(1))));
+        await WorkbenchProjectFile.WriteAsync(folder, project, TestContext.Current.CancellationToken);
+        return folder;
+    }
+
+    private (OperationCatalog Catalog, WorkbenchRunner Runner) WithBoom()
+    {
+        var catalog = new OperationCatalog([_add, new BoomOperation()]);
+        return (catalog, new WorkbenchRunner(catalog));
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task AFailedReadLeavesTheStateToTheFrameAndTheFrameShowsTheRefusalAndEndsTheRead()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (catalog, runner) = WithBoom();
+        var folder = await UnreadableProjectAsync();
+        await using var e2e = WorkbenchE2E.Start(1f, runner, catalog);
+
+        e2e.Host.OpenProject(folder);
+        e2e.Frame();
+        e2e.State.IsReading.ShouldBeTrue();
+        await e2e.Tracker.DrainAsync();
+
+        e2e.State.IsReading.ShouldBeTrue("no frame has run: the failure is the frame's to apply");
+        e2e.State.View.ShouldBeNull();
+
+        await e2e.PumpUntilAsync(() => e2e.State.View is not null && !e2e.State.IsReading, "the refused view on show", ct);
+        e2e.State.View!.Refusal.ShouldNotBeNull().ShouldStartWith("The project could not be read:");
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task ANewerReadStartedAfterAFailureWinsAndIsNotOverwrittenByTheRefusal()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (catalog, runner) = WithBoom();
+        var bad = await UnreadableProjectAsync();
+        var good = await ThreeStepProjectAsync();
+        await using var e2e = WorkbenchE2E.Start(1f, runner, catalog);
+
+        e2e.Host.OpenProject(bad);
+        e2e.Frame();
+        await e2e.Tracker.DrainAsync();
+        // The failure's tail is queued and no frame has run; a newer read begins before the frame drains it.
+        e2e.Actions.OpenProject(good).ShouldBeTrue();
+        await e2e.PumpUntilAsync(() => e2e.State.View?.Image?.Steps.Length == 3 && !e2e.State.IsReading, "the newer answer on show", ct);
+
+        e2e.State.View!.Folder.ShouldBe(Path.GetFullPath(good));
+        e2e.State.View.Refusal.ShouldBeNull("the refused view of the older read never replaces the newer answer");
+    }
+}
+
+/// <summary>An operation whose command line cannot be made, so a status that asks for it fails.</summary>
+internal sealed class BoomOperation : Operation<AddSettings>
+{
+    public override OperationDescription Description { get; } = new(
+        "boom", Version: 1, Title: "Boom", Verb: "none", OperationOutputKind.Stored,
+        ExtraInputs: [], Settings: [new OperationSetting("amount", "Unused.")]) { Summary = "Fails when planned." };
+
+    protected override System.Text.Json.Serialization.Metadata.JsonTypeInfo<AddSettings> SettingsInfo => WorkbenchTestJsonContext.Default.AddSettings;
+
+    public override System.Collections.Immutable.ImmutableArray<string> CommandLine(AddSettings settings, System.Collections.Generic.IReadOnlyList<string> inputs, string output)
+        => throw new InvalidOperationException("boom");
+
+    public override System.Threading.Tasks.ValueTask<OperationOutcome> RunAsync(AddSettings settings, System.Collections.Generic.IReadOnlyList<OperationInput> inputs,
+        string outputPath, Action<string>? say, System.Threading.CancellationToken cancellationToken)
+        => System.Threading.Tasks.ValueTask.FromResult(OperationOutcome.Done);
 }

@@ -133,13 +133,14 @@ public sealed partial class WorkbenchActions(
     {
         state.IsReading = true;
         state.NeedsRedraw = true;
+        var mine = Interlocked.Increment(ref state.ReadNumber);
         tracker.RunExclusive<WorkbenchView>(StatusSlot, ct => ReadViewAsync(runner, ProjectFolder(folder), image, ct),
             appToken, logger, description,
             // A failed read yields no result for TryCollect, so the refused view is handed to the frame, which adopts it and ends
-            // IsReading, unless a newer read is in the slot by then (its answer, or its own failure, then speaks).
+            // IsReading, unless a newer read has begun by then (its number is newer; its answer, or its own failure, then speaks).
             onError: ex => HandToFrame(state, () =>
             {
-                if (!tracker.IsRunning(StatusSlot))
+                if (Volatile.Read(ref state.ReadNumber) == mine)
                 {
                     state.View = new WorkbenchView(folder, null, [], null, null, $"The project could not be read: {ex.Message}");
                     state.IsReading = false;
@@ -574,7 +575,15 @@ public sealed partial class WorkbenchActions(
         // First, what the jobs handed over: the selection and the view are written here and nowhere else (see HandToFrame).
         while (state.TailsForFrame.TryDequeue(out var tail))
         {
-            tail();
+            // One bad tail must not end the frame or hold back the tails behind it.
+            try
+            {
+                tail();
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "A workbench job's hand-over to the frame failed");
+            }
         }
 
         TryAdoptFrames();

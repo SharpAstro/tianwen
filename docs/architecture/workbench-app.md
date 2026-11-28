@@ -22,7 +22,8 @@ The pieces it holds:
   `onError`, or the run's settle) never writes them after an `await`: it hands its tail to the frame through
   `WorkbenchActions`' one lock-free handover (`HandToFrame`, a queue on the state), which `TryAdoptStatus` drains at the top of
   `BeforeFrame`, before it collects the status slot. A failed read hands its refused view the same way, so the frame ends
-  `IsReading` (unless a newer read is in the slot). `WorkbenchHost.IsBusy` counts a tail still waiting for the frame.
+  `IsReading` (unless a newer read has begun: each read takes a number from the state, and the refused view is adopted only
+  while its read's number is still the newest, so no timing is involved). `WorkbenchHost.IsBusy` counts a tail still waiting for the frame.
 - `WorkbenchActions`: what the window does (open a project, choose an image or a step, copy a command line, start a run).
   It asks the runner off the render thread and its answer is adopted in `BeforeFrame`, where the document may change.
 - `WorkbenchJobs`: one run at a time (see "Jobs and cancel").
