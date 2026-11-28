@@ -25,7 +25,7 @@ public class SweepMeasuresInTheAppFaceTests
 
         foreach (var name in SweepSources)
         {
-            var path = Path.Combine(root, "TianWen.Lib.Tests", name);
+            var path = Path.Combine(root, typeof(SweepMeasuresInTheAppFaceTests).Assembly.GetName().Name!, name);
             File.Exists(path).ShouldBeTrue(path);
 
             var code = File.ReadAllLines(path)
