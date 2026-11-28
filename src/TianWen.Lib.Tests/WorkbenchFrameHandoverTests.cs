@@ -284,9 +284,11 @@ public sealed class WorkbenchFrameHandoverTests : IDisposable
     }
 }
 
-/// <summary>An operation whose command line cannot be made, so a status that asks for it fails.</summary>
-// Fails when planned. Taking a frame set (under its own name) it can stand first on a stack image, whose original is a
-// folder of frames; the plan refuses any other step there before asking it anything.
+/// <summary>
+/// An operation whose command line cannot be made, so a status that asks for it fails. It fails when planned. Taking a
+/// frame set (under its own name) it can stand first on a stack image, whose original is a folder of frames; the plan
+/// refuses any other step there before asking it anything.
+/// </summary>
 internal sealed class BoomOperation(string id = "boom", bool takesFrameSet = false) : Operation<AddSettings>
 {
     public override OperationDescription Description { get; } = new(
