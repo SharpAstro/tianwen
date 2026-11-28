@@ -11722,6 +11722,45 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     of the draw may not outweigh the drawn stars' own lesson that a faint peak on a textured background stays.
   - **If it gains:** the plan's H4 is a loop. A seed of R5 that holds the guards joins the members, the teacher is
     rebuilt and scored as above, and the next generation is registered on it.
+  - **Before the launch, 2026-11-28, with no score of R5 and no training run beyond the twenty steps below in
+    existence: the data as made.** (The upload of the cache to the Batch store began before this was written.)
+    - **The teacher plates:** all 113 sessions, none failed.
+    - **The export** (`bh-bin15`, R4k's build; `--cells 40 --draws 1 --seed 1`, `--plates` the teacher's store):
+      113 sessions, 4,520 cells, none failed, every input equal to the bake's own tile (worst parity 0). The
+      exporter also listed one id the lists leave out (the `flip=a` half of the Helix Nebula of 2025-08-09 through
+      the BlueCut filter) and skipped it, since it has no teacher plate; the cache reads the lists only.
+    - **The cache** `r2-teach1`, prepared by R4h's trainer copy from R4k's train and validation lists (105 and 8
+      sessions), with no masks: 4,520 cells, 4,200 training and 320 held out, one draw.
+    - **The dose:** 18.9 % of the training draw by tiles, as R4k's, and by the pixels a batch's loss averages over
+      too, since every pixel of an extra row counts: about four times R4k's 5 %.
+    - **Twenty steps of the launch line** (R5a's) on the two caches, R4h's copy, on the GTX 1070: it runs through,
+      and prints 4,200 training cells of one draw at 18.9 % of the draw, 320 held-out cells (240 read for the extra
+      objective), no mask file, and the plateau on the main cache's objective alone. The check's weights were
+      deleted.
+    - **The sheet at 1:1** (`realpair_export_look.py`, every session; looked at: eta Carinae of 2024-02-03,
+      Omega Centauri of 2024-02-16, M42 of 2021-11-28, the Large Magellanic Cloud of 2023-09-15, Centaurus A of
+      2023-04-02 and M42 of 2022-12-03): each target is clean where its input holds stars, crowded fields and the
+      compact cluster on eta Carinae's cell included, and input less target holds stars only, with the nebula
+      left in the target. No seam and no debris.
+    - **Every cell screened** (`C:/temp/e2/h4/target_screen.py` on the development machine, scratch; each cell
+      against its target's own noise). Stars left: of the 933,340 peaks the inputs hold 8 noise or more over
+      their surroundings, 336 (0.04 %) still stand 5 noise over the target's; the worst sessions, looked at 1:1,
+      hold no star there (bright nebula detail on M42 of 2021-11-28, the master's own hot pixels on the Small
+      Magellanic Cloud of 2024-10-02). Light added: in no cell does the target stand over its input by 4 noise
+      anywhere. The floor: in 39 cells the target lies more than half a noise under the input where nothing was
+      taken nearby, at most 5.1 noise, on the most crowded fields (eta Carinae's Milky Way of 2024-02-03 and
+      2022-12-24), where every pixel is near a star and the teacher takes the unresolved stars' glow, which is
+      what the crowded rows ask.
+    - **One thing the registration says is not quite so:** the answer is not free of holes under removed stars.
+      Where a bright star sat on nebula, a few pixels at its centre can stay under the sky. Counted over every
+      cell (`C:/temp/e2/h4/dig_specks.py` on the development machine, scratch: a pixel 4 noise or more under the
+      target's own 9 px median, within 2 px of a removed star): 12.6 such
+      pixels a cell, in 32 % of the cells, median depth 5.7 noise. R4k's targets, the plate builder's, held 22.5 a
+      cell in 92 % of theirs, median depth 4.8, and its masks counted them. The deepest of both exports are the
+      same: dark rings that the M42 master of 2022-12-03 itself holds around a few stars, which a target keeps,
+      since the fill holds a plate at or under its input. Not changed: the chain's dig fill runs after the net,
+      and Andromeda's dark flat and dug share as trained are reported for this.
+    - **The purity guard** stands at 3.1 as registered; the owner had named no other value when this was written.
   - **Nothing is adopted;** adoption is the owner's.
 
 #### The dig floor inside bright nebula: floor4, and what it leaves (2026-11-20)

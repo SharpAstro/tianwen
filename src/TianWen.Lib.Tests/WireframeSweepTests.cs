@@ -506,7 +506,11 @@ public class WireframeSweepTests
 
     private static Draw NotificationScenario(string state) => (renderer, content, scale) =>
     {
-        var app = new GuiAppState();
+        // The header carries the desktop alert choice beside Clear, so the sweep draws it too (#2507).
+        var app = new GuiAppState
+        {
+            DesktopAlerts = new DesktopAlerts(new NotificationsTabAlertSettingTests.Sink(), new FakeTimeProviderWrapper(Now), () => false)
+        };
         var longText = string.Join(' ', Enumerable.Repeat(
             "Mount://ASCOMDevice/ASCOM.OnStep.Telescope refused the slew to Sharpless 2-132 (the Lion Nebula) in Cepheus", 3));
         if (state == "forty entries")

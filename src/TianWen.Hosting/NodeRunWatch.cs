@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using TianWen.Hosting.Dto;
 using TianWen.Hosting.WebSocket;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Sequencing;
 
 namespace TianWen.Hosting;
 
@@ -94,7 +95,7 @@ internal sealed class NodeRunWatch(IHostedSession hosted, EventHub clients, ITim
 
         var message = $"{Describe(run.Kind)} stopped: no client has watched it for {options.DetachGrace.TotalSeconds:0} s";
         logger.LogWarning("{Message}", message);
-        hosted.AddNotification(new NotificationDto { Severity = "Warning", Message = message, TimestampUtc = now });
+        hosted.AddNotification(new NotificationDto { Severity = "Warning", Kind = NoteKind.RunStoppedUnwatched.ToString(), Message = message, TimestampUtc = now });
         hosted.TryAbort(run);
         _stopped = true;
     }

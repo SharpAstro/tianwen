@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using DIR.Lib;
 using TianWen.Lib.Sequencing;
@@ -57,41 +58,18 @@ namespace TianWen.UI.Abstractions
             var fontPath = FontPath;
             var rowH = BaseRowHeight * dpiScale;
             var fontSize = BaseFontSize * dpiScale;
-            var pad = BasePadding * dpiScale;
-            var headerH = 28f * dpiScale;
 
             RenderLayout(Layout.Builder.Spacer().Bg(ContentBg), contentRect);
 
-            // Header
-            RenderLayout(Layout.Builder.Spacer().Bg(HeaderBg), new RectF32(contentRect.X, contentRect.Y, contentRect.Width, headerH));
+            // Header: one declared tree (heading | alert choice | Clear, or two rows where that does not fit). Its height is the
+            // engine's measurement of it at this width, never a count of rows.
             var feed = NotificationFeed.Of(view, appState);
             var entries = feed.Entries;
-            DrawText(feed.Header.AsSpan(), fontPath,
-                contentRect.X + pad, contentRect.Y, contentRect.Width - pad * 2f, headerH,
-                fontSize * 1.05f, HeaderText, TextAlign.Near, TextAlign.Center);
-
-            // Clear button (right edge of header): this computer's own notes only, since a rig's are its node's.
-            if (feed.IsLocal && entries.Length > 0)
-            {
-                var btnW = 70f * dpiScale;
-                var btnH = headerH - 6f * dpiScale;
-                var btnX = contentRect.X + contentRect.Width - btnW - pad;
-                var btnY = contentRect.Y + 3f * dpiScale;
-
-                // Clear button as one draw==hit Layout.Node leaf instead of separate FillRect +
-                // DrawText + RegisterClickable (which can drift). Font is a raw design unit --
-                // PaintLayout re-applies dpiScale.
-                var clearBg = new RGBAColor32(0x3a, 0x3a, 0x46, 0xff);
-                var clearBtn = Layout.Builder.Text("Clear", BaseFontSize * 0.95f, BodyText, TextAlign.Center, TextAlign.Center)
-                    .Stretch()
-                    .Bg(clearBg).BgHover(GuiTheme.Hover(clearBg))
-                    .Clickable(new HitResult.ButtonHit("NotificationsClear"), _ =>
-                    {
-                        appState.ClearNotifications();
-                        appState.NeedsRedraw = true;
-                    });
-                RenderLayout(clearBtn, new RectF32(btnX, btnY, btnW, btnH));
-            }
+            var ctx = MeasureContext();
+            var (segmentWidth, choiceFont) = AlertChoiceFit(contentRect.Width / dpiScale);
+            var header = BuildHeader(feed, appState, level => PostSignal(new SetDesktopAlertLevelSignal(level)), segmentWidth, choiceFont);
+            var headerH = Layout.Engine.Measure(header, new Layout.Size<float>(contentRect.Width, contentRect.Height), ctx).Height;
+            RenderLayout(header, new RectF32(contentRect.X, contentRect.Y, contentRect.Width, headerH));
 
             // List area
             _listRect = new RectF32(
@@ -139,6 +117,188 @@ namespace TianWen.UI.Abstractions
 
             // Interactive scrollbar at the right edge (hidden when the list fits).
             _scroll.DrawScrollBar(FillRect);
+        }
+
+        // One header row's height, design units. The controls on it fill what its vertical padding leaves, so they share one
+        // height and one middle; a header that wraps (narrow) is two of these.
+        private static float HeaderRowHeight => GuiTheme.Metrics.HeaderHeight;
+
+        // Room a segment of the alert choice keeps around its word, design units.
+        private const float AlertSegmentSlack = 8f;
+
+        // The alert choice's font, design units: smaller than the heading so it reads as a control.
+        private const float AlertChoiceFontSize = BaseFontSize * 0.85f;
+
+        /// <summary>
+        /// The width, in design units, of one segment of the alert choice: the widest of its options' words as the engine
+        /// measures them at design scale, plus slack. A segmented control has no intrinsic width of its own, so it is measured
+        /// here and never written as a number; an edited label or another face changes it. The pinned DIR.Lib's ButtonGroup
+        /// cannot size its segments to the widest word itself (only <c>Text</c> takes a width sample), so the equal width is
+        /// stated through <c>ButtonGroupStyle.SegmentWidth</c>, as <c>SkyMapTab.BuildModeSwitch</c> does; this goes when
+        /// DIR.Lib's group can.
+        /// </summary>
+        private (float SegmentWidth, float FontSize) AlertChoiceFit(float surfaceWidthDesign)
+        {
+            var ctx = MeasureContext(scale: DesignScale.One);
+            var widest = 0f;
+            foreach (var option in AlertOptions)
+            {
+                widest = MathF.Max(widest, Layout.Engine.Measure(Layout.Builder.Text(option.Label ?? "", AlertChoiceFontSize),
+                    new Layout.Size<float>(float.MaxValue, float.MaxValue), ctx).Width);
+            }
+            return FitSegments(widest, surfaceWidthDesign);
+        }
+
+        /// <summary>
+        /// The pure arithmetic of <see cref="AlertChoiceFit"/>, given the widest option word's measured width. The choice has a
+        /// row of its own where the surface is narrow, so it must fit the surface whatever the face's width: three equal
+        /// segments, the two gaps, the ring, the row's padding either side and the row's own gap (between its spacer and the
+        /// choice). Where the words want more than the surface leaves, the segments take what it leaves and the words shrink
+        /// with them (never cut, never past the edge).
+        /// </summary>
+        internal static (float SegmentWidth, float FontSize) FitSegments(float widestWord, float surfaceWidthDesign)
+        {
+            var wanted = widestWord + AlertSegmentSlack;
+            var overhead = 2f * BasePadding + HeaderRowGap + 2f * GuiTheme.Metrics.ControlEdgeWidth + 2f * AlertSegmentGap;
+            var room = MathF.Max(0f, (surfaceWidthDesign - overhead) / 3f);
+            if (wanted <= room || wanted <= 0f)
+            {
+                return (wanted, AlertChoiceFontSize);
+            }
+            var shrink = MathF.Max(room / wanted, 0.5f);
+            return (wanted * shrink, AlertChoiceFontSize * shrink);
+        }
+
+        // The gap between a header row's pieces, design units.
+        private const float HeaderRowGap = 8f;
+
+        // The gap between the choice's segments, design units.
+        private const float AlertSegmentGap = 1f;
+
+        /// <summary>The words of the three alert levels, as the choice shows them.</summary>
+        internal static string LevelLabel(DesktopAlertLevel level) => level switch
+        {
+            DesktopAlertLevel.Off => "Off",
+            DesktopAlertLevel.ErrorsAndSafety => "Errors and safety",
+            _ => "All warnings"
+        };
+
+        // The alert choice's segments, built once: the choice shows these and AlertChoiceFit measures these, so the words
+        // measured are the words drawn.
+        private static readonly Layout.ButtonGroupOption<DesktopAlertLevel>[] AlertOptions =
+        [
+            new(DesktopAlertLevel.Off, LevelLabel(DesktopAlertLevel.Off)) { Hit = new HitResult.ButtonHit("DesktopAlertOff") },
+            new(DesktopAlertLevel.ErrorsAndSafety, LevelLabel(DesktopAlertLevel.ErrorsAndSafety)) { Hit = new HitResult.ButtonHit("DesktopAlertErrors") },
+            new(DesktopAlertLevel.AllWarnings, LevelLabel(DesktopAlertLevel.AllWarnings)) { Hit = new HitResult.ButtonHit("DesktopAlertAll") },
+        ];
+
+        /// <summary>
+        /// What the alert choice says on hover: what the levels mean, and why Windows refused the last alert when it did. It names
+        /// every kind <see cref="DesktopAlerts.IsSafetyKind"/> holds; a test fails when that list gains one these words do not name.
+        /// </summary>
+        internal static string AlertTooltip(DesktopAlerts alerts)
+            => "Desktop alerts on this computer. Errors and safety: every error, a mount limit, and a run that was aborted, "
+               + "stopped because no one was watching it, or ended on a fault. All warnings: every warning too."
+               + (alerts.LastRefusal is { } why ? $" Windows did not show the last alert: {why}. Check that notifications are on for this app." : "");
+
+        /// <summary>
+        /// The ring round the header's controls (the alert choice and Clear), so each one's extent reads against the header. A
+        /// control's edge stands 3:1 off what it is drawn on (ui-changes.md) in every palette: <c>DimText</c> does on the header
+        /// (5.3:1 day, 5.1:1 dark, 3.4:1 night, with no blue at night). DIR.Lib's <c>ControlEdge</c> default is tuned to the panel
+        /// and is 2.7:1 on the day header and spends blue at night; the separators are under 2:1.
+        /// </summary>
+        internal static RGBAColor32 HeaderControlEdge => DimText;
+
+        /// <summary>
+        /// The fill of the header's controls at rest (Clear, and the alert choice's unchosen segments): a step off the header,
+        /// with the body text on it. Clear's was a literal slate, which carried its word at about 1.6:1 in the day palette and
+        /// spent blue at night.
+        /// </summary>
+        internal static RGBAColor32 HeaderControlFill => GuiTheme.Mix(HeaderBg, BodyText, 0.14f);
+
+        /// <summary>
+        /// How the alert choice shows its levels: the chosen segment is the accent, its word in the ink that measures best on it
+        /// (the design language's segmented control), and the others <see cref="HeaderControlFill"/> with the body text. The
+        /// chosen segment was a mix of the accent into the header, which carried its word at 1.7:1 at night.
+        /// </summary>
+        /// <param name="segmentWidth">Design units each segment takes (see <c>AlertChoiceFit</c>).</param>
+        internal static Layout.ButtonGroupStyle AlertChoiceStyle(float segmentWidth)
+        {
+            var chosen = GuiTheme.Palette.Accent;
+            var rest = HeaderControlFill;
+            return new Layout.ButtonGroupStyle(chosen, rest, GuiTheme.InkOn(chosen), BodyText, GuiTheme.Hover(rest))
+            {
+                Gap = AlertSegmentGap,
+                InsetFraction = 0.7f,
+                SegmentWidth = segmentWidth,
+            };
+        }
+
+        /// <summary>
+        /// The header as one declared tree: [heading | spacer | alert choice | Clear], or, where that does not fit the room, the
+        /// same pieces on two rows (<c>OrWhenNarrow</c>, decided by the engine's own measurement). The choice is this computer's
+        /// setting, so it shows on a rig's view too; it is left out where the host has no alerts (no
+        /// <see cref="GuiAppState.DesktopAlerts"/>, or none on this OS). Clear stays on this computer's own feed.
+        /// </summary>
+        /// <param name="segmentWidth">Design units each segment of the choice takes (see <c>AlertChoiceFit</c>).</param>
+        internal static Layout.Node BuildHeader(NotificationFeed feed, GuiAppState appState, Action<DesktopAlertLevel> onLevel, float segmentWidth, float choiceFontSize = AlertChoiceFontSize)
+        {
+            static Layout.Node Row(List<Layout.Node> nodes)
+                => Layout.Builder.HStack([.. nodes]).WithGap(HeaderRowGap).Pad(BasePadding, 3f).CrossCenter().WStar().HFixed(HeaderRowHeight).Bg(HeaderBg);
+
+            Layout.Node Heading()
+                => Layout.Builder.Text(feed.Header, BaseFontSize * 1.05f, HeaderText, TextAlign.Near, TextAlign.Center).HStar();
+
+            Layout.Node? choice = null;
+            if (appState.DesktopAlerts is { IsAvailable: true } alerts)
+            {
+                var style = AlertChoiceStyle(segmentWidth);
+                // The ring is reserved inside the choice's box by the engine, so the box stays the row's height and the segments
+                // sit within it.
+                choice = Layout.Builder.ButtonGroup<DesktopAlertLevel>(AlertOptions, alerts.Level, onLevel, style, choiceFontSize)
+                    .Border(HeaderControlEdge, GuiTheme.Metrics.ControlEdgeWidth, GuiTheme.Metrics.ControlRadius)
+                    .WithTooltip(AlertTooltip(alerts)).HStar();
+            }
+
+            // Clear: this computer's own notes only, since a rig's are its node's. A standard button: the header controls' fill and
+            // ring, the same as the choice beside it.
+            Layout.Node? clear = null;
+            if (feed.IsLocal && !feed.Entries.IsEmpty)
+            {
+                clear = Layout.Builder.Text("Clear", BaseFontSize * 0.95f, BodyText, TextAlign.Center, TextAlign.Center)
+                    .PadX(12f).HStar()
+                    .Bg(HeaderControlFill).BgHover(GuiTheme.Hover(HeaderControlFill))
+                    .Border(HeaderControlEdge, GuiTheme.Metrics.ControlEdgeWidth, GuiTheme.Metrics.ControlRadius)
+                    .Clickable(new HitResult.ButtonHit("NotificationsClear"), _ =>
+                    {
+                        appState.ClearNotifications();
+                        appState.NeedsRedraw = true;
+                    });
+            }
+
+            var oneRow = new List<Layout.Node> { Heading(), Layout.Builder.Spacer().WStar() };
+            if (choice is not null)
+            {
+                oneRow.Add(choice);
+            }
+            if (clear is not null)
+            {
+                oneRow.Add(clear);
+            }
+            var full = Row(oneRow);
+            if (choice is null)
+            {
+                return full;
+            }
+
+            // Narrow: the choice is wider than the room beside the heading and Clear, so it takes a row of its own, at the right.
+            var top = new List<Layout.Node> { Heading(), Layout.Builder.Spacer().WStar() };
+            if (clear is not null)
+            {
+                top.Add(clear);
+            }
+            var twoRows = Layout.Builder.VStack(Row(top), Row([Layout.Builder.Spacer().WStar(), choice])).WStar();
+            return full.OrWhenNarrow(twoRows);
         }
 
         // Width of the severity-mark slot, in design units: the mark's own square. Reserved for Info rows too (an empty

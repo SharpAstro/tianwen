@@ -29,6 +29,7 @@ public class NodeRunsTests
         node.Received(1).AddNotification(Arg.Is<NotificationDto>(n =>
             n.Severity == "Warning"
             && n.Message == "The live view stopped: Canon EDS error InternalError (0x00000002): Failed to start Canon Live View"
+            && n.Kind == "RunFaulted"
             && n.TimestampUtc == clock.GetUtcNow()));
     }
 }

@@ -7,6 +7,7 @@ using TianWen.Hosting.Dto;
 using TianWen.Hosting.WebSocket;
 using TianWen.Lib.Astrometry.Focus;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Sequencing;
 
 namespace TianWen.Hosting;
 
@@ -141,7 +142,7 @@ internal sealed class NodeProfiles(IExternal external, IDeviceDiscovery discover
     private void Notify(string message)
     {
         logger.LogInformation("Reconcile: {Note}", message);
-        var dto = new NotificationDto { Severity = "Info", Message = message, TimestampUtc = timeProvider.GetUtcNow() };
+        var dto = new NotificationDto { Severity = "Info", Kind = NoteKind.ProfilesReconciled.ToString(), Message = message, TimestampUtc = timeProvider.GetUtcNow() };
         hosted.AddNotification(dto);
         events.Broadcast(BroadcastEvents.Notification(dto));
     }

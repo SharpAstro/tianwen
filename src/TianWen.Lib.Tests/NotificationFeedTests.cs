@@ -34,6 +34,33 @@ public class NotificationFeedTests
         feed[^1].Message.ShouldBe("note 3", "the three oldest went");
     }
 
+    [Theory]
+    [InlineData(null, NoteKind.None)]
+    [InlineData("", NoteKind.None)]
+    [InlineData("FromTheFuture", NoteKind.None)]
+    [InlineData("999", NoteKind.None)]
+    [InlineData("SessionFailed", NoteKind.SessionFailed)]
+    [InlineData("mountlimit", NoteKind.MountLimit)]
+    public void ANodesNoteKeepsItsKindAndAnAbsentOrUnknownOneReadsNone(string? kind, NoteKind expected)
+    {
+        var entry = NotificationEntry.FromNode(new TianWen.Hosting.Dto.NotificationDto
+        {
+            Severity = "Error", Kind = kind, Message = "m", TimestampUtc = Now,
+        });
+
+        entry.Kind.ShouldBe(expected);
+    }
+
+    [Fact]
+    public void AnAppNoteKeepsItsKind()
+    {
+        var app = new GuiAppState();
+        app.RecordNotification(Now, NotificationSeverity.Error, "limit", NoteKind.MountLimit);
+        app.AppendNotification(Now, NotificationSeverity.Info, "plain");
+
+        app.Notifications.Select(n => n.Kind).ShouldBe([NoteKind.None, NoteKind.MountLimit]);
+    }
+
     [Fact]
     public void AnEntryIsCountedUnreadUnlessTheFeedIsOnShowAndClearingEmptiesBoth()
     {
