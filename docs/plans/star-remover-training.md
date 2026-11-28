@@ -11701,7 +11701,8 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     Gaia's most crowded cell; the two-sided crowded row; the compact clusters' kept share; the Tarantula's peaks
     against the judge, peak by peak (of the 132 the judge leaves standing, how many each seed takes: the teacher
     34, R4h's seeds 28 and 34); Andromeda's dark flat and dug share AS TRAINED (R4h 60.4 with 24.7 % dug and 79.0
-    with 13.0: the teacher's answers hold no dig, so this is where a net that fills its own holes would show); the
+    with 13.0: the teacher's answers hold almost no dig, a few pixels in 32 % of the cells by "Before the launch"
+    below, so this is where a net that fills its own holes would show); the
     extra cache's held-out objective beside its training objective at the best step; route A's four scenes; the
     time a whole master takes; which rows of the head's scorecard stand within one scatter of a two-seed mean of
     StarXTerminator's, or better.
@@ -11756,7 +11757,10 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
       cell (`C:/temp/e2/h4/dig_specks.py` on the development machine, scratch: a pixel 4 noise or more under the
       target's own 9 px median, within 2 px of a removed star): 12.6 such
       pixels a cell, in 32 % of the cells, median depth 5.7 noise. R4k's targets, the plate builder's, held 22.5 a
-      cell in 92 % of theirs, median depth 4.8, and its masks counted them. The deepest of both exports are the
+      cell in 92 % of theirs, median depth 4.8, and its masks counted them. Fewer cells hold them here, but where
+      they occur they are more and deeper: about 39 pixels an affected cell against 25, the 90th percentile of
+      depth 12.3 noise against 6.9. With no mask every one of them is in R5's loss, so a net that learns them
+      shows on Andromeda's dug share as trained. The deepest of both exports are the
       same: dark rings that the M42 master of 2022-12-03 itself holds around a few stars, which a target keeps,
       since the fill holds a plate at or under its input. Not changed: the chain's dig fill runs after the net,
       and Andromeda's dark flat and dug share as trained are reported for this.
