@@ -158,6 +158,16 @@ public sealed class WorkbenchFrameHandoverTests : IDisposable
         return (catalog, new WorkbenchRunner(catalog));
     }
 
+    // Waits, running no frame, until the failed read has queued its refusal for the frame. The tracker is not drained for this:
+    // a drain cancels a keyed read that is still going, which would end it with no failure to hand over.
+    private static async Task FailureQueuedAsync(WorkbenchE2E e2e, System.Threading.CancellationToken ct)
+    {
+        while (!e2e.Actions.HasTailForFrame)
+        {
+            await Task.Delay(10, ct);
+        }
+    }
+
     [Fact(Timeout = 120_000)]
     public async Task AFailedReadLeavesTheStateToTheFrameAndTheFrameShowsTheRefusalAndEndsTheRead()
     {
@@ -169,7 +179,7 @@ public sealed class WorkbenchFrameHandoverTests : IDisposable
         e2e.Host.OpenProject(folder);
         e2e.Frame();
         e2e.State.IsReading.ShouldBeTrue();
-        await e2e.Tracker.DrainAsync();
+        await FailureQueuedAsync(e2e, ct);
 
         e2e.State.IsReading.ShouldBeTrue("no frame has run: the failure is the frame's to apply");
         e2e.State.View.ShouldBeNull();
@@ -189,7 +199,7 @@ public sealed class WorkbenchFrameHandoverTests : IDisposable
 
         e2e.Host.OpenProject(bad);
         e2e.Frame();
-        await e2e.Tracker.DrainAsync();
+        await FailureQueuedAsync(e2e, ct);
         // The failure's tail is queued and no frame has run; a newer read begins before the frame drains it.
         e2e.Actions.OpenProject(good).ShouldBeTrue();
         await e2e.PumpUntilAsync(() => e2e.State.View?.Image?.Steps.Length == 3 && !e2e.State.IsReading, "the newer answer on show", ct);
