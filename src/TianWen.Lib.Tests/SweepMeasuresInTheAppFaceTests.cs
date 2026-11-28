@@ -13,7 +13,9 @@ namespace TianWen.Lib.Tests;
 [Trait("Category", "Invariant")]
 public class SweepMeasuresInTheAppFaceTests
 {
-    private static readonly string[] SweepSources = ["WireframeSweepTests.cs", "SweepViewer.cs"];
+    private static readonly string[] SweepSources = ["WireframeSweepTests.cs", "SweepViewer.cs", "LayoutRectSweep.cs"];
+
+    private static readonly string[] PlatformFaceNames = ["ResolveSystemFont", "FontResolver", "Consolas", "DejaVuSansMono", "DejaVu Sans Mono", "Courier"];
 
     [Fact]
     public void SweepSourcesNameNoPlatformFace()
@@ -28,7 +30,7 @@ public class SweepMeasuresInTheAppFaceTests
 
             var code = File.ReadAllLines(path)
                 .Select(StripComment)
-                .Where(l => l.Contains("ResolveSystemFont"))
+                .Where(l => PlatformFaceNames.Any(n => l.Contains(n, System.StringComparison.OrdinalIgnoreCase)))
                 .ToArray();
 
             code.ShouldBeEmpty($"{name} measures in the platform face; use AppFace.Text (#2560)");
@@ -42,8 +44,24 @@ public class SweepMeasuresInTheAppFaceTests
 
     [Fact]
     public void AppFaceIsTheFaceTheAppsBundle()
-        => Path.GetFileName(AppFace.Text).ShouldBe(Path.GetFileName(BundledFonts.BundledTextRelativePath),
+    {
+        Path.GetFileName(AppFace.Text).ShouldBe(Path.GetFileName(BundledFonts.BundledTextRelativePath),
             "the apps' text face changed; point AppFace and the test project's TestFonts at it");
+
+        // The name alone would pass a stale or different file under the same name: the bytes must be the ones each app ships.
+        var root = ChromeMeasuresThroughTheEngineTests.FindSourceRoot();
+        root.ShouldNotBeNull("the source tree was not found by walking up from the test binary");
+        var face = File.ReadAllBytes(AppFace.Text);
+        foreach (var shipped in new[]
+        {
+            Path.Combine(root, "TianWen.UI.Gui", BundledFonts.BundledTextRelativePath),
+            Path.Combine(root, "TianWen.UI.Web", "wwwroot", BundledFonts.BundledTextRelativePath),
+        })
+        {
+            File.Exists(shipped).ShouldBeTrue(shipped);
+            File.ReadAllBytes(shipped).ShouldBe(face, $"{shipped} is not the face the sweep measures in");
+        }
+    }
 
     private static string StripComment(string line)
     {
