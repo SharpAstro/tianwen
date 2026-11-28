@@ -581,14 +581,23 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
         }
         finally
         {
-            if (_deviceInfo.TryGetControlRange(CMOSControlType.HighSpeedMode, out _, out _))
+            // A camera that did not come back, or whose SDK refused the handle found again (#1759), leaves the SDK gate shut
+            // (EndSdkClose(reopen: false)): nothing is set on it. The gate, not the public state, says so: Error is also what a
+            // failed single-exposure start leaves on a camera that is open and initialised, and that one still needs its restores.
+            using (var sdk = EnterSdk())
             {
-                // Back to what the camera's settings ask of a single exposure.
-                _ = _deviceInfo.SetControlValue(CMOSControlType.HighSpeedMode, Convert.ToInt32(_cameraSettings.FastReadout));
-            }
-            if (stream.BandwidthFound is { } bandwidth)
-            {
-                _ = _deviceInfo.SetControlValue(CMOSControlType.BandwidthOverload, bandwidth);
+                if (sdk.Entered)
+                {
+                    if (_deviceInfo.TryGetControlRange(CMOSControlType.HighSpeedMode, out _, out _))
+                    {
+                        // Back to what the camera's settings ask of a single exposure.
+                        _ = _deviceInfo.SetControlValue(CMOSControlType.HighSpeedMode, Convert.ToInt32(_cameraSettings.FastReadout));
+                    }
+                    if (stream.BandwidthFound is { } bandwidth)
+                    {
+                        _ = _deviceInfo.SetControlValue(CMOSControlType.BandwidthOverload, bandwidth);
+                    }
+                }
             }
             Volatile.Write(ref _videoWindow, null);
             Volatile.Write(ref _videoWindowSettle, null);
