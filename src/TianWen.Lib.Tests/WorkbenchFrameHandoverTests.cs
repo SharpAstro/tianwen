@@ -142,7 +142,7 @@ public sealed class WorkbenchFrameHandoverTests : IDisposable
         _add.Runs.ShouldBe(3);
     }
 
-    // A project whose status cannot be read: the one edit's operation throws when the runner asks for its command line.
+    // A project whose status cannot be read: the one edit's operation throws when the runner asks what serves it (a plan asks that of every step).
     private async Task<string> UnreadableProjectAsync()
     {
         var folder = _folders.Create("boom-").FullName;
@@ -207,6 +207,8 @@ internal sealed class BoomOperation : Operation<AddSettings>
         ExtraInputs: [], Settings: [new OperationSetting("amount", "Unused.")]) { Summary = "Fails when planned." };
 
     protected override System.Text.Json.Serialization.Metadata.JsonTypeInfo<AddSettings> SettingsInfo => WorkbenchTestJsonContext.Default.AddSettings;
+
+    public override string ServedBy(AddSettings settings) => throw new InvalidOperationException("boom");
 
     public override System.Collections.Immutable.ImmutableArray<string> CommandLine(AddSettings settings, System.Collections.Generic.IReadOnlyList<string> inputs, string output)
         => throw new InvalidOperationException("boom");
