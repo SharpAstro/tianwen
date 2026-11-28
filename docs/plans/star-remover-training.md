@@ -11631,9 +11631,10 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     session's retained master (`bh-bin14`, `image remove-stars --model ... --views 1 --no-stars --no-protect-cores
     --no-fill-digs --keep-overshoot`), combined by `teacher_combine.py --off med` (the rule above), then `image
     fill-digs` on that plate (the product's dig fill, held at or under the input), so the answer holds no hole
-    under a removed star (almost none: see "Before the launch" below). **No core protection:** tried first and
+    under a removed star (a few: see "Before the launch" below). **No core protection:** tried first and
     looked at on real tiles, `image protect-cores` put the stars back inside eta Carinae's bright core (that
-    master carries no plate solution, in which case the step keeps a protected core's stars; with one it keeps removed only the stars its catalogue lists), which is
+    master carries no plate solution, in which case the step keeps a protected core's stars; with one it keeps
+    removed only the stars its catalogue lists), which is
     the opposite of what this arm teaches; the rule's median plate already keeps a core that only a minority of
     the members take. The driver is
     `C:/temp/e2/h4/teacher-plates8.sh` on the development machine (scratch, not in the tree); a session's member
@@ -11701,8 +11702,8 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     Gaia's most crowded cell; the two-sided crowded row; the compact clusters' kept share; the Tarantula's peaks
     against the judge, peak by peak (of the 132 the judge leaves standing, how many each seed takes: the teacher
     34, R4h's seeds 28 and 34); Andromeda's dark flat and dug share AS TRAINED (R4h 60.4 with 24.7 % dug and 79.0
-    with 13.0: the teacher's answers hold almost no dig, a few pixels in 32 % of the cells by "Before the launch"
-    below, so this is where a net that fills its own holes would show); the
+    with 13.0: the teacher's answers hold few digs, about 39 pixels in each of 32 % of the cells by "Before the
+    launch" below, so this is where a net that fills its own holes would show); the
     extra cache's held-out objective beside its training objective at the best step; route A's four scenes; the
     time a whole master takes; which rows of the head's scorecard stand within one scatter of a two-seed mean of
     StarXTerminator's, or better.
@@ -11781,7 +11782,8 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
         clusters and knots in the Magellanic Clouds, eta Carinae and the Seagull). On Orion's wide field the
         target keeps specks of a few pixels at removed stars' centres and the diffraction spikes of its brightest
         star: those are a star's remains. The hole cells (five on M42 of 2022-12-03, one on the Rosette of
-        2021-12-31) and one more on the Large Magellanic Cloud of 2021-12-11 show dark spots the input holds as
+        2021-12-31) and a seventh, the Large Magellanic Cloud of 2021-12-11 cell that tops its star list and reads
+        0.90 for a hole too, show dark spots the input holds as
         well: black discs round bright stars on M42, small dark specks on the Rosette, cold pixels on the
         Large Magellanic Cloud. The other hole cells were not looked at, and whether the model sees the
         teacher's own few-pixel holes was not tested; the dig count above (12.6 pixels a cell, in 32 % of the
