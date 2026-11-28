@@ -11742,6 +11742,15 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
       2023-04-02 and M42 of 2022-12-03): each target is clean where its input holds stars, crowded fields and the
       compact cluster on eta Carinae's cell included, and input less target holds stars only, with the nebula
       left in the target. No seam and no debris.
+    - **Every cell screened** (`C:/temp/e2/h4/target_screen.py` on the development machine, scratch; each cell
+      against its target's own noise). Stars left: of the 933,340 peaks the inputs hold 8 noise or more over
+      their surroundings, 336 (0.04 %) still stand 5 noise over the target's; the worst sessions, looked at 1:1,
+      hold no star there (bright nebula detail on M42 of 2021-11-28, the master's own hot pixels on the Small
+      Magellanic Cloud of 2024-10-02). Light added: in no cell does the target stand over its input by 4 noise
+      anywhere. The floor: in 39 cells the target lies more than half a noise under the input where nothing was
+      taken nearby, at most 5.1 noise, on the most crowded fields (eta Carinae's Milky Way of 2024-02-03 and
+      2022-12-24), where every pixel is near a star and the teacher takes the unresolved stars' glow, which is
+      what the crowded rows ask.
     - **One thing the registration says is not quite so:** the answer is not free of holes under removed stars.
       Where a bright star sat on nebula, a few pixels at its centre can stay under the sky. Counted over every
       cell (`C:/temp/e2/h4/dig_specks.py` on the development machine, scratch: a pixel 4 noise or more under the
