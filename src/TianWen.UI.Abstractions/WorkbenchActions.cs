@@ -395,13 +395,12 @@ public sealed partial class WorkbenchActions(
     /// </summary>
     public void RequestPlan()
     {
-        if (_jobs.IsRunning || state.View is not { Image: { } image, ImageName: { } name } view
-            || state.SelectedStep < 0 || state.SelectedStep >= image.Steps.Length)
+        if (_jobs.IsRunning || !TrySelected(out var view, out _, out var index) || view.ImageName is not { } name)
         {
             return;
         }
 
-        var (folder, index) = (view.Folder, state.SelectedStep);
+        var folder = view.Folder;
         tracker.RunExclusive<WorkbenchPlan>(PlanSlot, async ct =>
             {
                 var report = await runner.StatusAsync(folder, new WorkbenchRunOptions { Image = name, Through = index }, ct);
@@ -412,6 +411,28 @@ public sealed partial class WorkbenchActions(
             }, appToken, logger, "Plan a run to the selected step",
             onError: _ => state.Plan = null,
             onFinally: () => state.NeedsRedraw = true);
+    }
+
+    /// <summary>
+    /// The one reader of the selection: reads <see cref="WorkbenchState.View"/> and <see cref="WorkbenchState.SelectedStep"/> once each
+    /// and is true only when the index is inside the shown image's steps. A reader indexes what this returned, never a fresh read of
+    /// the state, so a view or selection that changes mid-read cannot send it past the end (#2554).
+    /// </summary>
+    private bool TrySelected(
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out WorkbenchView? view,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out ImageReport? image,
+        out int index)
+    {
+        var shown = state.View;
+        var selected = state.SelectedStep;
+        if (shown is { Image: { } report } && selected >= 0 && selected < report.Steps.Length)
+        {
+            (view, image, index) = (shown, report, selected);
+            return true;
+        }
+
+        (view, image, index) = (null, null, -1);
+        return false;
     }
 
     /// <summary>Starts a run that makes the selected step, taking each earlier step from the store where it is there. Nothing
@@ -557,10 +578,10 @@ public sealed partial class WorkbenchActions(
         }
 
         TryAdoptFrames();
-        if (tracker.TryCollect<WorkbenchPlan>(PlanSlot, out var plan) && plan is not null && state.View is { } current
+        if (tracker.TryCollect<WorkbenchPlan>(PlanSlot, out var plan) && plan is not null && TrySelected(out var current, out _, out var planned)
             && string.Equals(plan.Folder, current.Folder, StringComparison.Ordinal)
             && string.Equals(plan.Image, current.ImageName, StringComparison.Ordinal)
-            && plan.Index == state.SelectedStep)
+            && plan.Index == planned)
         {
             state.Plan = plan;
             state.NeedsRedraw = true;
@@ -598,10 +619,10 @@ public sealed partial class WorkbenchActions(
         if (state.RunAfterStatus)
         {
             state.RunAfterStatus = false;
-            if (view is { ImageName: { } name, Image: { } shown } && state.SelectedStep >= 0 && state.SelectedStep < shown.Steps.Length
-                && shown.Steps[state.SelectedStep].State is not (StepState.Refused or StepState.Blocked or StepState.Off))
+            if (TrySelected(out var running, out var shown, out var runIndex) && running.ImageName is { } name
+                && shown.Steps[runIndex].State is not (StepState.Refused or StepState.Blocked or StepState.Off))
             {
-                _jobs.TryStart(view.Folder, name, state.SelectedStep);
+                _jobs.TryStart(running.Folder, name, runIndex);
             }
         }
     }
@@ -626,12 +647,12 @@ public sealed partial class WorkbenchActions(
     /// <summary>The selected step's panel; null where no step is selected.</summary>
     public WorkbenchStepPanel? Panel()
     {
-        if (state.View is not { Image: { } image } view || state.SelectedStep < 0 || state.SelectedStep >= image.Steps.Length)
+        if (!TrySelected(out var view, out var image, out var index))
         {
             return null;
         }
 
-        var step = StepAnswer(image.Steps[state.SelectedStep]);
+        var step = StepAnswer(image.Steps[index]);
         var item = ItemFor(step);
         var description = catalog.TryGet(step.Operation, out var operation) ? operation.Description : null;
         var edit = view.ProjectImage is { } projectImage && step.Index < projectImage.Edits.Length ? projectImage.Edits[step.Index] : null;
@@ -666,12 +687,12 @@ public sealed partial class WorkbenchActions(
     /// </summary>
     public WorkbenchViewOffer ViewOffer()
     {
-        if (state.View is not { Image: { } image } || state.SelectedStep < 0 || state.SelectedStep >= image.Steps.Length)
+        if (!TrySelected(out _, out var image, out var index))
         {
             return new WorkbenchViewOffer(null, "Select a step to see its result.", null, "Select a step to compare it.");
         }
 
-        var step = StepAnswer(image.Steps[state.SelectedStep]);
+        var step = StepAnswer(image.Steps[index]);
         var number = step.Index + 1;
         var resultFile = FileOfOwn(step, out var resultNote);
         if (resultFile is null)

@@ -254,12 +254,17 @@ public sealed partial class WorkbenchActions
     /// </summary>
     public void AddStepAfterSelected(string operationId)
     {
-        if (_jobs.IsRunning || state.View is not { ImageName: { } image } view)
+        // One read of the view and the selection: a selected step counts only when it is inside the image the view shows.
+        var inGroup = state.SelectedFrames is not null;
+        var hasStep = TrySelected(out var selectedView, out _, out var selectedIndex);
+        var selectedStep = hasStep && !inGroup;
+        var view = hasStep ? selectedView : state.View;
+        if (_jobs.IsRunning || view is not { ImageName: { } image })
         {
             return;
         }
 
-        var after = state.SelectedFrames is null && state.SelectedStep >= 0 ? state.SelectedStep : (view.Image?.Steps.Length ?? 0) - 1;
+        var after = selectedStep ? selectedIndex : (view.Image?.Steps.Length ?? 0) - 1;
         state.TreeRefusal = null;
         tracker.RunGuarded(async ct =>
         {
@@ -284,12 +289,12 @@ public sealed partial class WorkbenchActions
     /// <summary>Removes the selected step, through <see cref="WorkbenchWorkflows.RemoveStepAsync"/>; the step before it is then selected.</summary>
     public void RemoveSelected()
     {
-        if (_jobs.IsRunning || state.View is not { ImageName: { } image } view || state.SelectedStep < 0 || state.SelectedFrames is not null)
+        if (_jobs.IsRunning || state.SelectedFrames is not null || !TrySelected(out var view, out _, out var index)
+            || view.ImageName is not { } image)
         {
             return;
         }
 
-        var index = state.SelectedStep;
         state.TreeRefusal = null;
         tracker.RunGuarded(async ct =>
         {
@@ -399,8 +404,8 @@ public sealed partial class WorkbenchActions
 
     /// <summary>The selected step's title for the toolbar's button; null where no step is selected.</summary>
     public string? SelectedStepTitle
-        => state.View is { Image: { } image } && state.SelectedFrames is null && state.SelectedStep >= 0 && state.SelectedStep < image.Steps.Length
-            ? Steps()[state.SelectedStep].Title
+        => state.SelectedFrames is null && TrySelected(out _, out var image, out var index)
+            ? ItemFor(StepAnswer(image.Steps[index])).Title
             : null;
 
     /// <summary>
@@ -408,7 +413,7 @@ public sealed partial class WorkbenchActions
     /// screen then says so in words (<see cref="EmptyStateWords"/>) and offers the step's ▶.
     /// </summary>
     public bool ShowsEmptyState
-        => state.View is { Image: not null } && state.SelectedFrames is null && SelectedStepTitle is not null
+        => state.SelectedFrames is null && SelectedStepTitle is not null
             && state.ChosenView is WorkbenchViewKind.Result or WorkbenchViewKind.Comparison
             && ViewOffer().ResultFile is null;
 

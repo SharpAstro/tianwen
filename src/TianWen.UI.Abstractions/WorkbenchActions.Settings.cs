@@ -51,10 +51,10 @@ public sealed partial class WorkbenchActions
     /// <summary>The selected step's settings as controls, derived from the operation's JSON contract; empty where there is no step or no contract.</summary>
     public ImmutableArray<WorkbenchSettingControl> SettingControls()
     {
-        if (state.View is not { Image: { } image } view || state.SelectedStep < 0 || state.SelectedStep >= image.Steps.Length
-            || !catalog.TryGet(image.Steps[state.SelectedStep].Operation, out var operation)
-            || view.ProjectImage is not { } projectImage || state.SelectedStep >= projectImage.Edits.Length
-            || !operation.TryReadSettings(projectImage.Edits[state.SelectedStep].Settings?.ToJsonString(), out var canonical, out _)
+        if (!TrySelected(out var view, out var image, out var index)
+            || !catalog.TryGet(image.Steps[index].Operation, out var operation)
+            || view.ProjectImage is not { } projectImage || index >= projectImage.Edits.Length
+            || !operation.TryReadSettings(projectImage.Edits[index].Settings?.ToJsonString(), out var canonical, out _)
             || JsonNode.Parse(canonical) is not JsonObject values)
         {
             return [];
@@ -79,8 +79,8 @@ public sealed partial class WorkbenchActions
     /// </summary>
     public void SetSetting(string name, string text)
     {
-        if (_jobs.IsRunning || state.View is not { ImageName: { } image } view || state.SelectedStep < 0
-            || view.Image is not { } shown || state.SelectedStep >= shown.Steps.Length || !catalog.TryGet(shown.Steps[state.SelectedStep].Operation, out var operation))
+        if (_jobs.IsRunning || !TrySelected(out var view, out var shown, out var index) || view.ImageName is not { } image
+            || !catalog.TryGet(shown.Steps[index].Operation, out var operation))
         {
             return;
         }
@@ -99,7 +99,6 @@ public sealed partial class WorkbenchActions
             return;
         }
 
-        var index = state.SelectedStep;
         tracker.RunGuarded(async ct =>
         {
             var result = await WorkbenchWorkflows.SetStepSettingAsync(view.Folder, catalog, image, index, name, value, ct);
@@ -122,12 +121,11 @@ public sealed partial class WorkbenchActions
     /// <summary>Switches the selected step on or off, through <see cref="WorkbenchWorkflows.SetStepEnabledAsync"/>; the runner's answer then says it is off (or not made).</summary>
     public void SetStepEnabled(bool enabled)
     {
-        if (_jobs.IsRunning || state.View is not { ImageName: { } image } view || state.SelectedStep < 0)
+        if (_jobs.IsRunning || !TrySelected(out var view, out _, out var index) || view.ImageName is not { } image)
         {
             return;
         }
 
-        var index = state.SelectedStep;
         state.SettingRefusal = null;
         tracker.RunGuarded(async ct =>
         {
@@ -196,7 +194,7 @@ public sealed partial class WorkbenchActions
     }
 
     private string StepOperation()
-        => state.View is { Image: { } image } && state.SelectedStep >= 0 && state.SelectedStep < image.Steps.Length ? image.Steps[state.SelectedStep].Operation : string.Empty;
+        => TrySelected(out _, out var image, out var index) ? image.Steps[index].Operation : string.Empty;
 
     /// <summary>Shows a file of the selected frame group on the canvas, through the viewer's own load path (the driver asks for it between frames, off the render thread).</summary>
     public void ShowFrameFile(string fullPath)
