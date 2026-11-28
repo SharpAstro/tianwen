@@ -266,15 +266,18 @@ public sealed partial class WorkbenchActions
             var result = await WorkbenchWorkflows.AddStepAsync(view.Folder, catalog, image, after, operationId, null, ct);
             if (result.Refusal is { } refusal)
             {
-                state.TreeRefusal = $"The step was not added: {refusal}";
+                HandToFrame(() => state.TreeRefusal = $"The step was not added: {refusal}");
                 return;
             }
 
-            state.SelectAfterStatus = after + 1;
-            state.SelectedFrames = null;
-            OpenProjectNow(view.Folder, image);
+            HandToFrame(() =>
+            {
+                state.SelectAfterStatus = after + 1;
+                state.SelectedFrames = null;
+                OpenProjectNow(view.Folder, image);
+            });
         }, appToken, logger, "Add a step to the workbench project",
-            onError: ex => state.TreeRefusal = $"The step was not added: {ex.Message}",
+            onError: ex => HandToFrame(() => state.TreeRefusal = $"The step was not added: {ex.Message}"),
             onFinally: () => state.NeedsRedraw = true);
     }
 
@@ -293,14 +296,17 @@ public sealed partial class WorkbenchActions
             var result = await WorkbenchWorkflows.RemoveStepAsync(view.Folder, catalog, image, index, ct);
             if (result.Refusal is { } refusal)
             {
-                state.TreeRefusal = $"The step was not removed: {refusal}";
+                HandToFrame(() => state.TreeRefusal = $"The step was not removed: {refusal}");
                 return;
             }
 
-            state.SelectAfterStatus = Math.Max(0, index - 1);
-            OpenProjectNow(view.Folder, image);
+            HandToFrame(() =>
+            {
+                state.SelectAfterStatus = Math.Max(0, index - 1);
+                OpenProjectNow(view.Folder, image);
+            });
         }, appToken, logger, "Remove a step from the workbench project",
-            onError: ex => state.TreeRefusal = $"The step was not removed: {ex.Message}",
+            onError: ex => HandToFrame(() => state.TreeRefusal = $"The step was not removed: {ex.Message}"),
             onFinally: () => state.NeedsRedraw = true);
     }
 
@@ -369,15 +375,18 @@ public sealed partial class WorkbenchActions
             var applied = await WorkbenchWorkflows.ApplyAsync(capture, id, WorkflowFacts.From(detected), ct);
             if (applied.Refusal is { } refusal)
             {
-                state.TreeRefusal = $"The workflow was not used: {refusal}";
+                HandToFrame(() => state.TreeRefusal = $"The workflow was not used: {refusal}");
                 return;
             }
 
-            state.SelectedStep = -1;
-            state.SelectedFrames = null;
-            OpenProjectNow(view.Folder, null);
+            HandToFrame(() =>
+            {
+                state.SelectedStep = -1;
+                state.SelectedFrames = null;
+                OpenProjectNow(view.Folder, null);
+            });
         }, appToken, logger, "Switch the workflow of the workbench project",
-            onError: ex => state.TreeRefusal = $"The workflow was not used: {ex.Message}",
+            onError: ex => HandToFrame(() => state.TreeRefusal = $"The workflow was not used: {ex.Message}"),
             onFinally: () => state.NeedsRedraw = true);
     }
 

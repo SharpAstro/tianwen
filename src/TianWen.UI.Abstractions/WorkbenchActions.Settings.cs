@@ -105,14 +105,17 @@ public sealed partial class WorkbenchActions
             var result = await WorkbenchWorkflows.SetStepSettingAsync(view.Folder, catalog, image, index, name, value, ct);
             if (result.Refusal is { } why)
             {
-                state.SettingRefusal = $"{name} was not changed: {why}";
+                HandToFrame(() => state.SettingRefusal = $"{name} was not changed: {why}");
                 return;
             }
 
-            state.SelectAfterStatus = index;
-            OpenProjectNow(view.Folder, image);
+            HandToFrame(() =>
+            {
+                state.SelectAfterStatus = index;
+                OpenProjectNow(view.Folder, image);
+            });
         }, appToken, logger, "Change a setting of a workbench step",
-            onError: ex => state.SettingRefusal = $"{name} was not changed: {ex.Message}",
+            onError: ex => HandToFrame(() => state.SettingRefusal = $"{name} was not changed: {ex.Message}"),
             onFinally: () => state.NeedsRedraw = true);
     }
 
@@ -131,14 +134,17 @@ public sealed partial class WorkbenchActions
             var result = await WorkbenchWorkflows.SetStepEnabledAsync(view.Folder, image, index, enabled, ct);
             if (result.Refusal is { } why)
             {
-                state.SettingRefusal = $"The step was not switched: {why}";
+                HandToFrame(() => state.SettingRefusal = $"The step was not switched: {why}");
                 return;
             }
 
-            state.SelectAfterStatus = index;
-            OpenProjectNow(view.Folder, image);
+            HandToFrame(() =>
+            {
+                state.SelectAfterStatus = index;
+                OpenProjectNow(view.Folder, image);
+            });
         }, appToken, logger, "Switch a workbench step on or off",
-            onError: ex => state.SettingRefusal = $"The step was not switched: {ex.Message}",
+            onError: ex => HandToFrame(() => state.SettingRefusal = $"The step was not switched: {ex.Message}"),
             onFinally: () => state.NeedsRedraw = true);
     }
 
@@ -217,14 +223,17 @@ public sealed partial class WorkbenchActions
             var result = await WorkbenchProjects.ReassignAsync(capture, place, kind, ct);
             if (result.Refusal is { } why)
             {
-                state.TreeRefusal = $"{place} was not changed: {why}";
+                HandToFrame(() => state.TreeRefusal = $"{place} was not changed: {why}");
                 return;
             }
 
-            RequestFrames(view, force: true);
-            OpenProjectNow(view.Folder, view.ImageName);
+            HandToFrame(() =>
+            {
+                RequestFrames(view, force: true);
+                OpenProjectNow(view.Folder, view.ImageName);
+            });
         }, appToken, logger, "Reassign a frame of the capture",
-            onError: ex => state.TreeRefusal = $"{place} was not changed: {ex.Message}",
+            onError: ex => HandToFrame(() => state.TreeRefusal = $"{place} was not changed: {ex.Message}"),
             onFinally: () => state.NeedsRedraw = true);
     }
 }

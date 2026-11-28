@@ -95,22 +95,39 @@ public sealed partial class WorkbenchActions(
     // A run ended, however it did: the runner is asked afresh, so the bar shows its answer and never the click's.
     private static void Settled(WorkbenchJobSettled settled, WorkbenchState state, WorkbenchRunner runner,
         BackgroundTaskTracker tracker, ILogger logger, CancellationToken appToken)
-    {
-        // What the run left is read only when it is what is on show and no read of another answer is on its way: a read in
-        // flight is the person's own choice, and the run's end must not supersede it through the one status slot.
-        if (state.IsReading || state.View is not { } shown || !string.Equals(shown.Folder, settled.Folder, StringComparison.Ordinal)
-            || !string.Equals(shown.ImageName, settled.Image, StringComparison.Ordinal))
+        => HandToFrame(state, () =>
         {
-            state.NeedsRedraw = true;
-            return;
-        }
+            // What the run left is read only when it is what is on show and no read of another answer is on its way: a read in
+            // flight is the person's own choice, and the run's end must not supersede it through the one status slot.
+            if (state.IsReading || state.View is not { } shown || !string.Equals(shown.Folder, settled.Folder, StringComparison.Ordinal)
+                || !string.Equals(shown.ImageName, settled.Image, StringComparison.Ordinal))
+            {
+                state.NeedsRedraw = true;
+                return;
+            }
 
-        state.SelectAfterStatus = settled.SelectStep;
-        StartRead(state, runner, tracker, logger, appToken, settled.Folder, settled.Image, "Read the workbench project after a run");
+            state.SelectAfterStatus = settled.SelectStep;
+            StartRead(state, runner, tracker, logger, appToken, settled.Folder, settled.Image, "Read the workbench project after a run");
+        });
+
+    // The one handover from a job to the frame. The frame is the only writer of the selection, of View and of IsReading, as the
+    // runner's status already arrives through TryCollect between frames; so what a job would write after an await (and the open
+    // that starts a read) is queued here, lock-free, and TryAdoptStatus applies it at the top of the next frame, before it
+    // collects the status slot. A job never writes those from its own thread.
+    private static void HandToFrame(WorkbenchState state, Action apply)
+    {
+        state.TailsForFrame.Enqueue(apply);
+        state.NeedsRedraw = true;
     }
+
+    private void HandToFrame(Action apply) => HandToFrame(state, apply);
+
+    /// <summary>True while a job's tail waits for the frame to apply it: the work is not over until the frame has run it.</summary>
+    internal bool HasTailForFrame => !state.TailsForFrame.IsEmpty;
 
     // Asks the runner where every edit of the image stands, off the caller's thread: the folder (or its project.json) is resolved
     // there too, so no file is touched on the render thread. A newer read supersedes an older one through the one slot.
+    // Called on the frame only (a job hands its open to the frame through HandToFrame).
     private static void StartRead(WorkbenchState state, WorkbenchRunner runner, BackgroundTaskTracker tracker, ILogger logger,
         CancellationToken appToken, string folder, string? image, string description)
     {
@@ -118,7 +135,17 @@ public sealed partial class WorkbenchActions(
         state.NeedsRedraw = true;
         tracker.RunExclusive<WorkbenchView>(StatusSlot, ct => ReadViewAsync(runner, ProjectFolder(folder), image, ct),
             appToken, logger, description,
-            onError: ex => state.View = new WorkbenchView(folder, null, [], null, null, $"The project could not be read: {ex.Message}"),
+            // A failed read yields no result for TryCollect, so the refused view is handed to the frame, which adopts it and ends
+            // IsReading, unless a newer read is in the slot by then (its answer, or its own failure, then speaks).
+            onError: ex => HandToFrame(state, () =>
+            {
+                if (!tracker.IsRunning(StatusSlot))
+                {
+                    state.View = new WorkbenchView(folder, null, [], null, null, $"The project could not be read: {ex.Message}");
+                    state.IsReading = false;
+                    state.NeedsRedraw = true;
+                }
+            }),
             onFinally: () => state.NeedsRedraw = true);
     }
 
@@ -228,29 +255,44 @@ public sealed partial class WorkbenchActions(
             var added = await WorkbenchProjects.AddMasterChainAsync(folder, runner, enhance, stackImage, group, name: null, say: null, ct);
             if (added.Refusal is { } refusal || added.Added.IsDefaultOrEmpty)
             {
-                state.MasterRefusal = $"{group} was not processed: {added.Refusal ?? "the chain has no image"}";
+                var why = $"{group} was not processed: {added.Refusal ?? "the chain has no image"}";
+                HandToFrame(() => EndProcessingMaster(why));
                 return;
             }
 
-            // The chain's last image is its result (the starless and stars halves come before it); it is the one shown.
+            // The chain's last image is its result (the starless and stars halves come before it); it is the one shown. The
+            // frame opens it and ends IsProcessingMaster there, so no choice lands between the chain and its open (ChoiceWaits).
             // A refused open leaves the stack step selected, so its panel (the masters list, the refusal, Cancel) stays on screen.
-            var selected = state.SelectedStep;
-            state.SelectedStep = -1;
-            if (!OpenProjectNow(folder, added.Added[^1].Name))
+            var opened = added.Added[^1].Name;
+            HandToFrame(() =>
             {
-                state.SelectedStep = selected;
+                if (OpenProjectNow(folder, opened))
+                {
+                    state.SelectedStep = -1;
+                    state.IsProcessingMaster = false;
+                    return;
+                }
+
                 logger.LogInformation("{Group} was processed but the new image was not opened: {Why}", group, ChoiceWaitsForTheRun);
-                state.MasterRefusal = $"{group} was processed but its image was not opened: {ChoiceWaitsForTheRun}. Choose it from the image box.";
-                state.NeedsRedraw = true;
-            }
-        }, appToken, logger, "Process a master of the workbench project",
-            onError: ex => state.MasterRefusal = $"{group} was not processed: {ex.Message}",
-            onFinally: () =>
-            {
-                state.IsProcessingMaster = false;
-                state.NeedsRedraw = true;
+                EndProcessingMaster($"{group} was processed but its image was not opened: {ChoiceWaitsForTheRun}. Choose it from the image box.");
             });
+        }, appToken, logger, "Process a master of the workbench project",
+            onError: ex => HandToFrame(() => EndProcessingMaster($"{group} was not processed: {ex.Message}")),
+            onCancel: () => HandToFrame(() => EndProcessingMaster(null)),
+            onFinally: () => state.NeedsRedraw = true);
         return true;
+    }
+
+    // On the frame: the press of Process this master is over, with its refusal in words (null for a cancel, which has none).
+    private void EndProcessingMaster(string? refusal)
+    {
+        if (refusal is not null)
+        {
+            state.MasterRefusal = refusal;
+        }
+
+        state.IsProcessingMaster = false;
+        state.NeedsRedraw = true;
     }
 
     /// <summary>The Open project button: a folder dialog, then <see cref="OpenProject"/>. Not offered while <see cref="ChoiceWaits"/> says why not.</summary>
@@ -268,9 +310,15 @@ public sealed partial class WorkbenchActions(
                 Title = "Open a workbench project",
                 InitialDirectory = state.View?.Folder,
             }, ct);
-            if (result.Path is { } picked && !OpenProject(picked))
+            if (result.Path is { } picked)
             {
-                logger.LogInformation("{Folder} was not opened: {Why}", picked, ChoiceWaits);
+                HandToFrame(() =>
+                {
+                    if (!OpenProject(picked))
+                    {
+                        logger.LogInformation("{Folder} was not opened: {Why}", picked, ChoiceWaits);
+                    }
+                });
             }
         }, appToken, logger, "Choose a workbench project", onError: _ => state.NeedsRedraw = true);
     }
@@ -502,6 +550,12 @@ public sealed partial class WorkbenchActions(
     /// </summary>
     public void TryAdoptStatus()
     {
+        // First, what the jobs handed over: the selection and the view are written here and nowhere else (see HandToFrame).
+        while (state.TailsForFrame.TryDequeue(out var tail))
+        {
+            tail();
+        }
+
         TryAdoptFrames();
         if (tracker.TryCollect<WorkbenchPlan>(PlanSlot, out var plan) && plan is not null && state.View is { } current
             && string.Equals(plan.Folder, current.Folder, StringComparison.Ordinal)

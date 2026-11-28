@@ -18,6 +18,11 @@ The pieces it holds:
   `WorkbenchView` (the project, the image, its report, which outputs exist and what the original is, all worked out off the
   render thread with the answer), replaced whole, so the render thread never sees half an answer and never asks the disk.
   The state itself holds mutable flags and the selection, set from the runner's answer or a click on the selection only.
+  **The selection, `View` and `IsReading` are written on the frame thread only** (#2554). A job (a `RunGuarded` body, its
+  `onError`, or the run's settle) never writes them after an `await`: it hands its tail to the frame through
+  `WorkbenchActions`' one lock-free handover (`HandToFrame`, a queue on the state), which `TryAdoptStatus` drains at the top of
+  `BeforeFrame`, before it collects the status slot. A failed read hands its refused view the same way, so the frame ends
+  `IsReading` (unless a newer read is in the slot). `WorkbenchHost.IsBusy` counts a tail still waiting for the frame.
 - `WorkbenchActions`: what the window does (open a project, choose an image or a step, copy a command line, start a run).
   It asks the runner off the render thread and its answer is adopted in `BeforeFrame`, where the document may change.
 - `WorkbenchJobs`: one run at a time (see "Jobs and cancel").
@@ -339,8 +344,10 @@ filter group), by `WorkbenchStepPanel.Masters`.
   and never pushes a button off the panel.
 - **A press is the Lib routine's work**, `WorkbenchProjects.AddMasterChainAsync`, the one the `workbench process` verb calls. It
   adds the enhance's chain as single steps (starless, stars, result, with the result named for the group, made unique with a
-  `-2` suffix when the name is taken). `WorkbenchActions.ProcessMaster` runs it through the background tracker, never on the
-  render thread, then opens the project again with the chain's result image selected.
+  `-2` suffix when the name is taken). `WorkbenchActions.ProcessMaster` runs the routine through the background tracker, never on the
+  render thread; the open of the chain's result image (and its selection) is applied by the frame, which also ends
+  `IsProcessingMaster` there, after the open or its refusal, so no choice lands between the chain and its open. An error or a
+  cancel ends it through the same handover, in order.
 - **A second press for the same group is not refused**: the routine names the new chain uniquely, so both are kept.
 - **A refusal is said in words** beside the list (`WorkbenchState.MasterRefusal`, "<group> was not processed: ..."), for
   example a stack whose files the store has lost ("run it first"). The next open of a project clears it.

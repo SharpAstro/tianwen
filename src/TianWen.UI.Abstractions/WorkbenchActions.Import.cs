@@ -272,15 +272,18 @@ public sealed partial class WorkbenchActions
                 return;
             }
 
-            state.Import = null;
-            state.Stage = WorkbenchStage.Workbench;
-            state.SelectedStep = -1;
-            if (!OpenProject(WorkbenchProjects.WorkdirOf(folder)))
+            HandToFrame(() =>
             {
-                state.NewProjectRefusal = $"The project was made in {WorkbenchProjects.WorkdirOf(folder)}. Use Open project to show it.";
-            }
+                state.Import = null;
+                state.Stage = WorkbenchStage.Workbench;
+                state.SelectedStep = -1;
+                if (!OpenProject(WorkbenchProjects.WorkdirOf(folder)))
+                {
+                    state.NewProjectRefusal = $"The project was made in {WorkbenchProjects.WorkdirOf(folder)}. Use Open project to show it.";
+                }
 
-            state.NeedsRedraw = true;
+                state.NeedsRedraw = true;
+            });
         }, appToken, logger, "Apply a workflow to the new project",
             onError: ex => Update(folder, current => current with { Applying = false, Refusal = $"The workflow was not used: {ex.Message}" }),
             onFinally: () => state.NeedsRedraw = true);
