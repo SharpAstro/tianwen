@@ -11787,12 +11787,14 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
         well: black discs round bright stars on M42, small dark specks on the Rosette, cold pixels on the
         Large Magellanic Cloud. The other hole cells were not looked at, and whether the model sees the
         teacher's own few-pixel holes was not tested; the dig count above (12.6 pixels a cell, in 32 % of the
-        cells) is what bounds those.
+        cells) is what bounds those holes; it says nothing of a bright residue, which the screen above bounds.
       - **The mean at removed stars** (`C:/temp/e2/h4/star_residual.py`, scratch): averaged over all 805,531
         stars removed from the targets, the target about a star's centre stands within a tenth of a noise of its
         level, core (r up to 1.5 px) -0.10, ring (2.5 to 5 px) -0.01, halo (5 to 8 px) 0.00, the worst session's
         ring -0.26. R4k's targets, by the same measure, read core +0.20, ring +0.13, halo +0.10. This is a mean,
-        in which holes and residue can cancel; the dig count above bounds single stars.
+        in which holes and residue can cancel; the dig count above bounds single holes (it counts only pixels
+        under the target's median), and the screen above (336 peaks of 933,340 still standing) bounds single
+        residues.
       - **A known cost, put to the owner and not yet accepted when this was written:** where the teacher keeps a
         bright star's diffraction spikes or the specks at a centre, R5 is taught to keep them, with no mask to
         hide them. StarXTerminator removes spikes, so the scoring may show it; how many training cells hold
