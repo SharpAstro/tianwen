@@ -540,7 +540,7 @@ fault. Each binding owes the same guarantee inside itself (#1759, #1760). Pinned
 A handle found again after a reset or a reopen (`FindAgainAndRestoreAsync`) is a fresh open, so the vendor's own SDK step
 (`InitSdkAsync`) runs on it before anything is read or set, as a connect's does; a QHY or ZWO body is otherwise used on a
 handle never initialised. A refusal leaves the driver in Error with the handle open for the disconnect to close, and
-nothing is set on it meanwhile (the video stream's clean-up skips a camera in Error). Pinned by
+nothing is set on it meanwhile (the video stream's clean-up runs inside `EnterSdk()` and skips what the shut SDK gate refuses; it does not key on the public Error state, which a failed single-exposure start also leaves on an open camera). Pinned by
 `DALCameraRecoveryTests` and `DALCameraVideoTests`.
 
 ### A camera's readout mode decides its geometry

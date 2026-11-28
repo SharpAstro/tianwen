@@ -947,6 +947,29 @@ public class DALCameraVideoTests(ITestOutputHelper output)
     }
 
     [Fact(Timeout = 30_000)]
+    public async Task AStreamAfterAFailedSingleExposureStartStillGivesBandwidthAndReadoutBack()
+    {
+        // The public state is Error after a failed start on a camera that is open and initialised; only a handle the SDK gate
+        // has shut (a camera that did not come back, a handle its SDK refused) is left alone by the stream's clean-up.
+        var ct = TestContext.Current.CancellationToken;
+        var (camera, state, _) = await ScriptedDalCamera.ConnectAsync(output, canStream: true, hasHighSpeed: true, bandwidthMax: 100);
+        camera.NumX = 64;
+        camera.NumY = 32;
+        state.FailNextGetRoi = true;
+        await Should.ThrowAsync<InvalidOperationException>(async () => await camera.StartExposureAsync(TimeSpan.FromMilliseconds(1), cancellationToken: ct));
+        (await camera.GetCameraStateAsync(ct)).ShouldBe(CameraState.Error);
+
+        await using (var frames = camera.CaptureVideoAsync(OneMillisecond, ct).GetAsyncEnumerator(ct))
+        {
+            (await NextAsync(frames)).Release();
+            state.Controls[CMOSControlType.BandwidthOverload].ShouldBe(100);
+        }
+
+        state.Controls[CMOSControlType.BandwidthOverload].ShouldBe(50, "given back as the stream ends, whatever the state a failed start left");
+        state.Controls[CMOSControlType.HighSpeedMode].ShouldBe(0, "back to what the camera's single exposures ask");
+    }
+
+    [Fact(Timeout = 30_000)]
     public async Task ANewDepthOrReadoutModeRestartsTheStreamInIt()
     {
         var ct = TestContext.Current.CancellationToken;

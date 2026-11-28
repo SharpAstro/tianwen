@@ -229,9 +229,9 @@ public class DALCameraRecoveryTests(ITestOutputHelper output)
 
         // The refused handle stays open for the disconnect to close, as a camera that does not come back leaves none.
         state.Opens.ShouldBe(2);
-        state.Closes.ShouldBe(1, "the reset's close; the refused handle is still open");
+        state.OpenHandles.ShouldBe(1, "the replug dropped the first handle; the refused one is still open");
         await camera.DisconnectAsync(TestContext.Current.CancellationToken);
-        state.Closes.ShouldBe(state.Opens, "the disconnect closes the handle the refusal left open");
+        state.OpenHandles.ShouldBe(0, "the disconnect closes the handle the refusal left open");
     }
 
     [Fact]
@@ -357,7 +357,10 @@ internal sealed class TestDalCameraDriver(FakeDevice device, IServiceProvider sp
     protected override ValueTask<bool> InitSdkAsync(CancellationToken cancellationToken)
     {
         SdkInits++;
-        state.SdkStepRan();
+        if (!state.RefuseSdkInit)
+        {
+            state.SdkStepRan();
+        }
         GainMaxAtSdkInit = GainMax;
         return ValueTask.FromResult(!state.RefuseSdkInit);
     }
@@ -574,6 +577,9 @@ internal sealed class FakeCmosState(string serial)
 
     public int Closes => Volatile.Read(ref _closes);
 
+    /// <summary>Handles open now: a reset drops the old one with no close, as a replug does.</summary>
+    public int OpenHandles => Opens - Closes - ResetCount;
+
     public void Opened()
     {
         Interlocked.Increment(ref _opens);
@@ -664,6 +670,9 @@ internal sealed class FakeCmosState(string serial)
 
     /// <summary>A body whose vendor SDK refuses to initialise it after it opened.</summary>
     public bool RefuseSdkInit { get; set; }
+
+    /// <summary>The next ROI read answers an error: a single-exposure start that fails on a camera that is open and initialised.</summary>
+    public bool FailNextGetRoi { get; set; }
 
     /// <summary>A body that says it can be reset and then refuses to be.</summary>
     public bool RefuseReset { get; set; }
@@ -992,6 +1001,11 @@ internal readonly struct FakeCmosCamera(FakeCmosState state) : ICMOSNativeInterf
     public CMOSErrorCode GetROIFormat(out int width, out int height, out int bin, out PixelDataFormat pixelDataFormat)
     {
         (width, height, bin, pixelDataFormat) = (state.Width, state.Height, state.Bin, state.Format);
+        if (state.FailNextGetRoi)
+        {
+            state.FailNextGetRoi = false;
+            return CMOSErrorCode.GeneralError;
+        }
         return CMOSErrorCode.Success;
     }
 
