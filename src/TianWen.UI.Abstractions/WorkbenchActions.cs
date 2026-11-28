@@ -95,30 +95,58 @@ public sealed partial class WorkbenchActions(
     // A run ended, however it did: the runner is asked afresh, so the bar shows its answer and never the click's.
     private static void Settled(WorkbenchJobSettled settled, WorkbenchState state, WorkbenchRunner runner,
         BackgroundTaskTracker tracker, ILogger logger, CancellationToken appToken)
-    {
-        // What the run left is read only when it is what is on show and no read of another answer is on its way: a read in
-        // flight is the person's own choice, and the run's end must not supersede it through the one status slot.
-        if (state.IsReading || state.View is not { } shown || !string.Equals(shown.Folder, settled.Folder, StringComparison.Ordinal)
-            || !string.Equals(shown.ImageName, settled.Image, StringComparison.Ordinal))
+        => HandToFrame(state, () =>
         {
-            state.NeedsRedraw = true;
-            return;
-        }
+            // What the run left is read only when it is what is on show and no read of another answer is on its way: a read in
+            // flight is the person's own choice, and the run's end must not supersede it through the one status slot.
+            if (state.IsReading || state.View is not { } shown || !string.Equals(shown.Folder, settled.Folder, StringComparison.Ordinal)
+                || !string.Equals(shown.ImageName, settled.Image, StringComparison.Ordinal))
+            {
+                state.NeedsRedraw = true;
+                return;
+            }
 
-        state.SelectAfterStatus = settled.SelectStep;
-        StartRead(state, runner, tracker, logger, appToken, settled.Folder, settled.Image, "Read the workbench project after a run");
+            state.SelectAfterStatus = settled.SelectStep;
+            StartRead(state, runner, tracker, logger, appToken, settled.Folder, settled.Image, "Read the workbench project after a run");
+        });
+
+    // The one handover from a job to the frame. The frame is the only writer of the selection, of View and of IsReading, as the
+    // runner's status already arrives through TryCollect between frames; so what a job would write after an await (and the open
+    // that starts a read) is queued here, lock-free, and TryAdoptStatus applies it at the top of the next frame, before it
+    // collects the status slot. A job never writes those from its own thread.
+    private static void HandToFrame(WorkbenchState state, Action apply)
+    {
+        state.TailsForFrame.Enqueue(apply);
+        state.NeedsRedraw = true;
     }
+
+    private void HandToFrame(Action apply) => HandToFrame(state, apply);
+
+    /// <summary>True while a job's tail waits for the frame to apply it: the work is not over until the frame has run it.</summary>
+    internal bool HasTailForFrame => !state.TailsForFrame.IsEmpty;
 
     // Asks the runner where every edit of the image stands, off the caller's thread: the folder (or its project.json) is resolved
     // there too, so no file is touched on the render thread. A newer read supersedes an older one through the one slot.
+    // Called on the frame only (a job hands its open to the frame through HandToFrame).
     private static void StartRead(WorkbenchState state, WorkbenchRunner runner, BackgroundTaskTracker tracker, ILogger logger,
         CancellationToken appToken, string folder, string? image, string description)
     {
         state.IsReading = true;
         state.NeedsRedraw = true;
+        var mine = Interlocked.Increment(ref state.ReadNumber);
         tracker.RunExclusive<WorkbenchView>(StatusSlot, ct => ReadViewAsync(runner, ProjectFolder(folder), image, ct),
             appToken, logger, description,
-            onError: ex => state.View = new WorkbenchView(folder, null, [], null, null, $"The project could not be read: {ex.Message}"),
+            // A failed read yields no result for TryCollect, so the refused view is handed to the frame, which adopts it and ends
+            // IsReading, unless a newer read has begun by then (its number is newer; its answer, or its own failure, then speaks).
+            onError: ex => HandToFrame(state, () =>
+            {
+                if (Volatile.Read(ref state.ReadNumber) == mine)
+                {
+                    state.View = new WorkbenchView(folder, null, [], null, null, $"The project could not be read: {ex.Message}");
+                    state.IsReading = false;
+                    state.NeedsRedraw = true;
+                }
+            }),
             onFinally: () => state.NeedsRedraw = true);
     }
 
@@ -228,29 +256,44 @@ public sealed partial class WorkbenchActions(
             var added = await WorkbenchProjects.AddMasterChainAsync(folder, runner, enhance, stackImage, group, name: null, say: null, ct);
             if (added.Refusal is { } refusal || added.Added.IsDefaultOrEmpty)
             {
-                state.MasterRefusal = $"{group} was not processed: {added.Refusal ?? "the chain has no image"}";
+                var why = $"{group} was not processed: {added.Refusal ?? "the chain has no image"}";
+                HandToFrame(() => EndProcessingMaster(why));
                 return;
             }
 
-            // The chain's last image is its result (the starless and stars halves come before it); it is the one shown.
+            // The chain's last image is its result (the starless and stars halves come before it); it is the one shown. The
+            // frame opens it and ends IsProcessingMaster there, so no choice lands between the chain and its open (ChoiceWaits).
             // A refused open leaves the stack step selected, so its panel (the masters list, the refusal, Cancel) stays on screen.
-            var selected = state.SelectedStep;
-            state.SelectedStep = -1;
-            if (!OpenProjectNow(folder, added.Added[^1].Name))
+            var opened = added.Added[^1].Name;
+            HandToFrame(() =>
             {
-                state.SelectedStep = selected;
+                if (OpenProjectNow(folder, opened))
+                {
+                    state.SelectedStep = -1;
+                    state.IsProcessingMaster = false;
+                    return;
+                }
+
                 logger.LogInformation("{Group} was processed but the new image was not opened: {Why}", group, ChoiceWaitsForTheRun);
-                state.MasterRefusal = $"{group} was processed but its image was not opened: {ChoiceWaitsForTheRun}. Choose it from the image box.";
-                state.NeedsRedraw = true;
-            }
-        }, appToken, logger, "Process a master of the workbench project",
-            onError: ex => state.MasterRefusal = $"{group} was not processed: {ex.Message}",
-            onFinally: () =>
-            {
-                state.IsProcessingMaster = false;
-                state.NeedsRedraw = true;
+                EndProcessingMaster($"{group} was processed but its image was not opened: {ChoiceWaitsForTheRun}. Choose it from the image box.");
             });
+        }, appToken, logger, "Process a master of the workbench project",
+            onError: ex => HandToFrame(() => EndProcessingMaster($"{group} was not processed: {ex.Message}")),
+            onCancel: () => HandToFrame(() => EndProcessingMaster(null)),
+            onFinally: () => state.NeedsRedraw = true);
         return true;
+    }
+
+    // On the frame: the press of Process this master is over, with its refusal in words (null for a cancel, which has none).
+    private void EndProcessingMaster(string? refusal)
+    {
+        if (refusal is not null)
+        {
+            state.MasterRefusal = refusal;
+        }
+
+        state.IsProcessingMaster = false;
+        state.NeedsRedraw = true;
     }
 
     /// <summary>The Open project button: a folder dialog, then <see cref="OpenProject"/>. Not offered while <see cref="ChoiceWaits"/> says why not.</summary>
@@ -268,9 +311,15 @@ public sealed partial class WorkbenchActions(
                 Title = "Open a workbench project",
                 InitialDirectory = state.View?.Folder,
             }, ct);
-            if (result.Path is { } picked && !OpenProject(picked))
+            if (result.Path is { } picked)
             {
-                logger.LogInformation("{Folder} was not opened: {Why}", picked, ChoiceWaits);
+                HandToFrame(() =>
+                {
+                    if (!OpenProject(picked))
+                    {
+                        logger.LogInformation("{Folder} was not opened: {Why}", picked, ChoiceWaits);
+                    }
+                });
             }
         }, appToken, logger, "Choose a workbench project", onError: _ => state.NeedsRedraw = true);
     }
@@ -347,13 +396,12 @@ public sealed partial class WorkbenchActions(
     /// </summary>
     public void RequestPlan()
     {
-        if (_jobs.IsRunning || state.View is not { Image: { } image, ImageName: { } name } view
-            || state.SelectedStep < 0 || state.SelectedStep >= image.Steps.Length)
+        if (_jobs.IsRunning || !TrySelected(out var view, out _, out var index) || view.ImageName is not { } name)
         {
             return;
         }
 
-        var (folder, index) = (view.Folder, state.SelectedStep);
+        var folder = view.Folder;
         tracker.RunExclusive<WorkbenchPlan>(PlanSlot, async ct =>
             {
                 var report = await runner.StatusAsync(folder, new WorkbenchRunOptions { Image = name, Through = index }, ct);
@@ -364,6 +412,28 @@ public sealed partial class WorkbenchActions(
             }, appToken, logger, "Plan a run to the selected step",
             onError: _ => state.Plan = null,
             onFinally: () => state.NeedsRedraw = true);
+    }
+
+    /// <summary>
+    /// The one reader of the selection: reads <see cref="WorkbenchState.View"/> and <see cref="WorkbenchState.SelectedStep"/> once each
+    /// and is true only when the index is inside the shown image's steps. A reader indexes what this returned, never a fresh read of
+    /// the state, so a view or selection that changes mid-read cannot send it past the end (#2554).
+    /// </summary>
+    private bool TrySelected(
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out WorkbenchView? view,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out ImageReport? image,
+        out int index)
+    {
+        var shown = state.View;
+        var selected = state.SelectedStep;
+        if (shown is { Image: { } report } && selected >= 0 && selected < report.Steps.Length)
+        {
+            (view, image, index) = (shown, report, selected);
+            return true;
+        }
+
+        (view, image, index) = (null, null, -1);
+        return false;
     }
 
     /// <summary>Starts a run that makes the selected step, taking each earlier step from the store where it is there. Nothing
@@ -406,13 +476,15 @@ public sealed partial class WorkbenchActions(
     /// <summary>What the "Run to here" button says it will do, from the runner's status through the selected step.</summary>
     public WorkbenchRunOffer RunToHereOffer()
     {
-        var steps = Steps();
-        var selected = state.SelectedStep;
+        // The steps and the index come from one read of the view and the selection (TrySelected), so they agree.
+        var hasStep = TrySelected(out _, out var image, out var selected);
         // A read in flight is another answer on its way (the view on show is the old one): a run then would start on the wrong image.
-        if (_jobs.IsRunning || state.IsReading || selected < 0 || selected >= steps.Length)
+        if (_jobs.IsRunning || state.IsReading || !hasStep)
         {
             return new WorkbenchRunOffer("Run to here", false, selected);
         }
+
+        var steps = ItemsOf(image);
 
         // A refused, blocked or off step has no plan to wait for (the runner refuses a status through it, so none is ever stored):
         // its own state already says it cannot run.
@@ -502,11 +574,25 @@ public sealed partial class WorkbenchActions(
     /// </summary>
     public void TryAdoptStatus()
     {
+        // First, what the jobs handed over: the selection and the view are written here and nowhere else (see HandToFrame).
+        while (state.TailsForFrame.TryDequeue(out var tail))
+        {
+            // One bad tail must not end the frame or hold back the tails behind it.
+            try
+            {
+                tail();
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "A workbench job's hand-over to the frame failed");
+            }
+        }
+
         TryAdoptFrames();
-        if (tracker.TryCollect<WorkbenchPlan>(PlanSlot, out var plan) && plan is not null && state.View is { } current
+        if (tracker.TryCollect<WorkbenchPlan>(PlanSlot, out var plan) && plan is not null && TrySelected(out var current, out _, out var planned)
             && string.Equals(plan.Folder, current.Folder, StringComparison.Ordinal)
             && string.Equals(plan.Image, current.ImageName, StringComparison.Ordinal)
-            && plan.Index == state.SelectedStep)
+            && plan.Index == planned)
         {
             state.Plan = plan;
             state.NeedsRedraw = true;
@@ -544,22 +630,21 @@ public sealed partial class WorkbenchActions(
         if (state.RunAfterStatus)
         {
             state.RunAfterStatus = false;
-            if (view is { ImageName: { } name, Image: { } shown } && state.SelectedStep >= 0 && state.SelectedStep < shown.Steps.Length
-                && shown.Steps[state.SelectedStep].State is not (StepState.Refused or StepState.Blocked or StepState.Off))
+            if (TrySelected(out var running, out var shown, out var runIndex) && running.ImageName is { } name
+                && shown.Steps[runIndex].State is not (StepState.Refused or StepState.Blocked or StepState.Off))
             {
-                _jobs.TryStart(view.Folder, name, state.SelectedStep);
+                _jobs.TryStart(running.Folder, name, runIndex);
             }
         }
     }
 
     /// <summary>The step bar: each edit of the image, named by its operation's title, in the runner's state.</summary>
     public ImmutableArray<WorkbenchStepItem> Steps()
-    {
-        if (state.View is not { Image: { } image })
-        {
-            return [];
-        }
+        => state.View is { Image: { } image } ? ItemsOf(image) : [];
 
+    /// <summary>The step bar's items of one image report, so a reader that checked a report builds its items from that same report.</summary>
+    private ImmutableArray<WorkbenchStepItem> ItemsOf(ImageReport image)
+    {
         var items = ImmutableArray.CreateBuilder<WorkbenchStepItem>(image.Steps.Length);
         foreach (var step in image.Steps)
         {
@@ -572,12 +657,12 @@ public sealed partial class WorkbenchActions(
     /// <summary>The selected step's panel; null where no step is selected.</summary>
     public WorkbenchStepPanel? Panel()
     {
-        if (state.View is not { Image: { } image } view || state.SelectedStep < 0 || state.SelectedStep >= image.Steps.Length)
+        if (!TrySelected(out var view, out var image, out var index))
         {
             return null;
         }
 
-        var step = StepAnswer(image.Steps[state.SelectedStep]);
+        var step = StepAnswer(image.Steps[index]);
         var item = ItemFor(step);
         var description = catalog.TryGet(step.Operation, out var operation) ? operation.Description : null;
         var edit = view.ProjectImage is { } projectImage && step.Index < projectImage.Edits.Length ? projectImage.Edits[step.Index] : null;
@@ -612,12 +697,12 @@ public sealed partial class WorkbenchActions(
     /// </summary>
     public WorkbenchViewOffer ViewOffer()
     {
-        if (state.View is not { Image: { } image } || state.SelectedStep < 0 || state.SelectedStep >= image.Steps.Length)
+        if (!TrySelected(out _, out var image, out var index))
         {
             return new WorkbenchViewOffer(null, "Select a step to see its result.", null, "Select a step to compare it.");
         }
 
-        var step = StepAnswer(image.Steps[state.SelectedStep]);
+        var step = StepAnswer(image.Steps[index]);
         var number = step.Index + 1;
         var resultFile = FileOfOwn(step, out var resultNote);
         if (resultFile is null)

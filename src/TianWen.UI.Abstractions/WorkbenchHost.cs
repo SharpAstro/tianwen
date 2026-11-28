@@ -110,8 +110,8 @@ public sealed class WorkbenchHost<TSurface>
     /// <summary>The router every key and press goes through.</summary>
     public InputRouter Router { get; }
 
-    /// <summary>True while the runner is being asked, the viewer is loading a file or any background work is pending.</summary>
-    public bool IsBusy => State.IsReading || _tracker.HasPending || _controller.IsLoadPending || _viewerState.RequestedFilePath is not null;
+    /// <summary>True while the runner is being asked, the viewer is loading a file, any background work is pending or a job's tail waits for the frame.</summary>
+    public bool IsBusy => State.IsReading || _tracker.HasPending || Actions.HasTailForFrame || _controller.IsLoadPending || _viewerState.RequestedFilePath is not null;
 
     /// <summary>Opens a project folder (or its <c>project.json</c>) and shows one of its images (the first by default).</summary>
     public void OpenProject(string folderOrFile, string? image = null) => Actions.OpenProject(folderOrFile, image);
