@@ -476,13 +476,15 @@ public sealed partial class WorkbenchActions(
     /// <summary>What the "Run to here" button says it will do, from the runner's status through the selected step.</summary>
     public WorkbenchRunOffer RunToHereOffer()
     {
-        var steps = Steps();
-        var selected = state.SelectedStep;
+        // The steps and the index come from one read of the view and the selection (TrySelected), so they agree.
+        var hasStep = TrySelected(out _, out var image, out var selected);
         // A read in flight is another answer on its way (the view on show is the old one): a run then would start on the wrong image.
-        if (_jobs.IsRunning || state.IsReading || selected < 0 || selected >= steps.Length)
+        if (_jobs.IsRunning || state.IsReading || !hasStep)
         {
             return new WorkbenchRunOffer("Run to here", false, selected);
         }
+
+        var steps = ItemsOf(image);
 
         // A refused, blocked or off step has no plan to wait for (the runner refuses a status through it, so none is ever stored):
         // its own state already says it cannot run.
@@ -638,12 +640,11 @@ public sealed partial class WorkbenchActions(
 
     /// <summary>The step bar: each edit of the image, named by its operation's title, in the runner's state.</summary>
     public ImmutableArray<WorkbenchStepItem> Steps()
-    {
-        if (state.View is not { Image: { } image })
-        {
-            return [];
-        }
+        => state.View is { Image: { } image } ? ItemsOf(image) : [];
 
+    /// <summary>The step bar's items of one image report, so a reader that checked a report builds its items from that same report.</summary>
+    private ImmutableArray<WorkbenchStepItem> ItemsOf(ImageReport image)
+    {
         var items = ImmutableArray.CreateBuilder<WorkbenchStepItem>(image.Steps.Length);
         foreach (var step in image.Steps)
         {

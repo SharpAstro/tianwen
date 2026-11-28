@@ -420,12 +420,13 @@ public sealed partial class WorkbenchActions
     /// <summary>What running the selected step will do and what is kept, in words: "Runs Remove stars, then Denoise. Steps 1 to 5 are kept."</summary>
     public string EmptyStateWords()
     {
-        var steps = Steps();
-        var selected = state.SelectedStep;
-        if (selected < 0 || selected >= steps.Length)
+        // The steps and the index come from one read of the view and the selection (TrySelected), so they agree.
+        if (!TrySelected(out _, out var image, out var selected))
         {
             return "Select a step to see its output.";
         }
+
+        var steps = ItemsOf(image);
 
         var step = steps[selected];
         if (step.State is StepState.Refused or StepState.Blocked)

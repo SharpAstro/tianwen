@@ -34,7 +34,8 @@ public sealed class WorkbenchFrameHandoverTests : IDisposable
         var (remover, denoiser) = (new Scaling("Test/Remover", 0.5f), new Scaling("Test/Denoiser", 0.8f));
         var enhance = new EnhanceOperation(new SharpenPipeline(starRemover: remover, denoiser: denoiser));
         var catalog = new OperationCatalog(
-            [new FakeStackOperation(), _add, new ServedOperation(), enhance, new RemoveStarsOperation(remover), new DenoiseOperation(denoiser), new AddStarsOperation()]);
+            [new FakeStackOperation(), _add, new ServedOperation(), enhance, new RemoveStarsOperation(remover), new DenoiseOperation(denoiser), new AddStarsOperation(),
+             new BoomOperation()]);
         return (catalog, new WorkbenchRunner(catalog));
     }
 
@@ -88,6 +89,78 @@ public sealed class WorkbenchFrameHandoverTests : IDisposable
         e2e.State.MasterRefusal.ShouldBeNull();
         e2e.State.IsProcessingMaster.ShouldBeFalse();
         e2e.Actions.ChoiceWaits.ShouldBeNull();
+    }
+
+    [Fact(Timeout = 300_000)]
+    public async Task AChainThatThrowsLeavesThePressToTheFrameAndTheFrameShowsTheRefusalAndEndsThePress()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (catalog, runner) = Registered();
+        var project = await StackedProjectAsync(runner, "m31_L");
+        await using var e2e = WorkbenchE2E.Start(1f, runner, catalog);
+        await e2e.OpenProjectAsync(project, ct);
+        var stackImage = e2e.State.View!.ImageName.ShouldNotBeNull();
+
+        // Behind the view on show, the stack image gains a step whose operation throws when the chain asks the stack's status:
+        // the routine then throws rather than refusing in words, which is the press's onError.
+        var read = (await WorkbenchProjectFile.ReadAsync(project, ct)).Project.ShouldNotBeNull();
+        var withBoom = read with
+        {
+            Images = [.. read.Images.Select(each => each.Name == stackImage
+                ? each with { Edits = each.Edits.Add(WorkbenchFixtures.Edit("boom", Amount(1))) }
+                : each)],
+        };
+        await WorkbenchProjectFile.WriteAsync(project, withBoom, ct);
+
+        e2e.Actions.ProcessMaster("m31_L").ShouldBeTrue();
+        await FailureQueuedAsync(e2e, ct);
+
+        // The routine threw and its tail waits; no frame has run, so the press is still busy and says nothing yet.
+        e2e.State.IsProcessingMaster.ShouldBeTrue("the press ends where the frame applies its failure");
+        e2e.State.MasterRefusal.ShouldBeNull("the refusal is the frame's to write");
+
+        await e2e.PumpUntilAsync(() => !e2e.State.IsProcessingMaster, "the press ended", ct);
+        e2e.State.MasterRefusal.ShouldBe("m31_L was not processed: boom");
+        e2e.Actions.ChoiceWaits.ShouldBeNull("the choice is open again");
+        e2e.State.View!.ImageName.ShouldBe(stackImage, "no chain was opened");
+    }
+
+    [Fact(Timeout = 300_000)]
+    public async Task ACancelledPressEndsOnTheFrameWithNoRefusal()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (catalog, runner) = Registered();
+        var project = await StackedProjectAsync(runner, "m31_L");
+        await using var e2e = WorkbenchE2E.Start(1f, runner, catalog);
+        await e2e.OpenProjectAsync(project, ct);
+        var stackImage = e2e.State.View!.ImageName;
+
+        // The app is closing: the press's token is cancelled, so the routine ends at its first await (the press's onCancel).
+        e2e.CancelApp();
+        e2e.Actions.ProcessMaster("m31_L").ShouldBeTrue();
+        await e2e.Tracker.DrainAsync();
+
+        e2e.State.IsProcessingMaster.ShouldBeTrue("the cancel's tail is the frame's to apply");
+        e2e.Actions.HasTailForFrame.ShouldBeTrue();
+
+        await e2e.PumpUntilAsync(() => !e2e.State.IsProcessingMaster, "the press ended", ct);
+        e2e.State.MasterRefusal.ShouldBeNull("a cancel has no refusal to show");
+        e2e.State.View!.ImageName.ShouldBe(stackImage, "no chain was opened");
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task ATailThatThrowsNeitherEndsTheFrameNorHoldsBackTheTailsBehindIt()
+    {
+        var (catalog, runner) = WithBoom();
+        await using var e2e = WorkbenchE2E.Start(1f, runner, catalog);
+        var ranAfter = false;
+        e2e.State.TailsForFrame.Enqueue(static () => throw new InvalidOperationException("a bad tail"));
+        e2e.State.TailsForFrame.Enqueue(() => ranAfter = true);
+
+        e2e.Frame();
+
+        ranAfter.ShouldBeTrue("the tail behind the bad one ran in the same frame");
+        e2e.Actions.HasTailForFrame.ShouldBeFalse();
     }
 
     [Fact(Timeout = 120_000)]
