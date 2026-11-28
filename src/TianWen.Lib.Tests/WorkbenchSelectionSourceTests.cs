@@ -1,5 +1,6 @@
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using Shouldly;
 using Xunit;
 
@@ -35,10 +36,13 @@ public sealed class WorkbenchSelectionSourceTests
         // it holds the spellings a reader has used, and the behaviour tests (WorkbenchSelectionReadTests) hold the answers.
         var locals = files
             .SelectMany(f => File.ReadAllLines(f).Select((line, i) => (File: Path.GetFileName(f), Line: i + 1, Text: line.Trim())))
-            .Where(l => !l.Text.StartsWith("//") && l.Text.Contains("= state.SelectedStep;"))
+            .Where(l => !l.Text.StartsWith("//") && TakesTheSelection.IsMatch(l.Text))
             .Select(l => $"{l.File}:{l.Line}: {l.Text}")
             .ToArray();
 
         locals.Length.ShouldBe(1, $"only TrySelected takes the selection into a local; found: {string.Join("; ", locals)}");
     }
+
+    // An assignment of the selection, never a comparison with it (row.EditIndex == state.SelectedStep).
+    private static readonly Regex TakesTheSelection = new(@"(?<![=!<>])=\s*state\.SelectedStep\s*;");
 }

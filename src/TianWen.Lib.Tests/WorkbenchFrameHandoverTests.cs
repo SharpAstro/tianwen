@@ -101,13 +101,14 @@ public sealed class WorkbenchFrameHandoverTests : IDisposable
         await e2e.OpenProjectAsync(project, ct);
         var stackImage = e2e.State.View!.ImageName.ShouldNotBeNull();
 
-        // Behind the view on show, the stack image gains a step whose operation throws when the chain asks the stack's status:
-        // the routine then throws rather than refusing in words, which is the press's onError.
+        // Behind the view on show, the stack image gains a first step whose operation throws when the chain asks the stack's
+        // status: the routine then throws rather than refusing in words, which is the press's onError. It goes before the
+        // stack, since a step after a stack is refused in words before its operation is asked anything.
         var read = (await WorkbenchProjectFile.ReadAsync(project, ct)).Project.ShouldNotBeNull();
         var withBoom = read with
         {
             Images = [.. read.Images.Select(each => each.Name == stackImage
-                ? each with { Edits = each.Edits.Add(WorkbenchFixtures.Edit("boom", Amount(1))) }
+                ? each with { Edits = each.Edits.Insert(0, WorkbenchFixtures.Edit("boom", Amount(1))) }
                 : each)],
         };
         await WorkbenchProjectFile.WriteAsync(project, withBoom, ct);
