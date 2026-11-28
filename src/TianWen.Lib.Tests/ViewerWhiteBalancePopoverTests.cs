@@ -315,7 +315,7 @@ namespace TianWen.Lib.Tests
             document.InheritColorCalibration((0.671f, 1f, 1.605f),
                 new ColorCalibrationSummary("SPCC", 0.671f, 1f, 1.605f, 22, "Average spiral galaxy (SWIRE Sb)"));
             state.ColorCalibrationEnabled = true;
-            var face = System.IO.Path.Combine(AppContext.BaseDirectory, "TestFonts", "DejaVuSans.ttf");
+            var face = AppFace.Text;
             System.IO.File.Exists(face).ShouldBeTrue("the viewer's own face is copied to the test output");
             viewer.FontPath = face;
             viewer.DpiScale = dpiScale;
@@ -369,7 +369,7 @@ namespace TianWen.Lib.Tests
             var ct = TestContext.Current.CancellationToken;
             using var renderer = new RgbaImageRenderer((uint)(WindowW * dpiScale), (uint)(WindowH * dpiScale));
             var (viewer, state, document, _) = await NewViewerAsync(renderer, ct);
-            viewer.FontPath = System.IO.Path.Combine(AppContext.BaseDirectory, "TestFonts", "DejaVuSans.ttf");
+            viewer.FontPath = AppFace.Text;
             viewer.DpiScale = dpiScale;
             viewer.Render(document, state);
 

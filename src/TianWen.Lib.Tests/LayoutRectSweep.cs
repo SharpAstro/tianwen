@@ -87,7 +87,7 @@ public class LayoutRectSweep(ITestOutputHelper output)
             };
             using (var renderer = new RgbaImageRenderer(WindowW, WindowH))
             {
-                var guider = new GuiderTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = FontResolver.ResolveSystemFont() };
+                var guider = new GuiderTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = AppFace.Text };
                 guider.Render(live, new RectF32(0, 0, WindowW, WindowH), clock);
                 Append(dump, "guider tab", scale, guider);
 
@@ -100,7 +100,7 @@ public class LayoutRectSweep(ITestOutputHelper output)
             }
             using (var renderer = new RgbaImageRenderer(WindowW, WindowH))
             {
-                var tab = new LiveSessionTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = FontResolver.ResolveSystemFont() };
+                var tab = new LiveSessionTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = AppFace.Text };
                 tab.Render(live, new RectF32(0, 0, WindowW, WindowH), clock);
                 Append(dump, "live session tab", scale, tab);
             }
