@@ -35,7 +35,7 @@ public sealed class WorkbenchFrameHandoverTests : IDisposable
         var enhance = new EnhanceOperation(new SharpenPipeline(starRemover: remover, denoiser: denoiser));
         var catalog = new OperationCatalog(
             [new FakeStackOperation(), _add, new ServedOperation(), enhance, new RemoveStarsOperation(remover), new DenoiseOperation(denoiser), new AddStarsOperation(),
-             new BoomOperation()]);
+             new BoomOperation("boom-frames", takesFrameSet: true)]);
         return (catalog, new WorkbenchRunner(catalog));
     }
 
@@ -103,12 +103,13 @@ public sealed class WorkbenchFrameHandoverTests : IDisposable
 
         // Behind the view on show, the stack image gains a first step whose operation throws when the chain asks the stack's
         // status: the routine then throws rather than refusing in words, which is the press's onError. It goes before the
-        // stack, since a step after a stack is refused in words before its operation is asked anything.
+        // stack and takes a frame set: a step after a stack, or one that takes only an image, is refused in words before its
+        // operation is asked anything.
         var read = (await WorkbenchProjectFile.ReadAsync(project, ct)).Project.ShouldNotBeNull();
         var withBoom = read with
         {
             Images = [.. read.Images.Select(each => each.Name == stackImage
-                ? each with { Edits = each.Edits.Insert(0, WorkbenchFixtures.Edit("boom", Amount(1))) }
+                ? each with { Edits = each.Edits.Insert(0, WorkbenchFixtures.Edit("boom-frames", Amount(1))) }
                 : each)],
         };
         await WorkbenchProjectFile.WriteAsync(project, withBoom, ct);
@@ -284,11 +285,13 @@ public sealed class WorkbenchFrameHandoverTests : IDisposable
 }
 
 /// <summary>An operation whose command line cannot be made, so a status that asks for it fails.</summary>
-internal sealed class BoomOperation : Operation<AddSettings>
+// Fails when planned. Taking a frame set (under its own name) it can stand first on a stack image, whose original is a
+// folder of frames; the plan refuses any other step there before asking it anything.
+internal sealed class BoomOperation(string id = "boom", bool takesFrameSet = false) : Operation<AddSettings>
 {
     public override OperationDescription Description { get; } = new(
-        "boom", Version: 1, Title: "Boom", Verb: "none", OperationOutputKind.Stored,
-        ExtraInputs: [], Settings: [new OperationSetting("amount", "Unused.")]) { Summary = "Fails when planned." };
+        id, Version: 1, Title: "Boom", Verb: "none", OperationOutputKind.Stored,
+        ExtraInputs: [], Settings: [new OperationSetting("amount", "Unused.")]) { Summary = "Fails when planned.", TakesFrameSet = takesFrameSet };
 
     protected override System.Text.Json.Serialization.Metadata.JsonTypeInfo<AddSettings> SettingsInfo => WorkbenchTestJsonContext.Default.AddSettings;
 
