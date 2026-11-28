@@ -11764,6 +11764,19 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
       same: dark rings that the M42 master of 2022-12-03 itself holds around a few stars, which a target keeps,
       since the fill holds a plate at or under its input. Not changed: the chain's dig fill runs after the net,
       and Andromeda's dark flat and dug share as trained are reported for this.
+    - **A second look at every cell, by a vision model** (TypeSafe's image yes/no question, asked of each target
+      in its own stretch: is a star still visible, is there a dark hole; tried first on eight cells of known
+      answer, all on the right side of 0.5). It flagged 87 cells for a star (over 0.7) and 297 for a hole, and
+      agreed little with the screen above (16 of its 87). Looked at 1:1, its star cells hold compact objects that
+      are no star and are kept as meant (a small galaxy on Centaurus A; clusters and knots in the Magellanic
+      Clouds, eta Carinae and the Seagull), and on Orion's wide field of 2022-01-31 specks of a few pixels at
+      removed stars' centres and the diffraction spikes of its brightest star, which the target keeps; its hole
+      cells are the masters' own defects, in the input as well (black discs round bright stars on M42 of
+      2022-12-03, cold pixels on the Large Magellanic Cloud of 2021-12-11 and the Small of 2024-10-02). Averaged
+      over all 805,531 removed stars (`C:/temp/e2/h4/star_residual.py`, scratch), the target about a star's
+      centre stands within a tenth of a noise of its level: core -0.10, ring at 2.5 to 5 px -0.01, halo 0.00,
+      the worst session's ring -0.26; R4k's targets stood at +0.20, +0.13 and +0.10. Nothing here changes the
+      data; the spikes are the one thing a net may learn from it, to keep a star's diffraction spikes.
     - **The purity guard** stands at 3.1 as registered; the owner had named no other value when this was written.
   - **Nothing is adopted;** adoption is the owner's.
 
