@@ -44,7 +44,7 @@ internal sealed class WorkbenchE2E : IAsyncDisposable
         Viewer = new RetainingSurface(_renderer, Bus) { DpiScale = dpiScale };
         // The app draws with its bundled face, not the machine's: the marks, the widths and the ellipsis points of a capture are
         // then the app's own (the test host bundles it under TestFonts, as the apps do under Fonts).
-        var face = Path.Combine(AppContext.BaseDirectory, "TestFonts", "DejaVuSans.ttf");
+        var face = AppFace.Text;
         var emoji = Path.Combine(AppContext.BaseDirectory, "TestFonts", "NotoEmoji-Web.ttf");
         Viewer.FontPath = face;
         Viewer.EmojiFontPath = File.Exists(emoji) ? emoji : string.Empty;

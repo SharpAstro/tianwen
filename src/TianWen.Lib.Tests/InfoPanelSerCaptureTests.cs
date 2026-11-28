@@ -297,7 +297,7 @@ public class InfoPanelSerCaptureTests : IDisposable
         var telescope = "Celestron EdgeHD 11 inch with a 2x barlow and an IR pass filter";
         await using var source = await Open(Write8BitMono("An Observer With A Long Name", instrument, telescope, clip: false));
         using var renderer = new RgbaImageRenderer((uint)(1600 * dpi), (uint)(1000 * dpi));
-        var viewer = new ViewerE2E.Surface(renderer, new SignalBus()) { DpiScale = dpi, FontPath = OrreryTests.AppFace };
+        var viewer = new ViewerE2E.Surface(renderer, new SignalBus()) { DpiScale = dpi, FontPath = AppFace.Text };
         var state = new ViewerState { InfoPanelStatisticsPinned = true };
 
         viewer.Render(source, state);

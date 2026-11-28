@@ -274,9 +274,6 @@ public sealed class OrreryTests(ITestOutputHelper output)
         public void Dispose() => Renderer.Dispose();
     }
 
-    /// <summary>The app's own text face (BundledFonts' DejaVu Sans), the same file on every platform, copied beside the tests.</summary>
-    internal static string AppFace => Path.Combine(AppContext.BaseDirectory, "TestFonts", "DejaVuSans.ttf");
-
     /// <param name="fontPath">The face the tab draws with; the platform's monospace default when null (Consolas on Windows,
     /// DejaVu Sans Mono on Linux, about a tenth wider).</param>
     internal static async Task<Rig> RigAsync(System.Threading.CancellationToken cancellationToken, float dpiScale = 1f, string? fontPath = null)
@@ -1551,7 +1548,7 @@ public sealed class OrreryTests(ITestOutputHelper output)
     [InlineData(1.5f, true)]
     public async Task TheSpeedButtonAlwaysNamesItsSpeed(float dpiScale, bool appFace)
     {
-        using var rig = await RigAsync(TestContext.Current.CancellationToken, dpiScale, appFace ? AppFace : null);
+        using var rig = await RigAsync(TestContext.Current.CancellationToken, dpiScale, appFace ? AppFace.Text : null);
         Select(rig, CatalogIndex.Saturn);
         rig.Tab.OpenOrrery();
         rig.Render();
@@ -1593,7 +1590,7 @@ public sealed class OrreryTests(ITestOutputHelper output)
     [InlineData(1.5f, true)]
     public async Task TheCometFilterAlwaysNamesItsStep(float dpiScale, bool appFace)
     {
-        using var rig = await RigAsync(TestContext.Current.CancellationToken, dpiScale, appFace ? AppFace : null);
+        using var rig = await RigAsync(TestContext.Current.CancellationToken, dpiScale, appFace ? AppFace.Text : null);
         Select(rig, CatalogIndex.Saturn);
         rig.Tab.OpenOrrery();
         rig.Render();
@@ -1638,7 +1635,7 @@ public sealed class OrreryTests(ITestOutputHelper output)
         // Measured twice: in the platform's monospace default the other orrery tests draw with, which is a different face on each
         // OS (Linux's DejaVu Sans Mono is a tenth wider than Windows's Consolas, so the CI leg kept 27 px where this box kept 53),
         // and in the face the app actually draws with, the same file everywhere.
-        using var rig = await RigAsync(TestContext.Current.CancellationToken, dpiScale, appFace ? AppFace : null);
+        using var rig = await RigAsync(TestContext.Current.CancellationToken, dpiScale, appFace ? AppFace.Text : null);
         Select(rig, CatalogIndex.Saturn);
         rig.Tab.OpenOrrery();
         rig.Render();

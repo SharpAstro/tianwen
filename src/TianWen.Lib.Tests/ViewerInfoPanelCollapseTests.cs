@@ -46,7 +46,7 @@ namespace TianWen.Lib.Tests
                 Width = renderer.Width;
                 Height = renderer.Height;
                 DpiScale = dpiScale;
-                FontPath = OrreryTests.AppFace;
+                FontPath = AppFace.Text;
             }
 
             protected override void RenderImageQuad(IPreviewSource? source, ViewerState state,
