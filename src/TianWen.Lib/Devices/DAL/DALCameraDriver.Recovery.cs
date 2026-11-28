@@ -236,8 +236,9 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo>
     /// <summary>
     /// Finds the camera again after <paramref name="after"/> (a reset or a close), waiting up to
     /// <see cref="ResetReappearTimeout"/> for it to come back on the bus, and restores <paramref name="settings"/> and
-    /// <paramref name="restore"/>. A camera that does not come back leaves the driver in <see cref="CameraState.Error"/>
-    /// and throws.
+    /// <paramref name="restore"/>, after the vendor's own SDK step has run on the handle found. A camera that does not come back,
+    /// or whose SDK refuses to initialise the handle found (left open for the disconnect to close), leaves the driver in
+    /// <see cref="CameraState.Error"/> and throws.
     /// </summary>
     private async ValueTask FindAgainAndRestoreAsync(CameraSettings settings, List<(CMOSControlType Control, int Value)> restore, string after,
         CancellationToken cancellationToken)
@@ -261,6 +262,16 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo>
             }
 
             await TimeProvider.SleepAsync(ResetReappearPoll, cancellationToken);
+        }
+
+        // The handle found again is a fresh open, so the vendor's own step runs on it before anything reads it, as a connect's
+        // does (InitDeviceAsync, #1759): a QHY or ZWO body is otherwise asked and exposed on a handle never initialised.
+        if (!await InitSdkAsync(cancellationToken))
+        {
+            _camState = CameraState.Error;
+            Logger.LogError("Camera {Name} came back after {After} but its SDK refused to initialise it; disconnect and connect it again.",
+                Name, after);
+            throw OperationalException(CMOSErrorCode.InvalidSequence, $"Camera came back after {after} but its SDK refused to initialise it");
         }
 
         InitCamera();

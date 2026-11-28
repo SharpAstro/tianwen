@@ -254,53 +254,64 @@ public sealed partial class WorkbenchActions
     /// </summary>
     public void AddStepAfterSelected(string operationId)
     {
-        if (_jobs.IsRunning || state.View is not { ImageName: { } image } view)
+        // One read of the view and the selection: a selected step counts only when it is inside the image the view shows.
+        var inGroup = state.SelectedFrames is not null;
+        var hasStep = TrySelected(out var selectedView, out _, out var selectedIndex);
+        var selectedStep = hasStep && !inGroup;
+        var view = hasStep ? selectedView : state.View;
+        if (_jobs.IsRunning || view is not { ImageName: { } image })
         {
             return;
         }
 
-        var after = state.SelectedFrames is null && state.SelectedStep >= 0 ? state.SelectedStep : (view.Image?.Steps.Length ?? 0) - 1;
+        var after = selectedStep ? selectedIndex : (view.Image?.Steps.Length ?? 0) - 1;
         state.TreeRefusal = null;
         tracker.RunGuarded(async ct =>
         {
             var result = await WorkbenchWorkflows.AddStepAsync(view.Folder, catalog, image, after, operationId, null, ct);
             if (result.Refusal is { } refusal)
             {
-                state.TreeRefusal = $"The step was not added: {refusal}";
+                HandToFrame(() => state.TreeRefusal = $"The step was not added: {refusal}");
                 return;
             }
 
-            state.SelectAfterStatus = after + 1;
-            state.SelectedFrames = null;
-            OpenProjectNow(view.Folder, image);
+            HandToFrame(() =>
+            {
+                state.SelectAfterStatus = after + 1;
+                state.SelectedFrames = null;
+                OpenProjectNow(view.Folder, image);
+            });
         }, appToken, logger, "Add a step to the workbench project",
-            onError: ex => state.TreeRefusal = $"The step was not added: {ex.Message}",
+            onError: ex => HandToFrame(() => state.TreeRefusal = $"The step was not added: {ex.Message}"),
             onFinally: () => state.NeedsRedraw = true);
     }
 
     /// <summary>Removes the selected step, through <see cref="WorkbenchWorkflows.RemoveStepAsync"/>; the step before it is then selected.</summary>
     public void RemoveSelected()
     {
-        if (_jobs.IsRunning || state.View is not { ImageName: { } image } view || state.SelectedStep < 0 || state.SelectedFrames is not null)
+        if (_jobs.IsRunning || state.SelectedFrames is not null || !TrySelected(out var view, out _, out var index)
+            || view.ImageName is not { } image)
         {
             return;
         }
 
-        var index = state.SelectedStep;
         state.TreeRefusal = null;
         tracker.RunGuarded(async ct =>
         {
             var result = await WorkbenchWorkflows.RemoveStepAsync(view.Folder, catalog, image, index, ct);
             if (result.Refusal is { } refusal)
             {
-                state.TreeRefusal = $"The step was not removed: {refusal}";
+                HandToFrame(() => state.TreeRefusal = $"The step was not removed: {refusal}");
                 return;
             }
 
-            state.SelectAfterStatus = Math.Max(0, index - 1);
-            OpenProjectNow(view.Folder, image);
+            HandToFrame(() =>
+            {
+                state.SelectAfterStatus = Math.Max(0, index - 1);
+                OpenProjectNow(view.Folder, image);
+            });
         }, appToken, logger, "Remove a step from the workbench project",
-            onError: ex => state.TreeRefusal = $"The step was not removed: {ex.Message}",
+            onError: ex => HandToFrame(() => state.TreeRefusal = $"The step was not removed: {ex.Message}"),
             onFinally: () => state.NeedsRedraw = true);
     }
 
@@ -369,15 +380,18 @@ public sealed partial class WorkbenchActions
             var applied = await WorkbenchWorkflows.ApplyAsync(capture, id, WorkflowFacts.From(detected), ct);
             if (applied.Refusal is { } refusal)
             {
-                state.TreeRefusal = $"The workflow was not used: {refusal}";
+                HandToFrame(() => state.TreeRefusal = $"The workflow was not used: {refusal}");
                 return;
             }
 
-            state.SelectedStep = -1;
-            state.SelectedFrames = null;
-            OpenProjectNow(view.Folder, null);
+            HandToFrame(() =>
+            {
+                state.SelectedStep = -1;
+                state.SelectedFrames = null;
+                OpenProjectNow(view.Folder, null);
+            });
         }, appToken, logger, "Switch the workflow of the workbench project",
-            onError: ex => state.TreeRefusal = $"The workflow was not used: {ex.Message}",
+            onError: ex => HandToFrame(() => state.TreeRefusal = $"The workflow was not used: {ex.Message}"),
             onFinally: () => state.NeedsRedraw = true);
     }
 
@@ -390,8 +404,8 @@ public sealed partial class WorkbenchActions
 
     /// <summary>The selected step's title for the toolbar's button; null where no step is selected.</summary>
     public string? SelectedStepTitle
-        => state.View is { Image: { } image } && state.SelectedFrames is null && state.SelectedStep >= 0 && state.SelectedStep < image.Steps.Length
-            ? Steps()[state.SelectedStep].Title
+        => state.SelectedFrames is null && TrySelected(out _, out var image, out var index)
+            ? ItemFor(StepAnswer(image.Steps[index])).Title
             : null;
 
     /// <summary>
@@ -399,19 +413,20 @@ public sealed partial class WorkbenchActions
     /// screen then says so in words (<see cref="EmptyStateWords"/>) and offers the step's ▶.
     /// </summary>
     public bool ShowsEmptyState
-        => state.View is { Image: not null } && state.SelectedFrames is null && SelectedStepTitle is not null
+        => state.SelectedFrames is null && SelectedStepTitle is not null
             && state.ChosenView is WorkbenchViewKind.Result or WorkbenchViewKind.Comparison
             && ViewOffer().ResultFile is null;
 
     /// <summary>What running the selected step will do and what is kept, in words: "Runs Remove stars, then Denoise. Steps 1 to 5 are kept."</summary>
     public string EmptyStateWords()
     {
-        var steps = Steps();
-        var selected = state.SelectedStep;
-        if (selected < 0 || selected >= steps.Length)
+        // The steps and the index come from one read of the view and the selection (TrySelected), so they agree.
+        if (!TrySelected(out _, out var image, out var selected))
         {
             return "Select a step to see its output.";
         }
+
+        var steps = ItemsOf(image);
 
         var step = steps[selected];
         if (step.State is StepState.Refused or StepState.Blocked)

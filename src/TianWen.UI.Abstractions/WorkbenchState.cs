@@ -152,11 +152,20 @@ public sealed class WorkbenchState
         set => Volatile.Write(ref _isProcessingMaster, value ? 1 : 0);
     }
 
-    /// <summary>The selected step's place in the edit list, from 0; -1 for none.</summary>
+    /// <summary>
+    /// The tails of jobs that wait for the frame (<see cref="WorkbenchActions"/> fills it from a job, <c>TryAdoptStatus</c> drains it on the
+    /// render thread). It lives here so the run's settle callback, built before any instance exists, reaches the same queue.
+    /// </summary>
+    internal System.Collections.Concurrent.ConcurrentQueue<Action> TailsForFrame { get; } = new();
+
+    /// <summary>The selected step's place in the edit list, from 0; -1 for none. Written on the frame thread only.</summary>
     public int SelectedStep { get; set; } = -1;
 
     /// <summary>True while the runner is asked for a status: the step bar then keeps what it had and says so.</summary>
     public bool IsReading { get; set; }
+
+    // The number of the newest read started; a read's failure is adopted only while its own number is still this one.
+    internal int ReadNumber;
 
     /// <summary>The window needs a frame.</summary>
     public bool NeedsRedraw { get; set; } = true;

@@ -29,7 +29,7 @@ public class AtlasNightCurveLineGlyphTests : IDisposable
 
     public void Dispose() => _folders.Dispose();
 
-    private static readonly string FacePath = Path.Combine(AppContext.BaseDirectory, "TestFonts", "DejaVuSans.ttf");
+    private static string FacePath => AppFace.Text;
 
     private static List<Rune> NonAsciiRunesOfTheLine()
     {

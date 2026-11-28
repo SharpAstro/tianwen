@@ -44,6 +44,11 @@ namespace TianWen.Lib.Tests;
 /// Enhance and White Balance popovers open in turn) are swept too (#2139), the viewer as the no-op <c>SweepViewer</c> on
 /// the wireframe renderer. The image quad and the histogram quad are GPU-drawn and unseen here, as are the planetary
 /// panels, the help panel and the context menu.
+/// <para>
+/// Every text is measured in the face the apps draw, <see cref="AppFace.Text"/> (the bundled DejaVu Sans), never in the
+/// platform's monospace default: Consolas on Windows and DejaVu Sans Mono on Linux CI answer differently, so a Windows run
+/// could not see an overflow that turned CI red (#2560). <c>SweepMeasuresInTheAppFaceTests</c> guards it.
+/// </para>
 /// </remarks>
 [Collection("UI")]
 public class WireframeSweepTests
@@ -66,19 +71,19 @@ public class WireframeSweepTests
     {
         ["guider"] = (renderer, content, scale) =>
         {
-            var tab = new GuiderTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = FontResolver.ResolveSystemFont() };
+            var tab = new GuiderTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = AppFace.Text };
             tab.Render(RunningSession(), content, new FakeTimeProviderWrapper(Now));
             return Task.CompletedTask;
         },
         ["live session"] = (renderer, content, scale) =>
         {
-            var tab = new LiveSessionTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = FontResolver.ResolveSystemFont() };
+            var tab = new LiveSessionTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = AppFace.Text };
             tab.Render(RunningSession(), content, new FakeTimeProviderWrapper(Now));
             return Task.CompletedTask;
         },
         ["planner"] = (renderer, content, scale) =>
         {
-            var tab = new PlannerTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = FontResolver.ResolveSystemFont() };
+            var tab = new PlannerTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = AppFace.Text };
             tab.Render(PlannerTabLayoutTests.BuildState(), content,
                 new FakeTimeProviderWrapper(new DateTimeOffset(2025, 12, 15, 22, 0, 0, TimeSpan.Zero)));
             return Task.CompletedTask;
@@ -105,7 +110,7 @@ public class WireframeSweepTests
         // The planner's target search with its suggestion dropdown open.
         ["planner, suggestions open"] = (renderer, content, scale) =>
         {
-            var tab = new PlannerTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = FontResolver.ResolveSystemFont() };
+            var tab = new PlannerTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = AppFace.Text };
             var state = PlannerTabLayoutTests.BuildState();
             new TextInputFocus().Focus(state.SearchInput, "NGC");
             state.Search = new PlannerSearchInteraction(
@@ -124,13 +129,13 @@ public class WireframeSweepTests
         // A rig of devices whose names are what a vendor and a driver give them: a model, a serial number and a port.
         ["equipment, long device names"] = (renderer, content, scale) =>
         {
-            var tab = new EquipmentTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = FontResolver.ResolveSystemFont() };
+            var tab = new EquipmentTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = AppFace.Text };
             tab.Render(LongNamedRig(), content);
             return Task.CompletedTask;
         },
         ["live session, long device names"] = (renderer, content, scale) =>
         {
-            var tab = new LiveSessionTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = FontResolver.ResolveSystemFont() };
+            var tab = new LiveSessionTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = AppFace.Text };
             var state = new LiveSessionState
             {
                 Mode = LiveSessionMode.Preview,
@@ -158,7 +163,7 @@ public class WireframeSweepTests
         },
         ["home"] = (renderer, content, scale) =>
         {
-            var tab = new HomeTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = FontResolver.ResolveSystemFont() };
+            var tab = new HomeTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = AppFace.Text };
             ImmutableArray<RigCard> cards =
             [
                 HomeTabLayoutTests.Card("This computer", running: true, hfd: 2.41),
@@ -170,13 +175,13 @@ public class WireframeSweepTests
         },
         ["equipment"] = (renderer, content, scale) =>
         {
-            var tab = new EquipmentTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = FontResolver.ResolveSystemFont() };
+            var tab = new EquipmentTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = AppFace.Text };
             tab.Render(new GuiAppState(), content);
             return Task.CompletedTask;
         },
         ["session"] = (renderer, content, scale) =>
         {
-            var tab = new SessionTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = FontResolver.ResolveSystemFont() };
+            var tab = new SessionTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = AppFace.Text };
             var planner = PlannerTabLayoutTests.BuildState();
             planner.Proposals =
             [
@@ -232,7 +237,7 @@ public class WireframeSweepTests
     private static Draw SkyMap(Action<SkyMapTab<RgbaImage>, PlannerState, ICelestialObjectDB> setup) => async (renderer, content, scale) =>
     {
         var db = await SharedCatalogDB.InitAsync(TestContext.Current.CancellationToken);
-        var tab = new SkyMapTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = FontResolver.ResolveSystemFont(), RecordPlacedLabels = true };
+        var tab = new SkyMapTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = AppFace.Text, RecordPlacedLabels = true };
         var planner = new PlannerState
         {
             ObjectDb = db,
@@ -271,7 +276,7 @@ public class WireframeSweepTests
         float floor;
         using (var wide = new WireframeRenderer(2400, 900))
         {
-            var probe = new SessionTab<RgbaImage>(wide) { DpiScale = scale, FontPath = FontResolver.ResolveSystemFont() };
+            var probe = new SessionTab<RgbaImage>(wide) { DpiScale = scale, FontPath = AppFace.Text };
             wide.Begin();
             probe.Render(new GuiAppState(), planner, new RectF32(0, 0, 2400, 900), new FakeTimeProviderWrapper(Now));
             floor = probe.SideBySideLeastWidth;
@@ -283,7 +288,7 @@ public class WireframeSweepTests
             ? Directory.CreateDirectory(folder).FullName
             : null;
         using var renderer = new WireframeRenderer(width, 900, paint: pictures is not null);
-        var tab = new SessionTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = FontResolver.ResolveSystemFont() };
+        var tab = new SessionTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = AppFace.Text };
         renderer.Begin();
         tab.Render(new GuiAppState(), planner, new RectF32(0, 0, width, 900), new FakeTimeProviderWrapper(Now));
         if (pictures is not null)
@@ -425,7 +430,7 @@ public class WireframeSweepTests
 
     private static Draw ChromeScenario(string state) => (renderer, content, scale) =>
     {
-        var font = FontResolver.ResolveSystemFont();
+        var font = AppFace.Text;
         var chrome = new GuiWindowChrome<RgbaImage>(renderer) { FontPath = font, DpiScale = scale };
         chrome.Sidebar.FontPath = font;
         chrome.Sidebar.DpiScale = scale;
@@ -529,7 +534,7 @@ public class WireframeSweepTests
             }
         }
 
-        var tab = new NotificationsTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = FontResolver.ResolveSystemFont() };
+        var tab = new NotificationsTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = AppFace.Text };
         tab.Render(app, new ViewContexts().Local, content);
         return Task.CompletedTask;
     };
@@ -614,7 +619,7 @@ public class WireframeSweepTests
     {
         using var renderer = new WireframeRenderer(400, 200);
         renderer.Begin();
-        var font = FontResolver.ResolveSystemFont();
+        var font = AppFace.Text;
         var white = new RGBAColor32(0xff, 0xff, 0xff, 0xff);
         renderer.DrawText("Veil Nebula".AsSpan(), font, 14f, white,
             new RectInt(new PointInt(20, 20), new PointInt(120, 40)), horizAlignment: TextAlign.Near, vertAlignment: TextAlign.Near);
@@ -649,7 +654,7 @@ public class WireframeSweepTests
     {
         using var renderer = new WireframeRenderer(400, 200);
         renderer.Begin();
-        var font = FontResolver.ResolveSystemFont();
+        var font = AppFace.Text;
         var white = new RGBAColor32(0xff, 0xff, 0xff, 0xff);
         renderer.DrawText("Veil Nebula".AsSpan(), font, 14f, white,
             new RectInt(new PointInt(20, 20), new PointInt(120, 40)), horizAlignment: TextAlign.Near, vertAlignment: TextAlign.Near);
@@ -692,7 +697,7 @@ public class WireframeSweepTests
         var planner = PlannerTabLayoutTests.BuildState();
         planner.Proposals = [.. Enumerable.Range(1, 12).Select(i => new ProposedObservation(new Target(i, 10, $"Target {i}", null)))];
         using var renderer = new WireframeRenderer(800, 520);
-        var tab = new SessionTab<RgbaImage>(renderer) { DpiScale = 1.5f, FontPath = FontResolver.ResolveSystemFont() };
+        var tab = new SessionTab<RgbaImage>(renderer) { DpiScale = 1.5f, FontPath = AppFace.Text };
         var content = new RectF32(0, 0, 800, 520);
         renderer.Begin();
         tab.Render(new GuiAppState(), planner, content, new FakeTimeProviderWrapper(Now));
@@ -707,7 +712,7 @@ public class WireframeSweepTests
 
         planner.Proposals = [.. planner.Proposals.Take(2)];
         using var tall = new WireframeRenderer(1440, 900);
-        var fits = new SessionTab<RgbaImage>(tall) { DpiScale = 1.5f, FontPath = FontResolver.ResolveSystemFont() };
+        var fits = new SessionTab<RgbaImage>(tall) { DpiScale = 1.5f, FontPath = AppFace.Text };
         fits.Render(new GuiAppState(), planner, new RectF32(0, 0, 1440, 900), new FakeTimeProviderWrapper(Now));
         fits.ObservationScroll.MaxOffset.ShouldBe(0f);
     }

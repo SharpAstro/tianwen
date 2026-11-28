@@ -44,7 +44,7 @@ internal sealed class WorkbenchE2E : IAsyncDisposable
         Viewer = new RetainingSurface(_renderer, Bus) { DpiScale = dpiScale };
         // The app draws with its bundled face, not the machine's: the marks, the widths and the ellipsis points of a capture are
         // then the app's own (the test host bundles it under TestFonts, as the apps do under Fonts).
-        var face = Path.Combine(AppContext.BaseDirectory, "TestFonts", "DejaVuSans.ttf");
+        var face = AppFace.Text;
         var emoji = Path.Combine(AppContext.BaseDirectory, "TestFonts", "NotoEmoji-Web.ttf");
         Viewer.FontPath = face;
         Viewer.EmojiFontPath = File.Exists(emoji) ? emoji : string.Empty;
@@ -127,7 +127,9 @@ internal sealed class WorkbenchE2E : IAsyncDisposable
             {
                 throw new TimeoutException($"gave up waiting for {what}; status: '{ViewerState.StatusMessage}'; the viewer holds "
                     + $"'{Controller.Document?.FilePath}', is asked for '{ViewerState.RequestedFilePath}', loading: {Controller.IsLoadPending}, "
-                    + $"texture update pending: {ViewerState.NeedsTextureUpdate}; the screen wants {Actions.Wanted()}");
+                    + $"texture update pending: {ViewerState.NeedsTextureUpdate}; the screen wants {Actions.Wanted()}; reading: {State.IsReading}, "
+                    + $"view shown: {State.View is not null} (refusal '{State.View?.Refusal}'), host busy: {Host.IsBusy}, tail waiting: {Actions.HasTailForFrame}, "
+                    + $"pending: [{string.Join("; ", Tracker.PendingDescriptions)}]");
             }
         }
     }
@@ -351,6 +353,9 @@ internal sealed class WorkbenchE2E : IAsyncDisposable
 
     /// <summary>The words painted in the step panel, in reading order, joined by a space.</summary>
     internal string PanelText() => string.Join(' ', TextsIn(Host.Screen.PanelRect));
+
+    /// <summary>Cancels the app's token, as closing the window does, so a job started after it ends at its first await.</summary>
+    internal void CancelApp() => _appCts.Cancel();
 
     public async ValueTask DisposeAsync()
     {

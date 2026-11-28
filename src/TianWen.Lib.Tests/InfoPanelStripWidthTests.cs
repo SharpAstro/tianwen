@@ -14,7 +14,7 @@ namespace TianWen.Lib.Tests;
 /// <summary>
 /// The statistics table is never trimmed (a cut number is a wrong one), so at the strip's real width every cell, a SER's peak and
 /// its clip mark included, has to be painted inside the panel (#1874). Read off the frame the viewer painted
-/// (<see cref="PixelWidgetBase{TSurface}.GetCapturedLayout"/>), with the face it ships with (<see cref="OrreryTests.AppFace"/>,
+/// (<see cref="PixelWidgetBase{TSurface}.GetCapturedLayout"/>), with the face it ships with (<see cref="AppFace.Text"/>,
 /// the same file on every OS: <see cref="BundledFonts"/> finds no bundled face beside the tests and answers with the platform's
 /// monospace default, which passed on Windows and overflowed on Linux); the strip's inner edge is the painted Statistics
 /// heading, whose row spans it.
@@ -28,7 +28,7 @@ public class InfoPanelStripWidthTests
     public async Task TheInfoPanelTableOfAClippingColourCapturePaintsInsideTheStrip(float dpi)
     {
         await using var e2e = ViewerE2E.Start(dpi);
-        e2e.Viewer.FontPath = OrreryTests.AppFace;
+        e2e.Viewer.FontPath = AppFace.Text;
         var ct = TestContext.Current.CancellationToken;
         var path = Path.Combine(e2e.Folder, "clipping.ser");
         const int n = 16;
@@ -60,7 +60,7 @@ public class InfoPanelStripWidthTests
     public async Task TheInfoPanelTableOfAFitsColourFramePaintsInsideTheStrip(float dpi)
     {
         await using var e2e = ViewerE2E.Start(dpi);
-        e2e.Viewer.FontPath = OrreryTests.AppFace;
+        e2e.Viewer.FontPath = AppFace.Text;
         await e2e.OpenAsync(e2e.WriteColourFits("colour.fits"), TestContext.Current.CancellationToken);
 
         e2e.State.InfoPanelStatisticsPinned = true;

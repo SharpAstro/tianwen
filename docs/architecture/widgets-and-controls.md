@@ -470,6 +470,19 @@ picture says what they are.
 planetary panels, the help panel and the context menu, a colour (contrast is judged by eye and by `ui-changes.md`), and any
 state no scenario puts on screen. A sweep that is green says that the states it draws fit at the sizes it draws, no more.
 
+### The face it measures in
+
+Every text is measured in the face the apps draw, the bundled DejaVu Sans
+(`TestFonts/DejaVuSans.ttf`, from the one helper `AppFace.Text`), never the platform's monospace default. Consolas on Windows
+and DejaVu Sans Mono on Linux CI answer differently, so a Windows run could not see the Linux overflow that turned TIA2507's
+CI red four times (#2560). `SweepMeasuresInTheAppFaceTests` (Category Invariant) guards it: the sweep sources (and `LayoutRectSweep`) name no
+platform face (`ResolveSystemFont`, `FontResolver`, a Consolas or DejaVu Sans Mono name), the face file sits beside the test binary (a missing face measures every text as nothing and the sweep
+passes), and it is byte for byte the file the Gui and Web apps ship.
+
+Only the sweep is on the app face so far. The other tests that assert a fit (no overlap, inside a box or a surface, a width
+bound) still measure with `ResolveSystemFont`, so they answer per OS: DejaVu Sans Mono on Linux CI, Consolas on Windows.
+They are listed, file by file, in [#2562](https://github.com/SharpAstro/tianwen/issues/2562); until it closes, a green run of one of them says nothing about the app face.
+
 ## The FITS viewer widget: partials, one layout root, one slider, the live-preview host, the `?` menu
 
 Moved here verbatim from `CLAUDE.md` on 2026-09-12; the rules that bite stay there as one-liners.
